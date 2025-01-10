@@ -735,8 +735,15 @@ class PaperlessService {
         console.log("Response Correspondent Search: ", existingCorrespondent);
     
         if (existingCorrespondent) {
-            console.log(`Found existing correspondent "${name}" with ID ${existingCorrespondent.id}`);
-            return existingCorrespondent;
+            // If only one result is found, return it
+            if (!Array.isArray(existingCorrespondent)) {
+              console.log(`Found existing correspondent "${name}" with ID ${existingCorrespondent.id}`);
+              return existingCorrespondent;
+            }
+            // If multiple results are found, return the first one
+            const firstResult = existingCorrespondent[0];
+            console.log(`Found multiple correspondents for "${name}". Returning first one with ID ${firstResult.id}`);
+            return firstResult;
         }
     
         // Erstelle neuen Korrespondenten
