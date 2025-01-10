@@ -39,6 +39,53 @@
                 <!-- Main Form Card -->
                 <div class="material-card">
                     <form id="setupForm" class="space-y-12">
+                        <!-- User Setup -->
+                        <section>
+                            <h2 class="section-title">
+                                <i class="fas fa-user"></i>
+                                User Settings
+                            </h2>
+                            <div class="space-y-6">
+                                <div class="form-group">
+                                    <label for="username">Username</label>
+                                    <input type="text" 
+                                           id="username" 
+                                           name="username"
+                                           class="modern-input"
+                                           required>
+                                </div>
+                        
+                                <div class="form-group">
+                                    <label for="password">Password</label>
+                                    <div class="password-input">
+                                        <input type="password" 
+                                               id="password" 
+                                               name="password"
+                                               class="modern-input"
+                                               required>
+                                        <button type="button" class="password-toggle" data-input="password">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </div>
+                                    <div id="password-strength" class="mt-2"></div>
+                                </div>
+                        
+                                <div class="form-group">
+                                    <label for="confirmPassword">Confirm Password</label>
+                                    <div class="password-input">
+                                        <input type="password" 
+                                               id="confirmPassword" 
+                                               name="confirmPassword"
+                                               class="modern-input"
+                                               required>
+                                        <button type="button" class="password-toggle" data-input="confirmPassword">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </div>
+                                    <div id="password-match" class="mt-2"></div>
+                                </div>
+                            </div>
+                        </section>
                         <!-- Connection Section -->
                         <section>
                             <h2 class="section-title">

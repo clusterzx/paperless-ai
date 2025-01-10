@@ -8,40 +8,37 @@ const AIServiceFactory = require('./services/aiServiceFactory');
 const documentModel = require('./models/document');
 const setupService = require('./services/setupService');
 const setupRoutes = require('./routes/setup');
+const cors = require('cors');
+const cookieParser = require('cookie-parser');
 
 const app = express();
-
-// running task true or false
 let runningTask = false;
 
-// EJS setup
+// Middleware setup
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(cookieParser());
+
+// View engine setup
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Body parser middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Static files middleware
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Custom render function
+// Layout middleware
 app.use((req, res, next) => {
   const originalRender = res.render;
-  res.render = function (view, locals, callback) {
-    if (!locals) {
-      locals = {};
-    }
+  res.render = function (view, locals = {}) {
     originalRender.call(this, view, locals, (err, html) => {
       if (err) return next(err);
-      originalRender.call(this, 'layout', { content: html, ...locals }, callback);
+      originalRender.call(this, 'layout', { content: html, ...locals });
     });
   };
   next();
 });
 
-// Data directory initialization
-const initializeDataDirectory = async () => {
+// Initialize data directory
+async function initializeDataDirectory() {
   const dataDir = path.join(process.cwd(), 'data');
   try {
     await fs.access(dataDir);
@@ -49,11 +46,88 @@ const initializeDataDirectory = async () => {
     console.log('Creating data directory...');
     await fs.mkdir(dataDir, { recursive: true });
   }
-};
+}
 
-// Main scanning function
-async function scanInital() {
-  config.CONFIGURED = false;
+// Document processing functions
+async function processDocument(doc, existingTags, ownUserId) {
+  const isProcessed = await documentModel.isDocumentProcessed(doc.id);
+  if (isProcessed) return null;
+
+  const documentOwnerId = await paperlessService.getOwnerOfDocument(doc.id);
+  if (documentOwnerId !== ownUserId) {
+    console.log(`[DEBUG] Document ${doc.id} not owned by user, skipping analysis`);
+    return null;
+  }
+
+  const [content, originalData] = await Promise.all([
+    paperlessService.getDocumentContent(doc.id),
+    paperlessService.getDocument(doc.id)
+  ]);
+
+  if (!content || !content.length >= 10) {
+    console.log(`[DEBUG] Document ${doc.id} has no content, skipping analysis`);
+    return null;
+  }
+
+  const aiService = AIServiceFactory.getService();
+  const analysis = await aiService.analyzeDocument(content, existingTags, doc.id);
+  
+  if (analysis.error) {
+    throw new Error(`Document analysis failed: ${analysis.error}`);
+  }
+
+  return { analysis, originalData };
+}
+
+async function buildUpdateData(analysis, doc) {
+  const { tagIds, errors } = await paperlessService.processTags(analysis.document.tags);
+  if (errors.length > 0) {
+    console.warn('Some tags could not be processed:', errors);
+  }
+
+  const updateData = {
+    tags: tagIds,
+    title: analysis.document.title || doc.title,
+    created: analysis.document.document_date || doc.created,
+  };
+
+  if (analysis.document.correspondent) {
+    try {
+      const correspondent = await paperlessService.getOrCreateCorrespondent(analysis.document.correspondent);
+      if (correspondent) {
+        updateData.correspondent = correspondent.id;
+      }
+    } catch (error) {
+      console.error(`Error processing correspondent:`, error);
+    }
+  }
+
+  if (analysis.document.language) {
+    updateData.language = analysis.document.language;
+  }
+
+  return updateData;
+}
+
+async function saveDocumentChanges(docId, updateData, analysis, originalData) {
+  const { tags: originalTags, correspondent: originalCorrespondent, title: originalTitle } = originalData;
+  
+  await Promise.all([
+    documentModel.saveOriginalData(docId, originalTags, originalCorrespondent, originalTitle),
+    paperlessService.updateDocument(docId, updateData),
+    documentModel.addProcessedDocument(docId, updateData.title),
+    documentModel.addOpenAIMetrics(
+      docId, 
+      analysis.metrics.promptTokens,
+      analysis.metrics.completionTokens,
+      analysis.metrics.totalTokens
+    ),
+    documentModel.addToHistory(docId, updateData.tags, updateData.title, analysis.document.correspondent)
+  ]);
+}
+
+// Main scanning functions
+async function scanInitial() {
   try {
     const isConfigured = await setupService.isConfigured();
     if (!isConfigured) {
@@ -61,151 +135,75 @@ async function scanInital() {
       return;
     }
 
-    config.CONFIGURED = true;
+    const [existingTags, documents, ownUserId] = await Promise.all([
+      paperlessService.getTags(),
+      paperlessService.getAllDocuments(),
+      paperlessService.getOwnUserID()
+    ]);
 
-
-    const existingTags = await paperlessService.getTags();
-    const documents = await paperlessService.getAllDocuments();
-    
     for (const doc of documents) {
-      const isProcessed = await documentModel.isDocumentProcessed(doc.id);
-      
-      if (!isProcessed) {
-        console.log(`Processing new document: ${doc.title}`);
-        
-        const content = await paperlessService.getDocumentContent(doc.id);
-        const aiService = AIServiceFactory.getService();
-        const analysis = await aiService.analyzeDocument(content, existingTags, doc.id);
-        if (analysis.error) {
-          console.error('Document analysis failed:', result.error);
-          // Handle error appropriately
-          return;
-        }
-        const { tagIds, errors } = await paperlessService.processTags(analysis.document.tags);
-        
-        if (errors.length > 0) {
-          console.warn('Some tags could not be processed:', errors);
-        }
+      try {
+        const result = await processDocument(doc, existingTags, ownUserId);
+        if (!result) continue;
 
-        let updateData = { 
-          tags: tagIds,
-          title: analysis.document.title || doc.title,
-          created: analysis.document.document_date || doc.created,
-        };
-        
-        if (analysis.document.correspondent) {
-          try {
-            const correspondent = await paperlessService.getOrCreateCorrespondent(analysis.document.correspondent);
-            if (correspondent) {
-              updateData.correspondent = correspondent.id;
-            }
-          } catch (error) {
-            console.error(`Error processing correspondent "${analysis.document.correspondent}":`, error.message);
-          }
-        }
-
-        if (analysis.document.language) {
-          updateData.language = analysis.document.language;
-        }
-
-        try {
-          await paperlessService.updateDocument(doc.id, updateData);
-          await documentModel.addProcessedDocument(doc.id, updateData.title);
-          await documentModel.addOpenAIMetrics(doc.id, analysis.metrics.promptTokens, analysis.metrics.completionTokens, analysis.metrics.totalTokens);
-        } catch (error) {
-          console.error(`Error processing document: ${error}`);
-        }
+        const { analysis, originalData } = result;
+        const updateData = await buildUpdateData(analysis, doc);
+        await saveDocumentChanges(doc.id, updateData, analysis, originalData);
+      } catch (error) {
+        console.error(`Error processing document ${doc.id}:`, error);
       }
     }
   } catch (error) {
-    console.error('Error during document scan:', error);
+    console.error('[ERROR] during initial document scan:', error);
   }
 }
 
-// Main scanning function
 async function scanDocuments() {
   if (runningTask) {
     console.log('Task already running');
     return;
   }
+
+  runningTask = true;
   try {
-    runningTask = true;
-    const existingTags = await paperlessService.getTags();
-    const documents = await paperlessService.getAllDocuments();
-    
+    const [existingTags, documents, ownUserId] = await Promise.all([
+      paperlessService.getTags(),
+      paperlessService.getAllDocuments(),
+      paperlessService.getOwnUserID()
+    ]);
+
     for (const doc of documents) {
-      const isProcessed = await documentModel.isDocumentProcessed(doc.id);
-      
-      if (!isProcessed) {
-        console.log(`Processing new document: ${doc.title}`);
-        
-        const content = await paperlessService.getDocumentContent(doc.id);
-        const aiService = AIServiceFactory.getService();
-        const analysis = await aiService.analyzeDocument(content, existingTags);
+      try {
+        const result = await processDocument(doc, existingTags, ownUserId);
+        if (!result) continue;
 
-        const { tagIds, errors } = await paperlessService.processTags(analysis.tags);
-        
-        if (errors.length > 0) {
-          console.warn('Some tags could not be processed:', errors);
-        }
-
-        let updateData = { 
-          tags: tagIds,
-          title: analysis.title || doc.title,
-          created: analysis.document_date || doc.created,
-        };
-        
-        if (analysis.correspondent) {
-          try {
-            const correspondent = await paperlessService.getOrCreateCorrespondent(analysis.correspondent);
-            if (correspondent) {
-              updateData.correspondent = correspondent.id;
-            }
-          } catch (error) {
-            console.error(`Error processing correspondent "${analysis.correspondent}":`, error.message);
-          }
-        }
-
-        if (analysis.language) {
-          updateData.language = analysis.language;
-        }
-
-        try {
-          await paperlessService.updateDocument(doc.id, updateData);
-          await documentModel.addProcessedDocument(doc.id, updateData.title);
-        } catch (error) {
-          console.error(`Error processing document: ${error}`);
-        }
+        const { analysis, originalData } = result;
+        const updateData = await buildUpdateData(analysis, doc);
+        await saveDocumentChanges(doc.id, updateData, analysis, originalData);
+      } catch (error) {
+        console.error(`[ERROR] processing document ${doc.id}:`, error);
       }
     }
   } catch (error) {
-    console.error('Error during document scan:', error);
+    console.error('[ERROR]  during document scan:', error);
+  } finally {
+    runningTask = false;
+    console.log('[INFO] Task completed');
   }
-  runningTask = false;
-  console.log('[INFO] Task completed');
 }
 
-// Setup route handling
+// Routes
 app.use('/', setupRoutes);
 
-// Main route with setup check
 app.get('/', async (req, res) => {
   try {
-    // const isConfigured = await setupService.isConfigured();
-    // if (!isConfigured) {
-    //   return res.redirect('/setup');
-    // }
-
-    // const documents = await paperlessService.getDocuments();
-    // res.render('index', { documents });
     res.redirect('/dashboard');
   } catch (error) {
-    console.error('Error fetching documents:', error);
-    res.status(500).send('Error fetching documents');
+    console.error('[ERROR] in root route:', error);
+    res.status(500).send('Error processing request');
   }
 });
 
-// Health check endpoint
 app.get('/health', async (req, res) => {
   try {
     const isConfigured = await setupService.isConfigured();
@@ -216,15 +214,7 @@ app.get('/health', async (req, res) => {
       });
     }
 
-    try {
-      await documentModel.isDocumentProcessed(1);
-    } catch (error) {
-      return res.status(503).json({ 
-        status: 'database_error',
-        message: 'Database check failed'
-      });
-    }
-
+    await documentModel.isDocumentProcessed(1);
     res.json({ status: 'healthy' });
   } catch (error) {
     console.error('Health check failed:', error);
@@ -241,8 +231,8 @@ app.use((err, req, res, next) => {
   res.status(500).send('Something broke!');
 });
 
-// Schedule periodic scanning
-const startScanning = async () => {
+// Start scanning
+async function startScanning() {
   try {
     const isConfigured = await setupService.isConfigured();
     if (!isConfigured) {
@@ -250,37 +240,37 @@ const startScanning = async () => {
       return;
     }
 
-    // Log the configured scan interval
+    const userId = await paperlessService.getOwnUserID();
+    if (!userId) {
+      console.error('Failed to get own user ID. Aborting scanning.');
+      return;
+    }
+
     console.log('Configured scan interval:', config.scanInterval);
-
-    // Initial scan
     console.log(`Starting initial scan at ${new Date().toISOString()}`);
-    await scanInital();
+    await scanInitial();
 
-    // Schedule regular scans
     cron.schedule(config.scanInterval, async () => {
       console.log(`Starting scheduled scan at ${new Date().toISOString()}`);
       await scanDocuments();
     });
-
   } catch (error) {
-    console.error('Error in startScanning:', error);
+    console.error('[ERROR] in startScanning:', error);
   }
-};
+}
 
-// Graceful shutdown
+// Error handlers
 process.on('SIGTERM', async () => {
   console.log('Received SIGTERM. Starting graceful shutdown...');
   try {
-    documentModel.closeDatabase();
+    await documentModel.closeDatabase();
     process.exit(0);
   } catch (error) {
-    console.error('Error during shutdown:', error);
+    console.error('[ERROR] during shutdown:', error);
     process.exit(1);
   }
 });
 
-// Error handlers
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
   process.exit(1);
@@ -292,7 +282,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Start server
-const startServer = async () => {
+async function startServer() {
   try {
     await initializeDataDirectory();
     app.listen(3000, () => {
@@ -300,9 +290,9 @@ const startServer = async () => {
       startScanning();
     });
   } catch (error) {
-    console.error('Failed to initialize server:', error);
+    console.error('Failed to start server:', error);
     process.exit(1);
   }
-};
+}
 
 startServer();

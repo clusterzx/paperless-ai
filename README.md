@@ -38,21 +38,32 @@ Please test the results beforehand in a separate development environment and be 
 
 ## Features
 
-- 🔍 Automatic document scanning in Paperless-ngx
+## Features
 
-- 🤖 AI-powered document analysis using OpenAI API and Ollama (Mistral, llama, phi 3, gemma 2)
-- 🏷️ Automatic title, tag and correspondent assignment
-  - 🏷️ Predefine what documents will be processed based on existing tags (optional). 🆕
-  - 📑 Choose to only use Tags you want to be assigned. 🆕
-    - THIS WILL DISABLE THE PROMPT DIALOG!
-  - ✔️ Choose if you want to assign a special tag (you name it) to documents that were processed by AI. 🆕
-- 🔨 Manual mode to do analysing by hand with help of AI. 🆕
-##### - 💬 NEW! Document Chat function (only OpenAI right now). 🆕
-- 🚀 Easy setup through web interface
-- 📊 Document processing dashboard
-- 🔄 Automatic restart and health monitoring
-- 🛡️ Error handling and graceful shutdown
-- 🐳 Docker support with health checks
+### Automated Document Management
+- **Automatic Scanning**: Identifies and processes new documents within Paperless-ngx.
+- **AI-Powered Analysis**: Leverages OpenAI API and Ollama (Mistral, Llama, Phi 3, Gemma 2) for precise document analysis.
+- **Metadata Assignment**: Automatically assigns titles, tags, and correspondent details.
+
+### Advanced Customization Options
+- **Predefined Processing Rules**: Specify which documents to process based on existing tags. *(Optional)* 🆕
+- **Selective Tag Assignment**: Use only selected tags for processing. *(Disables the prompt dialog)* 🆕
+- **Custom Tagging**: Assign a specific tag (of your choice) to AI-processed documents for easy identification. 🆕
+
+### Manual Mode
+- **AI-Assisted Analysis**: Manually analyze documents with AI support in a modern web interface. *(Accessible via the `/manual` endpoint)* 🆕
+
+### Interactive Chat Functionality
+- **Document Querying**: Ask questions about your documents and receive accurate, AI-generated answers. 🆕
+
+### Intuitive Web Interface
+- **Streamlined Configuration**: Easy-to-use setup interface available at `/setup`.
+- **Dashboard Overview**: A clean and organized dashboard for monitoring and managing document processing.
+
+### Reliability and Security
+- **Error Handling**: Automatic restarts and health monitoring for improved stability.
+- **Health Checks**: Ensures system integrity and alerts on potential issues.
+- **Docker Integration**: Full Docker support, including health checks, resource management, and persistent data storage.
 
 ## Prerequisites
 
@@ -66,8 +77,7 @@ Please test the results beforehand in a separate development environment and be 
 Visit the Wiki for installation:\
 [Click here for Installation](https://github.com/clusterzx/paperless-ai/wiki/Installation)
 -------------------------------------------
-\
-\
+
 
 ## How it Works
 

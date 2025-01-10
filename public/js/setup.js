@@ -433,6 +433,7 @@ For the title:
 
 For the correspondent:
 - Identify the sender or institution
+- When generating the correspondent, always create the shortest possible form of the company name (e.g. "Amazon" instead of "Amazon EU SARL, German branch")
 
 For the document date:
 - Extract the date of the document
@@ -448,6 +449,128 @@ For the language:
     }
 }
 
+// Password Management
+class PasswordManager {
+    constructor() {
+        this.passwordInput = document.getElementById('password');
+        this.confirmPasswordInput = document.getElementById('confirmPassword');
+        this.passwordStrengthDiv = document.getElementById('password-strength');
+        this.passwordMatchDiv = document.getElementById('password-match');
+        this.form = document.getElementById('setupForm');
+        this.initialize();
+    }
+
+    initialize() {
+        // Add event listeners for password validation
+        this.passwordInput.addEventListener('input', () => {
+            const result = this.checkPasswordStrength(this.passwordInput.value);
+            this.passwordStrengthDiv.innerHTML = result.html;
+            if (this.confirmPasswordInput.value) this.checkPasswordMatch();
+        });
+
+        this.confirmPasswordInput.addEventListener('input', () => this.checkPasswordMatch());
+
+        // Add form validation
+        this.initializeFormValidation();
+    }
+
+    checkPasswordStrength(password) {
+        let strength = 0;
+        const checks = {
+            length: password.length >= 8,
+            lowercase: /[a-z]/.test(password),
+            uppercase: /[A-Z]/.test(password),
+            numbers: /\d/.test(password),
+            special: /[!@#$%^&*(),.?":{}|<>]/.test(password)
+        };
+
+        strength = Object.values(checks).filter(Boolean).length;
+
+        let message = '';
+        let color = '';
+
+        switch(strength) {
+            case 0:
+            case 1:
+                message = 'Very Weak';
+                color = 'text-red-500';
+                break;
+            case 2:
+                message = 'Weak';
+                color = 'text-orange-500';
+                break;
+            case 3:
+                message = 'Medium';
+                color = 'text-yellow-500';
+                break;
+            case 4:
+                message = 'Strong';
+                color = 'text-blue-500';
+                break;
+            case 5:
+                message = 'Very Strong';
+                color = 'text-green-500';
+                break;
+        }
+
+        return {
+            isValid: strength >= 3,
+            html: `
+                <div class="${color} text-sm">
+                    <span class="font-medium">Password Strength: ${message}</span>
+                    <ul class="mt-1 list-disc list-inside">
+                        ${!checks.length ? '<li>At least 8 characters</li>' : ''}
+                        ${!checks.lowercase ? '<li>At least 1 lowercase letter</li>' : ''}
+                        ${!checks.uppercase ? '<li>At least 1 uppercase letter</li>' : ''}
+                        ${!checks.numbers ? '<li>At least 1 number</li>' : ''}
+                        ${!checks.special ? '<li>At least 1 special character</li>' : ''}
+                    </ul>
+                </div>
+            `
+        };
+    }
+
+    checkPasswordMatch() {
+        const password = this.passwordInput.value;
+        const confirmPassword = this.confirmPasswordInput.value;
+        
+        if (confirmPassword) {
+            const matches = password === confirmPassword;
+            this.passwordMatchDiv.innerHTML = matches 
+                ? '<div class="text-green-500 text-sm">Passwords match</div>'
+                : '<div class="text-red-500 text-sm">Passwords do not match</div>';
+            return matches;
+        }
+        return false;
+    }
+
+    initializeFormValidation() {
+        const originalSubmit = this.form.onsubmit;
+        
+        this.form.onsubmit = (e) => {
+            if (this.passwordInput.value) {  // Only validate if password field is present and has a value
+                const passwordStrength = this.checkPasswordStrength(this.passwordInput.value);
+                const passwordsMatch = this.checkPasswordMatch();
+
+                if (!passwordStrength.isValid || !passwordsMatch) {
+                    e.preventDefault();
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Invalid Password',
+                        html: 'Please ensure your password:<br>' +
+                              '- Is strong enough (at least "Medium" strength)<br>' +
+                              '- Matches in both fields'
+                    });
+                    return false;
+                }
+            }
+
+            // Call the original submit handler if it exists
+            if (originalSubmit) return originalSubmit.call(this.form, e);
+        };
+    }
+}
+
 // Initialize everything when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     /* eslint-disable no-unused-vars */
@@ -456,6 +579,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const tagsManager = new TagsManager();
     const promptTagsManager = new PromptTagsManager();
     const promptManager = new PromptManager();
+    const passwordManager = new PasswordManager();
     /* eslint-enable no-unused-vars */
 });
 

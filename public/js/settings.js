@@ -330,7 +330,7 @@ For the title:
 
 For the correspondent:
 - Identify the sender or institution
-When generating the correspondent, always create the shortest possible form of the company name (e.g. "Amazon" instead of "Amazon EU SARL, German branch")
+  When generating the correspondent, always create the shortest possible form of the company name (e.g. "Amazon" instead of "Amazon EU SARL, German branch")
 
 For the document date:
 - Extract the date of the document
