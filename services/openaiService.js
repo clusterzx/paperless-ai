@@ -85,12 +85,12 @@ class OpenAIService {
         
         const thumbnailData = await paperlessService.getThumbnailImage(id);
         
-        if (!thumbnailData) {
+        if (thumbnailData) {
+          await fs.mkdir(path.dirname(cachePath), { recursive: true });
+          await fs.writeFile(cachePath, thumbnailData);
+        } else {
           console.warn('Thumbnail nicht gefunden');
         }
-  
-        await fs.mkdir(path.dirname(cachePath), { recursive: true });
-        await fs.writeFile(cachePath, thumbnailData);
       }
       
       // Format existing tags
