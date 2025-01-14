@@ -25,6 +25,14 @@ class OpenAIService {
     }
   }
 
+  hasClient(){
+    return this.client;
+  }
+
+  getModel(){
+    return process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  }
+
   // Calculate tokens for a given text
   async calculateTokens(text) {
     if (!this.tokenizer) {
@@ -315,6 +323,15 @@ class OpenAIService {
         error: error.message 
       };
     }
+  }
+
+  async sendMessage(messages) {
+    const response = await this.getClient().chat.completions.create({
+      model: this.getModel(),
+      messages: messages,
+      temperature: 0.7,
+    });
+    return response.choices[0].message;
   }
 }
 

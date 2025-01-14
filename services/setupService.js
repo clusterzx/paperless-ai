@@ -2,6 +2,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const axios = require('axios');
 const { OpenAI } = require('openai');
+const {GoogleGenerativeAI} = require('@google/generative-ai');
 const config = require('../config/config');
 
 class SetupService {
@@ -58,6 +59,20 @@ class SetupService {
         return false;
       }
     }else{
+      return true;
+    }
+  }
+
+  async validateGeminiConfig(apiKey) {
+    if (config.CONFIGURED === false) {
+      try {
+        new GoogleGenerativeAI(apiKey);
+        return true;
+      } catch (error) {
+        console.error('Gemini validation error:', error.message);
+        return false;
+      }
+    } else {
       return true;
     }
   }

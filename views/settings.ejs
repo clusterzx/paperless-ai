@@ -153,6 +153,7 @@
                                             class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                         <option value="openai" <%= config.AI_PROVIDER === 'openai' ? 'selected' : '' %>>OpenAI (ChatGPT)</option>
                                         <option value="ollama" <%= config.AI_PROVIDER === 'ollama' ? 'selected' : '' %>>Ollama (Local LLM)</option>
+                                        <option value="gemini" <%= config.AI_PROVIDER === 'gemini' ? 'selected' : '' %>>Google Generative AI (Gemini)</option>
                                     </select>
                                 </div>
         
@@ -180,6 +181,32 @@
                                             <option value="gpt-3.5-turbo-0125" <%= config.OPENAI_MODEL === 'gpt-3.5-turbo-0125' ? 'selected' : '' %>>GPT-3.5 Turbo</option>
                                             <option value="gpt-4o" <%= config.OPENAI_MODEL === 'gpt-4o' ? 'selected' : '' %>>GPT-4o</option>
                                             <option value="gpt-4o-mini" <%= config.OPENAI_MODEL === 'gpt-4o-mini' ? 'selected' : '' %>>GPT-4o-mini (Best value)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Gemini Settings -->
+                                <div id="geminiSettings" class="space-y-4">
+                                    <div class="space-y-2">
+                                        <label for="geminiKey" class="text-sm font-medium">Gemini API Key</label>
+                                        <div class="relative">
+                                            <input type="password" 
+                                                   id="geminiKey" 
+                                                   name="geminiKey"
+                                                   value="<%= config.GEMINI_API_KEY %>"
+                                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <button type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" data-input="openaiKey">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="space-y-2">
+                                        <label for="geminiModel" class="text-sm font-medium">Gemini Model</label>
+                                        <select id="geminiModel" 
+                                                name="geminiModel"
+                                                class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="gemini-1.5-flash" <%= config.GEMINI_MODEL === 'gemini-1.5-flash' ? 'selected' : '' %>>Gemini 1.5 Flash</option>
                                         </select>
                                     </div>
                                 </div>

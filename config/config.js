@@ -18,6 +18,10 @@ module.exports = {
     apiUrl: process.env.PAPERLESS_API_URL,
     apiToken: process.env.PAPERLESS_API_TOKEN
   },
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY,
+    model: process.env.GEMINI_MODEL
+  },
   openai: {
     apiKey: process.env.OPENAI_API_KEY
   },

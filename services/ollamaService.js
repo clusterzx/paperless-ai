@@ -3,6 +3,7 @@ const config = require('../config/config');
 const fs = require('fs').promises;
 const path = require('path');
 const paperlessService = require('./paperlessService');
+const openaiService = require('./openaiService');
 
 class OllamaService {
     constructor() {
@@ -11,6 +12,19 @@ class OllamaService {
         this.client = axios.create({
             timeout: 1200000 // 10 minutes timeout
         });
+    }
+
+    initialize() {
+        //In chat service we're using openai for this (no idea why)
+        openaiService.initialize();
+    }
+
+    hasClient(){
+        return openaiService.client;
+    }
+
+    getModel(){
+        return process.env.OLLAMA_MODEL;
     }
 
     async analyzeDocument(content, existingTags = [], existingCorrespondentList = [], id) {
@@ -297,6 +311,10 @@ class OllamaService {
           console.error('Raw response:', response);
           return { tags: [], correspondent: null };
       }
+  }
+
+  async sendMessage() {
+    return "This is not yet implemented for Ollama"
   }
 }
 

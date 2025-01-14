@@ -28,6 +28,7 @@
   "author": "Clusterzx",
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
     "axios": "^1.7.8",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.6.0",

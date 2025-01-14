@@ -64,6 +64,7 @@ class FormManager {
         const provider = this.aiProvider.value;
         const openaiSettings = document.getElementById('openaiSettings');
         const ollamaSettings = document.getElementById('ollamaSettings');
+        const geminiSettings = document.getElementById('geminiSettings');
         const openaiKey = document.getElementById('openaiKey');
         const ollamaUrl = document.getElementById('ollamaUrl');
         const ollamaModel = document.getElementById('ollamaModel');
@@ -71,12 +72,21 @@ class FormManager {
         if (provider === 'openai') {
             openaiSettings.classList.remove('hidden');
             ollamaSettings.classList.add('hidden');
+            geminiSettings.classList.add('hidden');
             openaiKey.required = true;
             ollamaUrl.required = false;
             ollamaModel.required = false;
+        } else if (provider === 'gemini') {
+            geminiSettings.classList.remove('hidden');
+            openaiSettings.classList.add('hidden');
+            ollamaSettings.classList.add('hidden');
+            openaiKey.required = false;
+            ollamaUrl.required = true;
+            ollamaModel.required = true;
         } else {
             openaiSettings.classList.add('hidden');
             ollamaSettings.classList.remove('hidden');
+            geminiSettings.classList.add('hidden');
             openaiKey.required = false;
             ollamaUrl.required = true;
             ollamaModel.required = true;

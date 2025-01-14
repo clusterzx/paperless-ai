@@ -73,22 +73,36 @@ class FormManager {
         const provider = this.aiProvider.value;
         const openaiSettings = document.getElementById('openaiSettings');
         const ollamaSettings = document.getElementById('ollamaSettings');
+        const geminiSettings = document.getElementById('geminiSettings');
         const openaiKey = document.getElementById('openaiKey');
+        const geminiKey = document.getElementById('geminiKey');
         const ollamaUrl = document.getElementById('ollamaUrl');
         const ollamaModel = document.getElementById('ollamaModel');
         
         if (provider === 'openai') {
             openaiSettings.style.display = 'block';
             ollamaSettings.style.display = 'none';
+            geminiSettings.style.display = 'none';
+            geminiKey.required = false;
             openaiKey.required = true;
             ollamaUrl.required = false;
             ollamaModel.required = false;
+        } else if (provider === 'gemini') {
+            openaiSettings.style.display = 'none';
+            ollamaSettings.style.display = 'none';
+            geminiSettings.style.display = 'block';
+            openaiKey.required = false;
+            ollamaUrl.required = true;
+            ollamaModel.required = true;   
+            geminiKey.required = true; 
         } else {
             openaiSettings.style.display = 'none';
             ollamaSettings.style.display = 'block';
+            geminiSettings.style.display = 'none';
             openaiKey.required = false;
             ollamaUrl.required = true;
             ollamaModel.required = true;
+            geminiKey.required = false;
         }
     }
 

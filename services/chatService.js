@@ -1,7 +1,6 @@
 // services/chatService.js
-const OpenAIService = require('./openaiService');
+const AIServiceFactory = require('./aiServiceFactory');
 const PaperlessService = require('./paperlessService');
-const config = require('../config/config');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -58,10 +57,14 @@ class ChatService {
    */
   async initializeChat(documentId) {
     try {
-      // Check if OpenAI client is initialized
-      OpenAIService.initialize();
-      if (!OpenAIService.client) {
-        throw new Error('OpenAI client not initialized');
+
+      // Check if AI client is initialized
+      if (process.env.AI_PROVIDER){
+        const service = AIServiceFactory.getServiceForProvider(process.env.AI_PROVIDER);
+        service.initialize();
+        if (!service.hasClient()){
+          throw new Error('OpenAI client not initialized');
+        }
       }
 
       // Get document information
@@ -127,26 +130,17 @@ class ChatService {
       });
 
       let response = null;
-      // Send to OpenAI
-      if(process.env.AI_PROVIDER === 'openai') {  
-        response = await OpenAIService.client.chat.completions.create({
-          model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-          messages: chatData.messages,
-          temperature: 0.7,
-        });
-      }else if(process.env.AI_PROVIDER === 'ollama') {
-        console.log('Using Ollama AI provider');
-        response = await OpenAIService.client.chat.completions.create({
-          model: process.env.OLLAMA_MODEL,
-          messages: chatData.messages,
-          temperature: 0.7,
-        });
+      // Send to AI
+
+      let assistantMessage;
+      if (process.env.AI_PROVIDER){
+        const service = AIServiceFactory.getServiceForProvider(process.env.AI_PROVIDER);
+        assistantMessage = await service.sendMessage(chatData.messages);
       }else{
         throw new Error('AI Provider not found');
       }
 
       // Add assistant's response to history
-      const assistantMessage = response.choices[0].message;
       chatData.messages.push(assistantMessage);
 
       // Update chat history
@@ -154,11 +148,11 @@ class ChatService {
 
       return {
         reply: assistantMessage.content,
-        metrics: {
-          promptTokens: response.usage.prompt_tokens,
-          completionTokens: response.usage.completion_tokens,
-          totalTokens: response.usage.total_tokens
-        }
+        // metrics: {
+        //   promptTokens: response.usage.prompt_tokens,
+        //   completionTokens: response.usage.completion_tokens,
+        //   totalTokens: response.usage.total_tokens
+        // }
       };
     } catch (error) {
       console.error(`Error sending message for document ${documentId}:`, error);

@@ -2,8 +2,7 @@ const express = require('express');
 const router = express.Router();
 const setupService = require('../services/setupService.js');
 const paperlessService = require('../services/paperlessService.js');
-const openaiService = require('../services/openaiService.js');
-const ollamaService = require('../services/ollamaService.js');
+const AIServiceFactory = require('../services/aiServiceFactory.js');
 const documentModel = require('../models/document.js');
 const debugService = require('../services/debugService.js');
 const configFile = require('../config/config.js');
@@ -13,13 +12,8 @@ const fs = require('fs').promises;
 const path = require('path');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const cookieParser = require('cookie-parser');
-const { authenticateJWT, isAuthenticated } = require('./auth.js');
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
-
-// API endpoints that should not redirect
-const API_ENDPOINTS = ['/health'];
 // Routes that don't require authentication
 let PUBLIC_ROUTES = [
   '/health',
@@ -44,7 +38,7 @@ router.use(async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
-  } catch (error) {
+  } catch {
     res.clearCookie('jwt');
     return res.redirect('/login');
   }
@@ -216,13 +210,8 @@ router.get('/thumb/:documentId', async (req, res) => {
 // Hauptseite mit Dokumentenliste
 router.get('/chat', async (req, res) => {
   try {
-    if(process.env.AI_PROVIDER === 'openai') {
       const documents = await paperlessService.getDocuments();
       res.render('chat', { documents });
-    }else{
-      const documents = await paperlessService.getDocuments();
-      res.render('chat', { documents });
-    }
   } catch (error) {
     console.error('[ERRO] loading documents:', error);
     res.status(500).send('Error loading documents');
@@ -618,17 +607,17 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
       return res.status(400).json({ error: 'Valid content string is required' });
     }
 
-    if (process.env.AI_PROVIDER === 'openai') {
-      const analyzeDocument = await openaiService.analyzeDocument(content, existingTags, existingCorrespondentList, id || []);
-      await documentModel.addOpenAIMetrics(
-            id, 
-            analyzeDocument.metrics.promptTokens,
-            analyzeDocument.metrics.completionTokens,
-            analyzeDocument.metrics.totalTokens
-          )
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'ollama') {
-      const analyzeDocument = await ollamaService.analyzeDocument(content, existingTags, existingCorrespondentList, id || []);
+    if (process.env.AI_PROVIDER){
+      const service = AIServiceFactory.getServiceForProvider(process.env.AI_PROVIDER);
+      const analyzeDocument = await service.analyzeDocument(content, existingTags, existingCorrespondentList, id || []);
+      if (analyzeDocument?.metrics?.prompTokens){
+        await documentModel.addOpenAIMetrics(
+          id, 
+          analyzeDocument.metrics.promptTokens,
+          analyzeDocument.metrics.completionTokens,
+          analyzeDocument.metrics.totalTokens
+        )
+      }
       return res.json(analyzeDocument);
     } else {
       return res.status(500).json({ error: 'AI provider not configured' });
@@ -648,17 +637,18 @@ router.post('/manual/playground', express.json(), async (req, res) => {
       return res.status(400).json({ error: 'Valid content string is required' });
     }
 
-    if (process.env.AI_PROVIDER === 'openai') {
-      const analyzeDocument = await openaiService.analyzePlayground(content, prompt);
-      await documentModel.addOpenAIMetrics(
-        documentId, 
-        analyzeDocument.metrics.promptTokens,
-        analyzeDocument.metrics.completionTokens,
-        analyzeDocument.metrics.totalTokens
-      )
-      return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'ollama') {
-      const analyzeDocument = await ollamaService.analyzePlayground(content, prompt);
+    if (process.env.AI_PROVIDER){
+      const service = AIServiceFactory.getServiceForProvider(process.env.AI_PROVIDER);
+      const analyzeDocument = await service.analyzePlayground(content, prompt);
+
+      if (analyzeDocument?.metrics?.prompTokens){
+        await documentModel.addOpenAIMetrics(
+          documentId, 
+          analyzeDocument.metrics.promptTokens,
+          analyzeDocument.metrics.completionTokens,
+          analyzeDocument.metrics.totalTokens
+        )
+      }
       return res.json(analyzeDocument);
     } else {
       return res.status(500).json({ error: 'AI provider not configured' });
@@ -770,6 +760,8 @@ router.post('/setup', express.json(), async (req, res) => {
           username,
           password,
           paperlessUsername,
+          geminiKey,
+          geminiModel,
           useExistingData
       } = req.body;
 
@@ -819,6 +811,15 @@ router.post('/setup', express.json(), async (req, res) => {
           }
           config.OPENAI_API_KEY = openaiKey;
           config.OPENAI_MODEL = openaiModel || 'gpt-4o-mini';
+      } else if (aiProvider === 'gemini') {
+          const isGeminiValid = await setupService.validateGeminiConfig(geminiKey);
+          if (!isGeminiValid) {
+            return res.status(400).json({
+                error: 'Gemini Key is not valid. Please check the key.'
+            });
+          }
+          config.GEMINI_API_KEY = geminiKey;
+          config.GEMINI_MODEL = geminiModel || 'gemini-1.5-flash';    
       } else if (aiProvider === 'ollama') {
           const isOllamaValid = await setupService.validateOllamaConfig(ollamaUrl, ollamaModel);
           if (!isOllamaValid) {
@@ -857,23 +858,25 @@ router.post('/setup', express.json(), async (req, res) => {
 router.post('/settings', express.json(), async (req, res) => {
   try {
     const { 
-      paperlessUrl, 
-      paperlessToken, 
-      aiProvider,
-      openaiKey,
-      openaiModel,
-      ollamaUrl,
-      ollamaModel,
-      scanInterval,
-      systemPrompt,
-      showTags,
-      tags,
-      aiProcessedTag,
-      aiTagName,
-      usePromptTags,
-      promptTags,
-      paperlessUsername,
-      useExistingData
+        paperlessUrl, 
+        paperlessToken, 
+        aiProvider,
+        openaiKey,
+        openaiModel,
+        ollamaUrl,
+        ollamaModel,
+        scanInterval,
+        systemPrompt,
+        showTags,
+        tags,
+        aiProcessedTag,
+        aiTagName,
+        usePromptTags,
+        promptTags,
+        paperlessUsername,
+        geminiKey,
+        geminiModel,
+        useExistingData
     } = req.body;
 
     const currentConfig = {
@@ -932,6 +935,16 @@ router.post('/settings', express.json(), async (req, res) => {
         updatedConfig.OPENAI_API_KEY = openaiKey;
         if (openaiModel) updatedConfig.OPENAI_MODEL = openaiModel;
       } 
+      else if (aiProvider === 'gemini' && geminiKey){
+        const isGeminiValid = await setupService.validateGeminiConfig(geminiKey || currentConfig.GEMINI_API_KEY);
+        if (!isGeminiValid) {
+          return res.status(400).json({
+              error: 'Gemini Key is not valid. Please check the key.'
+          });
+        }
+        updatedConfig.GEMINI_API_KEY = geminiKey || currentConfig.GEMINI_API_KEY;
+        updatedConfig.GEMINI_MODEL = geminiModel || currentConfig.GEMINI_MODEL;
+      }
       else if (aiProvider === 'ollama' && (ollamaUrl || ollamaModel)) {
         const isOllamaValid = await setupService.validateOllamaConfig(
           ollamaUrl || currentConfig.OLLAMA_API_URL,

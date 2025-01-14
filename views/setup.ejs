@@ -156,6 +156,9 @@
                                         <option value="openai" <%= config.AI_PROVIDER === 'openai' ? 'selected' : '' %>>
                                             OpenAI (ChatGPT)
                                         </option>
+                                        <option value="gemini" <%= config.AI_PROVIDER === 'gemini' ? 'selected' : '' %>>
+                                            Google Generative AI (Gemini)
+                                        </option>
                                         <option value="ollama" <%= config.AI_PROVIDER === 'ollama' ? 'selected' : '' %>>
                                             Ollama (Local LLM)
                                         </option>
@@ -165,7 +168,7 @@
                                 <!-- OpenAI Settings -->
                                 <div id="openaiSettings" class="provider-settings">
                                     <div class="form-group">
-                                        <label for="openaiKey">OpenAI API Key</label>
+                                        <label for="openaiKey">OpenAI Key</label>
                                         <div class="password-input">
                                             <input type="password" 
                                                    id="openaiKey" 
@@ -186,6 +189,32 @@
                                             <option value="gpt-3.5-turbo-0125" <%= config.OPENAI_MODEL === 'gpt-3.5-turbo-0125' ? 'selected' : '' %>>GPT-3.5 Turbo</option>
                                             <option value="gpt-4o" <%= config.OPENAI_MODEL === 'gpt-4o' ? 'selected' : '' %>>GPT-4o</option>
                                             <option value="gpt-4o-mini" <%= config.OPENAI_MODEL === 'gpt-4o-mini' ? 'selected' : '' %>>GPT-4o-mini (Best value)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Gemini Settings -->
+                                <div id="geminiSettings" class="provider-settings">
+                                    <div class="form-group">
+                                        <label for="geminiKey">Gemini API Key</label>
+                                        <div class="password-input">
+                                            <input type="password" 
+                                                   id="geminiKey" 
+                                                   name="geminiKey"
+                                                   value="<%= config.Gemini_API_KEY %>"
+                                                   class="modern-input">
+                                            <button type="button" class="password-toggle" data-input="geminiKey">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="geminiModel">Gemini Model</label>
+                                        <select id="geminiModel" 
+                                                name="geminiModel"
+                                                class="modern-input">
+                                            <option value="gemini-1.5-flash" <%= config.GEMINI_MODEL === 'gemini-1.5-flash' ? 'selected' : '' %>>Gemini 1.5 Flash</option>
                                         </select>
                                     </div>
                                 </div>
