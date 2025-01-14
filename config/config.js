@@ -23,7 +23,8 @@ module.exports = {
   },
   ollama: {
     apiUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
-    model: process.env.OLLAMA_MODEL || 'llama2'
+    model: process.env.OLLAMA_MODEL || 'llama2',
+    skipValidation: process.env.OLLAMA_SKIP_VALIDATION || "false"
   },
   aiProvider: process.env.AI_PROVIDER || 'openai',
   scanInterval: process.env.SCAN_INTERVAL || '*/30 * * * *',

@@ -92,7 +92,7 @@ async function processDocument(doc, existingTags, existingCorrespondentList, own
 
   const aiService = AIServiceFactory.getService();
   const analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, doc.id);
-  
+
   if (analysis.error) {
     throw new Error(`[ERROR] Document analysis failed: ${analysis.error}`);
   }
@@ -132,13 +132,13 @@ async function buildUpdateData(analysis, doc) {
 
 async function saveDocumentChanges(docId, updateData, analysis, originalData) {
   const { tags: originalTags, correspondent: originalCorrespondent, title: originalTitle } = originalData;
-  
+
   await Promise.all([
     documentModel.saveOriginalData(docId, originalTags, originalCorrespondent, originalTitle),
     paperlessService.updateDocument(docId, updateData),
     documentModel.addProcessedDocument(docId, updateData.title),
     documentModel.addOpenAIMetrics(
-      docId, 
+      docId,
       analysis.metrics.promptTokens,
       analysis.metrics.completionTokens,
       analysis.metrics.totalTokens
@@ -150,6 +150,18 @@ async function saveDocumentChanges(docId, updateData, analysis, originalData) {
 // Main scanning functions
 async function scanInitial() {
   try {
+
+    if (config.aiProvider === 'ollama' && config.ollama.skipValidation === 'true') {
+      const ollamaValid = await setupService.validateOllamaConfig(
+        config.ollama.apiUrl,
+        config.ollama.model
+      );
+      if (!ollamaValid) {
+        console.error('Ollama server is not running or the configuration is invalid. Skipping document scan.');
+        return;
+      }
+    }
+
     const isConfigured = await setupService.isConfigured();
     if (!isConfigured) {
       console.log('[ERROR] Setup not completed. Skipping document scan.');
@@ -186,6 +198,16 @@ async function scanDocuments() {
   if (runningTask) {
     console.log('[DEBUG] Task already running');
     return;
+  }
+  if (config.aiProvider === 'ollama' && config.OLLAMA_SKIP_VALIDATION !== 'true') {
+    const ollamaValid = await setupService.validateOllamaConfig(
+      config.ollama.apiUrl,
+      config.ollama.model
+    );
+    if (!ollamaValid) {
+      console.error('Ollama server is not running or the configuration is invalid. Skipping document scan.');
+      return;
+    }
   }
 
   runningTask = true;
@@ -236,7 +258,7 @@ app.get('/health', async (req, res) => {
   try {
     const isConfigured = await setupService.isConfigured();
     if (!isConfigured) {
-      return res.status(503).json({ 
+      return res.status(503).json({
         status: 'not_configured',
         message: 'Application setup not completed'
       });
@@ -246,9 +268,9 @@ app.get('/health', async (req, res) => {
     res.json({ status: 'healthy' });
   } catch (error) {
     console.error('Health check failed:', error);
-    res.status(503).json({ 
-      status: 'error', 
-      message: error.message 
+    res.status(503).json({
+      status: 'error',
+      message: error.message
     });
   }
 });
@@ -281,7 +303,7 @@ async function startScanning() {
     cron.schedule(config.scanInterval, async () => {
       console.log(`Starting scheduled scan at ${new Date().toISOString()}`);
       await scanDocuments();
-    });
+    }, { runOnInit: false });
   } catch (error) {
     console.error('[ERROR] in startScanning:', error);
   }

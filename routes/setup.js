@@ -16,7 +16,7 @@ const bcrypt = require('bcryptjs');
 const cookieParser = require('cookie-parser');
 const { authenticateJWT, isAuthenticated } = require('./auth.js');
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-
+const config = require("../config/config.js");
 
 // API endpoints that should not redirect
 const API_ENDPOINTS = ['/health'];
@@ -377,7 +377,8 @@ router.get('/setup', async (req, res) => {
       PROMPT_TAGS: normalizeArray(process.env.PROMPT_TAGS),
       PAPERLESS_AI_VERSION: configFile.PAPERLESS_AI_VERSION || ' ',
       PROCESS_ONLY_NEW_DOCUMENTS: process.env.PROCESS_ONLY_NEW_DOCUMENTS || 'yes',
-      USE_EXISTING_DATA: process.env.USE_EXISTING_DATA || 'no'
+      USE_EXISTING_DATA: process.env.USE_EXISTING_DATA || 'no',
+      OLLAMA_SKIP_VALIDATION: process.env.OLLAMA_SKIP_VALIDATION || "false"
     };
 
     // Check both configuration and users
@@ -658,6 +659,18 @@ router.post('/manual/playground', express.json(), async (req, res) => {
       )
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'ollama') {
+
+      if(config.OLLAMA_SKIP_VALIDATION !== 'true') {
+        const ollamaValid = await setupService.validateOllamaConfig(
+          config.ollama.apiUrl,
+          config.ollama.model
+        );
+        if (!ollamaValid) {
+          console.error('Ollama server is not running or the configuration is invalid. Skipping document scan.');
+          return;
+        }
+      }
+
       const analyzeDocument = await ollamaService.analyzePlayground(content, prompt);
       return res.json(analyzeDocument);
     } else {
