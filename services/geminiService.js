@@ -282,7 +282,7 @@ class GeminiService {
 
         const message = history.pop().parts[0].text;
 
-        const chatSession = await this.model.startChat({ history, generationConfig });
+        const chatSession = this.model.startChat({ history, generationConfig });
         const result = await chatSession.sendMessage(message);
 
         return {

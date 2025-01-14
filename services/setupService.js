@@ -66,7 +66,10 @@ class SetupService {
   async validateGeminiConfig(apiKey) {
     if (config.CONFIGURED === false) {
       try {
-        new GoogleGenerativeAI(apiKey);
+        const geminiClient = new GoogleGenerativeAI(apiKey);
+        geminiClient.getGenerativeModel({
+            model: "gemini-1.5-flash",
+        });
         return true;
       } catch (error) {
         console.error('Gemini validation error:', error.message);
