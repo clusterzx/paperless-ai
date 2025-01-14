@@ -176,6 +176,11 @@ class GeminiService {
 
             return {
                 document: parsedResponse,
+                metrics: {
+                    promptTokens: result.response.usageMetadata.promptTokenCount,
+                    completionTokens: result.response.usageMetadata.candidatesTokenCount,
+                    totalTokens: result.response.usageMetadata.totalTokenCount,
+                },
                 truncated: truncatedContent.length < content.length
             };
         } catch (error) {
@@ -253,6 +258,11 @@ class GeminiService {
 
             return {
                 document: parsedResponse,
+                metrics: {
+                    promptTokens: result.response.usageMetadata.promptTokenCount,
+                    completionTokens: result.response.usageMetadata.candidatesTokenCount,
+                    totalTokens: result.response.usageMetadata.totalTokenCount,
+                },
                 truncated: truncatedContent.length < content.length
             };
         } catch (error) {
@@ -276,8 +286,15 @@ class GeminiService {
         const result = await chatSession.sendMessage(message);
 
         return {
-            "role": "model",
-            "content": result.response.text()
+            message: {
+                "role": "model",
+                "content": result.response.text()
+            },
+            metrics: {
+                promptTokens: result.response.usageMetadata.promptTokenCount,
+                completionTokens: result.response.usageMetadata.candidatesTokenCount,
+                totalTokens: result.response.usageMetadata.totalTokenCount,
+            }
         }
     }
 }

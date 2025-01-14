@@ -129,31 +129,23 @@ class ChatService {
         content: userMessage
       });
 
-      let response = null;
-      // Send to AI
-
-      let assistantMessage;
       if (process.env.AI_PROVIDER){
         const service = AIServiceFactory.getServiceForProvider(process.env.AI_PROVIDER);
-        assistantMessage = await service.sendMessage(chatData.messages);
+        const {message, metrics} = await service.sendMessage(chatData.messages);
+
+        // Add assistant's response to history
+        chatData.messages.push(message);
+
+        // Update chat history
+        this.chats.set(documentId, chatData);
+
+        return {
+          reply: message.content,
+          metrics: metrics
+        };
       }else{
         throw new Error('AI Provider not found');
       }
-
-      // Add assistant's response to history
-      chatData.messages.push(assistantMessage);
-
-      // Update chat history
-      this.chats.set(documentId, chatData);
-
-      return {
-        reply: assistantMessage.content,
-        // metrics: {
-        //   promptTokens: response.usage.prompt_tokens,
-        //   completionTokens: response.usage.completion_tokens,
-        //   totalTokens: response.usage.total_tokens
-        // }
-      };
     } catch (error) {
       console.error(`Error sending message for document ${documentId}:`, error);
       throw error;
