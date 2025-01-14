@@ -267,7 +267,7 @@ class GeminiService {
 
     async sendMessage(messages) {
         //We need to convert the message from openai to gemini - for each
-        const history = messages.map(({ role, content }) => ({ role, parts: [{ text: content }] }));
+        const history = messages.map(({ role, content }) => ({ role: role == 'system' ? 'model' : role, parts: [{ text: content }] }));
         history[0].role = "user";
 
         const message = history.pop().parts[0].text;
@@ -276,7 +276,7 @@ class GeminiService {
         const result = await chatSession.sendMessage(message);
 
         return {
-            "role": "system",
+            "role": "model",
             "content": result.response.text()
         }
     }
