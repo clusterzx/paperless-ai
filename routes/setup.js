@@ -610,7 +610,7 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
     if (process.env.AI_PROVIDER){
       const service = AIServiceFactory.getServiceForProvider(process.env.AI_PROVIDER);
       const analyzeDocument = await service.analyzeDocument(content, existingTags, existingCorrespondentList, id || []);
-      if (analyzeDocument?.metrics?.prompTokens){
+      if (analyzeDocument?.metrics?.promptTokens){
         await documentModel.addOpenAIMetrics(
           id, 
           analyzeDocument.metrics.promptTokens,
@@ -641,7 +641,7 @@ router.post('/manual/playground', express.json(), async (req, res) => {
       const service = AIServiceFactory.getServiceForProvider(process.env.AI_PROVIDER);
       const analyzeDocument = await service.analyzePlayground(content, prompt);
 
-      if (analyzeDocument?.metrics?.prompTokens){
+      if (analyzeDocument?.metrics?.promptTokens){
         await documentModel.addOpenAIMetrics(
           documentId, 
           analyzeDocument.metrics.promptTokens,
