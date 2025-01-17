@@ -11,7 +11,7 @@ console.log('Loaded environment variables:', {
 });
 
 module.exports = {
-  PAPERLESS_AI_VERSION: '2.1.9',
+  PAPERLESS_AI_VERSION: '2.2.1',
   CONFIGURED: false,
   predefinedMode: process.env.PROCESS_PREDEFINED_DOCUMENTS,
   paperless: {
@@ -36,6 +36,14 @@ module.exports = {
   You do not ask for additional information, you only use the information given in the document.
   
   Return the result EXCLUSIVELY as a JSON object. The Tags and Title MUST be in the language that is used in the document.:
+  {
+    "title": "xxxxx",
+    "correspondent": "xxxxxxxx",
+    "tags": ["Tag1", "Tag2", "Tag3", "Tag4"],
+    "document_date": "YYYY-MM-DD",
+    "language": "en/de/es/..."
+  }`,
+  mustHavePrompt: `  Return the result EXCLUSIVELY as a JSON object. The Tags and Title MUST be in the language that is used in the document.:
   {
     "title": "xxxxx",
     "correspondent": "xxxxxxxx",

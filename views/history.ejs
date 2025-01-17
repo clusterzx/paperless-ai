@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Modified Documents - Paperless-AI</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.0/css/all.min.css">
     <link rel="stylesheet" href="css/dashboard.css">
 </head>
 <body class="h-full">
@@ -166,6 +166,9 @@
                                         <td class="px-4 py-4">
                                             <button class="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600" onclick="window.open('<%= doc.link %>')">
                                                 <i class="fa-solid fa-eye"></i><span class="sm:inline">View</span>
+                                            </button>
+                                            <button class="ml-1 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600" onclick="window.open('/chat?open=<%= doc.document_id %>')">
+                                                <i class="fa-solid fa-comment"></i><span class="sm:inline">Chat</span>
                                             </button>
                                         </td>
                                     </tr>

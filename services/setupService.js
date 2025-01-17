@@ -136,7 +136,7 @@ class SetupService {
       const envContent = Object.entries(config)
         .map(([key, value]) => {
           if (key === "SYSTEM_PROMPT") {
-            return `${key}=\`${value}\n${JSON_STANDARD_PROMPT}\``;
+            return `${key}=\`${value}\n\``;
           }
           return `${key}=${value}`;
         })

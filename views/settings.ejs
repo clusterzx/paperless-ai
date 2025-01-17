@@ -79,8 +79,28 @@
         <!-- Main Content -->
         <main class="main-content">
             <div class="content-wrapper">
-                <div class="content-header">
-                    <h2 class="content-title">Configuration</h2>
+                <div class="content-header flex justify-between items-center px-6 py-4 bg-white shadow-sm">
+                    <h2 class="content-title text-2xl font-semibold text-gray-800">Configuration</h2>
+                    <div class="relative flex items-center space-x-4">API-KEY:
+                        <div id="apiKeyContainer"
+                             class="relative w-48 px-4 py-2 bg-gray-100 rounded cursor-pointer select-none filter blur-sm hover:blur-none transition-all duration-200 truncate"
+                             data-api-key="<%= config.API_KEY %>"
+                             title="<%= config.API_KEY %>">
+                             <%= config.API_KEY %>
+                        </div>
+                        <button id="regenerateBtn" 
+                                class="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors duration-200 flex items-center space-x-2">
+                            <i class="fas fa-sync-alt" id="regenerateIcon"></i>
+                            <span>Regenerate</span>
+                        </button>
+                        <div id="copyNotification" 
+                             class="absolute right-0 top-0 mt-12 w-64 bg-green-50 text-green-800 border border-green-200 rounded-lg p-3 hidden">
+                            <div class="flex items-center">
+                                <i class="fas fa-check-circle mr-2"></i>
+                                <span>API key copied to clipboard!</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
         
                 <!-- Main Form Card -->
@@ -375,7 +395,133 @@
         </main>
     </div>
     <script>
-
+        document.addEventListener('DOMContentLoaded', function() {
+            const apiKeyContainer = document.getElementById('apiKeyContainer');
+            const copyNotification = document.getElementById('copyNotification');
+            let timeoutId;
+        
+            apiKeyContainer.addEventListener('click', async function() {
+                const apiKey = this.dataset.apiKey;
+                try {
+                    await navigator.clipboard.writeText(apiKey);
+                    
+                    // Show notification
+                    copyNotification.classList.remove('hidden');
+                    copyNotification.classList.add('flex');
+                    
+                    // Hide notification after 2 seconds
+                    clearTimeout(timeoutId);
+                    timeoutId = setTimeout(() => {
+                        copyNotification.classList.add('hidden');
+                        copyNotification.classList.remove('flex');
+                    }, 2000);
+                } catch (err) {
+                    console.error('Failed to copy text: ', err);
+                }
+            });
+        
+            // Optional: Re-blur when mouse leaves
+            apiKeyContainer.addEventListener('mouseleave', function() {
+                this.classList.add('blur-sm');
+            });
+        
+            apiKeyContainer.addEventListener('mouseenter', function() {
+                this.classList.remove('blur-sm');
+            });
+        });
+    </script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const apiKeyContainer = document.getElementById('apiKeyContainer');
+        const copyNotification = document.getElementById('copyNotification');
+        const regenerateBtn = document.getElementById('regenerateBtn');
+        const regenerateIcon = document.getElementById('regenerateIcon');
+        let timeoutId;
+    
+        function showNotification(message, isError = false) {
+            const notificationBox = copyNotification;
+            const icon = notificationBox.querySelector('i');
+            const text = notificationBox.querySelector('span');
+    
+            // Reset classes
+            notificationBox.className = 'absolute right-0 top-0 mt-12 w-64 rounded-lg p-3 border';
+            icon.className = 'mr-2 fas';
+    
+            if (isError) {
+                notificationBox.classList.add('bg-red-50', 'text-red-800', 'border-red-200');
+                icon.classList.add('fa-exclamation-circle');
+            } else {
+                notificationBox.classList.add('bg-green-50', 'text-green-800', 'border-green-200');
+                icon.classList.add('fa-check-circle');
+            }
+    
+            text.textContent = message;
+            notificationBox.classList.remove('hidden');
+            notificationBox.classList.add('flex');
+    
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => {
+                notificationBox.classList.add('hidden');
+                notificationBox.classList.remove('flex');
+            }, 2000);
+        }
+    
+        // Copy functionality
+        apiKeyContainer.addEventListener('click', async function() {
+            try {
+                await navigator.clipboard.writeText(this.dataset.apiKey);
+                showNotification('API key copied to clipboard!');
+            } catch (err) {
+                showNotification('Failed to copy API key!', true);
+            }
+        });
+    
+        // Blur functionality
+        apiKeyContainer.addEventListener('mouseleave', function() {
+            this.classList.add('blur-sm');
+        });
+    
+        apiKeyContainer.addEventListener('mouseenter', function() {
+            this.classList.remove('blur-sm');
+        });
+    
+        // Regenerate Button functionality
+        regenerateBtn.addEventListener('click', async function() {
+            this.disabled = true;
+            regenerateIcon.classList.add('animate-spin');
+    
+            try {
+                const response = await fetch('/api/key-regenerate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+    
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Wait 5 seconds
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    
+                    // Update key container
+                    apiKeyContainer.textContent = data.newKey;
+                    apiKeyContainer.dataset.apiKey = data.newKey;
+                    apiKeyContainer.title = data.newKey;
+                    
+                    showNotification('New API key generated!');
+                } else {
+                    throw new Error('Failed to regenerate key');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showNotification('Failed to regenerate API key!', true);
+            } finally {
+                regenerateBtn.disabled = false;
+                regenerateIcon.classList.remove('animate-spin');
+            }
+        });
+    });
     </script>
     <script src="js/settings.js"></script>
 </body>

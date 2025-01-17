@@ -191,9 +191,23 @@ document.getElementById('documentSelect').addEventListener('change', function() 
     }
 });
 
-document.getElementById('messageForm').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    
+document.addEventListener("DOMContentLoaded", function () {
+    const documentSelect = document.getElementById('documentSelect');
+    const documentId = documentSelect.value;
+
+    if (documentId){
+        initializeChat(documentId);
+    }
+});
+
+document.getElementById('messageInput').addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        await submitForm();
+    }
+})
+
+async function submitForm(){
     const messageInput = document.getElementById('messageInput');
     const message = messageInput.value.trim();
     
@@ -214,7 +228,7 @@ document.getElementById('messageForm').addEventListener('submit', async function
         if (response) {
             addMessage(response, false);
         }
-    } catch (error) {
+    } catch {
         showError('Failed to send message');
     }
-});
+}

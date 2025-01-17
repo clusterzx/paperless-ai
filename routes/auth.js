@@ -7,6 +7,12 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 // JWT middleware to verify token
 const authenticateJWT = (req, res, next) => {
   const token = req.cookies.jwt || req.headers.authorization?.split(' ')[1];
+  const apiKey = req.headers['x-api-key'];
+
+  if (apiKey && apiKey === process.env.API_KEY) {
+    req.user = { apiKey: true };
+    return next();
+  }
 
   if (!token) {
     return res.status(401).json({ message: 'Authentication required' });
@@ -21,10 +27,15 @@ const authenticateJWT = (req, res, next) => {
   }
 };
 
-// Middleware to check if user is authenticated
 const isAuthenticated = (req, res, next) => {
   const token = req.cookies.jwt || req.headers.authorization?.split(' ')[1];
-  
+  const apiKey = req.headers['x-api-key'];
+
+  if (apiKey && apiKey === process.env.API_KEY) {
+    req.user = { apiKey: true };
+    return next();
+  }
+
   if (!token) {
     return res.redirect('/login');
   }

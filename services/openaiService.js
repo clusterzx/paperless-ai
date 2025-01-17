@@ -107,10 +107,10 @@ class OpenAIService {
         systemPrompt = `
         Prexisting tags: ${existingTagsList}\n\n
         Prexisiting correspondent: ${existingCorrespondentList}\n\n
-        ` + process.env.SYSTEM_PROMPT;
+        ` + process.env.SYSTEM_PROMPT + '\n\n' + config.mustHavePrompt;
         promptTags = '';
       } else {
-        systemPrompt = process.env.SYSTEM_PROMPT;
+        systemPrompt = process.env.SYSTEM_PROMPT + '\n\n' + config.mustHavePrompt;
         promptTags = '';
       }
       if (process.env.USE_PROMPT_TAGS === 'yes') {

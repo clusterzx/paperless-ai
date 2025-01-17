@@ -13,7 +13,8 @@ paperless-ai makes changes to the documents in your productive paperlessNGX inst
 Do the configuration carefully and think twice. 
 Please test the results beforehand in a separate development environment and be sure to back up your documents and metadata beforehand. 
 
-
+## We have a chrome extension now to work right out of paperless-ngx itself for Document Chat!
+Download here: https://github.com/clusterzx/paperless-ai/blob/main/paperless-ai-chrome-extension.zip
 
 ## We exploded! 💥
 💚 Thank you for all your support, bug submit, feature requests 💚

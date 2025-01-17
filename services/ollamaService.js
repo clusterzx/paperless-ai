@@ -3,6 +3,7 @@ const config = require('../config/config');
 const fs = require('fs').promises;
 const path = require('path');
 const paperlessService = require('./paperlessService');
+const os = require('os');
 
 class OllamaService {
     constructor() {
@@ -34,8 +35,37 @@ class OllamaService {
                 await fs.writeFile(cachePath, thumbnailData);
             }
 
-            await this.writePromptToFile(prompt);
-
+            
+            const getAvailableMemory = async () => {
+                const totalMemory = os.totalmem();
+                const freeMemory = os.freemem();
+                const totalMemoryMB = (totalMemory / (1024 * 1024)).toFixed(0);
+                const freeMemoryMB = (freeMemory / (1024 * 1024)).toFixed(0);
+                return { totalMemoryMB, freeMemoryMB };
+            };
+            
+            const calculateNumCtx = (promptTokenCount, expectedResponseTokens) => {
+                const totalTokenUsage = promptTokenCount + expectedResponseTokens;
+                const maxCtxLimit = 128000;
+                
+                const numCtx = Math.min(totalTokenUsage, maxCtxLimit);
+                
+                console.log('Prompt Token Count:', promptTokenCount);
+                console.log('Expected Response Tokens:', expectedResponseTokens);
+                console.log('Dynamic calculated num_ctx:', numCtx);
+                
+                return numCtx;
+            };
+            
+            const calculatePromptTokenCount = (prompt) => {
+                return Math.ceil(prompt.length / 4);
+            };
+            
+            const { freeMemoryMB } = await getAvailableMemory();
+            const expectedResponseTokens = 1024;
+            const promptTokenCount = calculatePromptTokenCount(prompt);
+            
+            const numCtx = calculateNumCtx(promptTokenCount, expectedResponseTokens);
             const response = await this.client.post(`${this.apiUrl}/api/generate`, {
                 model: this.model,
                 prompt: prompt,
@@ -44,65 +74,66 @@ class OllamaService {
                 YOU MUSTNOT: Ask for additional information or clarification, or ask questions about the document, or ask for additional context.
                 YOU MUSTNOT: Return a response without the desired JSON format.
                 YOU MUST: Analyze the document content and extract the following information into this structured JSON format and only this format!:         {
-                "title": "xxxxx",
-                "correspondent": "xxxxxxxx",
-                "tags": ["Tag1", "Tag2", "Tag3", "Tag4"],
-                "document_date": "YYYY-MM-DD",
-                "language": "en/de/es/..."
-                }
-                ALWAYS USE THE INFORMATION TO FILL OUT THE JSON OBJECT. DO NOT ASK BACK QUESTIONS.
-                `,
-                stream: false,
-                options: {
-                    temperature: 0.7,
-                    top_p: 0.9,
-                    repeat_penalty: 1.1,
-                    top_k: 7,
-                    num_predict: 256,
-                    num_ctx: prompt.length + 256
-                }
-                //   options: {
-                //     temperature: 0.3,        // Moderately low for balance between consistency and creativity
-                //     top_p: 0.7,             // More reasonable value to allow sufficient token diversity
-                //     repeat_penalty: 1.1,     // Return to original value as 1.2 might be too restrictive
-                //     top_k: 40,              // Increased from 10 to allow more token options
-                //     num_predict: 512,        // Reduced from 1024 to a more stable value
-                //     num_ctx: 2048           // Reduced context window for more stable processing
-                // }
-            });
-
-            if (!response.data || !response.data.response) {
-                throw new Error('Invalid response from Ollama API');
-            }
-
-            const parsedResponse = this._parseResponse(response.data.response);
-            //console.log('Ollama response:', parsedResponse);
-            if (parsedResponse.tags.length === 0 && parsedResponse.correspondent === null) {
-                console.warn('No tags or correspondent found in response from Ollama for Document.\nPlease review your prompt or switch to OpenAI for better results.',);
-            }
-
-            // Match the OpenAI service response structure
-            return {
-                document: parsedResponse,
-                metrics: {
-                    promptTokens: 0,  // Ollama doesn't provide token metrics
-                    completionTokens: 0,
-                    totalTokens: 0
-                },
-                truncated: false
-            };
-
-        } catch (error) {
-            console.error('Error analyzing document with Ollama:', error);
-            return {
-                document: { tags: [], correspondent: null },
-                metrics: null,
+                    "title": "xxxxx",
+                    "correspondent": "xxxxxxxx",
+                    "tags": ["Tag1", "Tag2", "Tag3", "Tag4"],
+                    "document_date": "YYYY-MM-DD",
+                    "language": "en/de/es/..."
+                    }
+                    ALWAYS USE THE INFORMATION TO FILL OUT THE JSON OBJECT. DO NOT ASK BACK QUESTIONS.
+                    `,
+                    stream: false,
+                    options: {
+                        temperature: 0.7, 
+                        top_p: 0.9,
+                        repeat_penalty: 1.1,
+                        top_k: 7,
+                        num_predict: 256,
+                        num_ctx: numCtx 
+                    }
+                    //   options: {
+                        //     temperature: 0.3,        // Moderately low for balance between consistency and creativity
+                        //     top_p: 0.7,             // More reasonable value to allow sufficient token diversity
+                        //     repeat_penalty: 1.1,     // Return to original value as 1.2 might be too restrictive
+                        //     top_k: 40,              // Increased from 10 to allow more token options
+                        //     num_predict: 512,        // Reduced from 1024 to a more stable value
+                        //     num_ctx: 2048           // Reduced context window for more stable processing
+                        // }
+                    });
+                    
+                    if (!response.data || !response.data.response) {
+                        throw new Error('Invalid response from Ollama API');
+                    }
+                    
+                    const parsedResponse = this._parseResponse(response.data.response);
+                    //console.log('Ollama response:', parsedResponse);
+                    if(parsedResponse.tags.length === 0 && parsedResponse.correspondent === null) {
+                        console.warn('No tags or correspondent found in response from Ollama for Document.\nPlease review your prompt or switch to OpenAI for better results.',);
+                    }
+                    
+                    await this.writePromptToFile(prompt + "\n\n" + JSON.stringify(parsedResponse));
+                    // Match the OpenAI service response structure
+                    return {
+                        document: parsedResponse,
+                        metrics: {
+                            promptTokens: 0,  // Ollama doesn't provide token metrics
+                            completionTokens: 0,
+                            totalTokens: 0
+                        },
+                        truncated: false
+                    };
+                    
+                } catch (error) {
+                    console.error('Error analyzing document with Ollama:', error);
+                    return {
+                        document: { tags: [], correspondent: null },
+                        metrics: null,
                 error: error.message
             };
         }
     }
-
-
+    
+    
     async writePromptToFile(systemPrompt) {
         const filePath = './logs/prompt.txt';
         const maxSize = 10 * 1024 * 1024;
@@ -128,7 +159,38 @@ class OllamaService {
 
     async analyzePlayground(content, prompt) {
         try {
-            prompt = prompt + "\n\n" + JSON.stringify(content)
+
+            const getAvailableMemory = async () => {
+                const totalMemory = os.totalmem();
+                const freeMemory = os.freemem();
+                const totalMemoryMB = (totalMemory / (1024 * 1024)).toFixed(0);
+                const freeMemoryMB = (freeMemory / (1024 * 1024)).toFixed(0);
+                return { totalMemoryMB, freeMemoryMB };
+            };
+            
+            const calculateNumCtx = (promptTokenCount, expectedResponseTokens) => {
+                const totalTokenUsage = promptTokenCount + expectedResponseTokens;
+                const maxCtxLimit = 128000;
+                
+                const numCtx = Math.min(totalTokenUsage, maxCtxLimit);
+                
+                console.log('Prompt Token Count:', promptTokenCount);
+                console.log('Expected Response Tokens:', expectedResponseTokens);
+                console.log('Dynamic calculated num_ctx:', numCtx);
+                
+                return numCtx;
+            };
+            
+            const calculatePromptTokenCount = (prompt) => {
+                return Math.ceil(prompt.length / 4);
+            };
+            
+            const { freeMemoryMB } = await getAvailableMemory();
+            const expectedResponseTokens = 1024;
+            const promptTokenCount = calculatePromptTokenCount(prompt);
+            
+            const numCtx = calculateNumCtx(promptTokenCount, expectedResponseTokens);
+          
             const response = await this.client.post(`${this.apiUrl}/api/generate`, {
                 model: this.model,
                 prompt: prompt,
@@ -147,12 +209,12 @@ class OllamaService {
                 `,
                 stream: false,
                 options: {
-                    temperature: 0.7,
-                    top_p: 0.9,
-                    repeat_penalty: 1.1,
-                    top_k: 7,
-                    num_predict: 256,
-                    num_ctx: prompt.length + 256
+                  temperature: 0.7, 
+                  top_p: 0.9,
+                  repeat_penalty: 1.1,
+                  top_k: 7,
+                  num_predict: 256,
+                  num_ctx: numCtx
                 }
                 //   options: {
                 //     temperature: 0.3,        // Moderately low for balance between consistency and creativity
@@ -208,7 +270,7 @@ class OllamaService {
             promptTags = process.env.PROMPT_TAGS;
             systemPrompt = config.specialPromptPreDefinedTags;
         } else {
-            systemPrompt = process.env.SYSTEM_PROMPT;
+            systemPrompt = process.env.SYSTEM_PROMPT + '\n\n' + config.mustHavePrompt;
         }
 
         // Format existing tags

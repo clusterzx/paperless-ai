@@ -120,6 +120,12 @@
                                     <i class="fas fa-robot mr-2"></i>
                                     Analyze with AI
                             </button>
+                            <button id="chatBtn" 
+                                    class="mt-2 w-full flex justify-center items-center px-4 py-2 border border-border-color rounded-md shadow-sm text-sm font-medium text-text-primary bg-bg-primary hover:bg-hover-bg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-primary transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" 
+                                    disabled>
+                                    <i class="fas fa-comment mr-2"></i>
+                                    Chat with AI (Beta)
+                            </button>
                             <div id="aiStatus" class="mt-4 hidden">
                                 <div class="flex items-center">
                                     <div class="mr-3">
@@ -365,6 +371,7 @@ function updateHiddenTagsInput() {
 async function handleDocumentSelection(documentId) {
     if (!documentId) {
         document.getElementById('analyzeBtn').disabled = true;
+        document.getElementById('chatBtn').disabled = true;
         document.getElementById('contentPreview').textContent = '';
         document.getElementById('currentTags').innerHTML = '';
         document.getElementById('suggestedTags').innerHTML = '';
@@ -374,6 +381,7 @@ async function handleDocumentSelection(documentId) {
 
     currentDocument = documentId;
     document.getElementById('analyzeBtn').disabled = false;
+    document.getElementById('chatBtn').disabled = false;
     
     try {
         const response = await fetch(`/manual/preview/${documentId}`);
@@ -476,6 +484,12 @@ async function handleAnalysis() {
     }
 }
 
+async function handleChat() {
+    const documentId = document.getElementById('hiddenId').value;
+
+    window.location.href= `/chat?open=${documentId}`
+}
+
 async function updateDocumentTags() {
     if (!currentDocument || isUpdating) return;
 
@@ -545,6 +559,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Analyze button
     document.getElementById('analyzeBtn').addEventListener('click', handleAnalysis);
+
+    // Chat button
+    document.getElementById('chatBtn').addEventListener('click', handleChat);
 
     // Save tags button
     document.getElementById('saveTagsBtn').addEventListener('click', updateDocumentTags);

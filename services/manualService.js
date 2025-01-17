@@ -68,6 +68,37 @@ class ManualService {
     async _analyzeOllama(content, existingTags) {
         try {
         const prompt = process.env.SYSTEM_PROMPT;
+
+        const getAvailableMemory = async () => {
+            const totalMemory = os.totalmem();
+            const freeMemory = os.freemem();
+            const totalMemoryMB = (totalMemory / (1024 * 1024)).toFixed(0);
+            const freeMemoryMB = (freeMemory / (1024 * 1024)).toFixed(0);
+            return { totalMemoryMB, freeMemoryMB };
+        };
+        
+        const calculateNumCtx = (promptTokenCount, expectedResponseTokens) => {
+            const totalTokenUsage = promptTokenCount + expectedResponseTokens;
+            const maxCtxLimit = 128000;
+            
+            const numCtx = Math.min(totalTokenUsage, maxCtxLimit);
+            
+            console.log('Prompt Token Count:', promptTokenCount);
+            console.log('Expected Response Tokens:', expectedResponseTokens);
+            console.log('Dynamic calculated num_ctx:', numCtx);
+            
+            return numCtx;
+        };
+        
+        const calculatePromptTokenCount = (prompt) => {
+            return Math.ceil(prompt.length / 4);
+        };
+        
+        const { freeMemoryMB } = await getAvailableMemory();
+        const expectedResponseTokens = 1024;
+        const promptTokenCount = calculatePromptTokenCount(prompt);
+        
+        const numCtx = calculateNumCtx(promptTokenCount, expectedResponseTokens);
         
         const response = await this.ollama.post(`${config.ollama.apiUrl}/api/generate`, {
             model: config.ollama.model,
@@ -76,7 +107,8 @@ class ManualService {
             options: {
             temperature: 0.7,
             top_p: 0.9,
-            repeat_penalty: 1.1
+            repeat_penalty: 1.1,
+            num_ctx: numCtx,
             }
         });
     
