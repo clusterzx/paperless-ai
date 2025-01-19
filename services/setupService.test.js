@@ -28,3 +28,21 @@ test("that no loaded configuration is populated in process.env", async () => {
   expect(config).toHaveProperty("KEY1", "value1")
   expect(process.env).not.toHaveProperty("KEY1")
 })
+
+test("writing env files with multiline strings", () => {
+
+    const service = new SetupService();
+
+    const envContent = service.asEnvFileContent({
+      "KEY1": "value1",
+      "MULTILINE_KEY1": `Line 1
+Line 2
+Line 3`
+    })
+
+  expect(envContent).toBe(`KEY1=value1
+MULTILINE_KEY1="Line 1
+Line 2
+Line 3"`)
+
+});
