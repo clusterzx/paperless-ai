@@ -363,3 +363,4 @@ class OllamaService {
 }
 
 module.exports = new OllamaService();
+module.exports.OllamaService = OllamaService;
