@@ -354,3 +354,4 @@ class OpenAIService {
 }
 
 module.exports = new OpenAIService();
+module.exports.OpenAIService = OpenAIService;
