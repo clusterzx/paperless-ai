@@ -513,6 +513,13 @@ class PlaygroundAnalyzer {
                 50% { opacity: 1; }
                 100% { opacity: 0.6; }
             }
+
+            /* Rating Dialog */
+            .prompt-preview code {
+                max-height: 45vh;
+                overflow: auto;
+                display: block;
+            }
         `;
         document.head.appendChild(style);
     }
