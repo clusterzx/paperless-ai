@@ -1,9 +1,8 @@
 const OpenAI = require('openai');
 const config = require('../config/config');
 const tiktoken = require('tiktoken');
-const paperlessService = require('./paperlessService');
 const fs = require('fs').promises;
-const path = require('path');
+const {ThumbnailService} = require("./thumbnailService");
 
 class OpenAIService {
   constructor() {
@@ -71,7 +70,6 @@ class OpenAIService {
   }
 
   async analyzeDocument(content, existingTags = [], existingCorrespondentList = [], id) {
-    const cachePath = path.join('./public/images', `${id}.png`);
     try {
       this.initialize();
       const now = new Date();
@@ -82,22 +80,9 @@ class OpenAIService {
       }
 
       // Handle thumbnail caching
-      try {
-        await fs.access(cachePath);
-        console.log('[DEBUG] Thumbnail already cached');
-      } catch (err) {
-        console.log('Thumbnail not cached, fetching from Paperless');
-        
-        const thumbnailData = await paperlessService.getThumbnailImage(id);
-        
-        if (!thumbnailData) {
-          console.warn('Thumbnail nicht gefunden');
-        }
-  
-        await fs.mkdir(path.dirname(cachePath), { recursive: true });
-        await fs.writeFile(cachePath, thumbnailData);
-      }
-      
+      // FIXME why is this done in here? The thumbnail is not used at all
+      await new ThumbnailService().getThumbnailPath(id);
+
       // Format existing tags
       const existingTagsList = existingTags
         .map(tag => tag.name)

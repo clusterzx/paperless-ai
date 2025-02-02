@@ -18,6 +18,7 @@ const cookieParser = require('cookie-parser');
 const { authenticateJWT, isAuthenticated } = require('./auth.js');
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const customService = require('../services/customService.js');
+const {ThumbnailService} = require("../services/thumbnailService");
 require('dotenv').config({ path: '../data/.env' });
 
 
@@ -197,40 +198,17 @@ router.get('/playground', protectApiRoute, async (req, res) => {
 });
 
 router.get('/thumb/:documentId', async (req, res) => {
-  const cachePath = path.join('./public/images', `${req.params.documentId}.png`);
+  const thumbnailService = new ThumbnailService();
+  const cachePath = thumbnailService.getThumbnailPath(req.params.documentId)
 
-  try {
-    // Prüfe ob das Bild bereits im Cache existiert
-    try {
-      await fs.access(cachePath);
-      console.log('Serving cached thumbnail');
-      
-      // Wenn ja, sende direkt das gecachte Bild
-      res.setHeader('Content-Type', 'image/png');
-      return res.sendFile(path.resolve(cachePath));
-      
-    } catch (err) {
-      // File existiert nicht im Cache, hole es von Paperless
-      console.log('Thumbnail not cached, fetching from Paperless');
-      
-      const thumbnailData = await paperlessService.getThumbnailImage(req.params.documentId);
-      
-      if (!thumbnailData) {
-        return res.status(404).send('Thumbnail nicht gefunden');
-      }
-
-      // Speichere im Cache
-      await fs.mkdir(path.dirname(cachePath), { recursive: true }); // Erstelle Verzeichnis falls nicht existiert
-      await fs.writeFile(cachePath, thumbnailData);
-
-      // Sende das Bild
-      res.setHeader('Content-Type', 'image/png');
-      res.send(thumbnailData);
-    }
-
-  } catch (error) {
-    console.error('Fehler beim Abrufen des Thumbnails:', error);
-    res.status(500).send('Fehler beim Laden des Thumbnails');
+  if (cachePath !== undefined) {
+    res.setHeader('Content-Type', 'image/png');
+    res.sendFile(path.resolve(cachePath));
+  } else {
+    // cachePath being either undefined or null indicates that the thumbnail
+    // could either not be found or there was an error retrieving it.
+    // In that case indicate 404 (not found)
+    res.status(404).send('Fehler beim Laden des Thumbnails');
   }
 });
 
