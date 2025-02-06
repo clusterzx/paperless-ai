@@ -77,6 +77,7 @@ class OllamaService {
                     "title": "xxxxx",
                     "correspondent": "xxxxxxxx",
                     "tags": ["Tag1", "Tag2", "Tag3", "Tag4"],
+		    "document_type": "xxxxxx",
                     "document_date": "YYYY-MM-DD",
                     "language": "en/de/es/..."
                     }
@@ -201,6 +202,7 @@ class OllamaService {
                 "title": "xxxxx",
                 "correspondent": "xxxxxxxx",
                 "tags": ["Tag1", "Tag2", "Tag3", "Tag4"],
+		"document_type": "xxxxxx",
                 "document_date": "YYYY-MM-DD",
                 "language": "en/de/es/..."
                 }
@@ -325,6 +327,7 @@ class OllamaService {
                   tags: Array.isArray(result.tags) ? result.tags : [],
                   correspondent: result.correspondent || null,
                   title: result.title || null,
+		  document_type: result.document_type || null,
                   document_date: result.document_date || null,
                   language: result.language || null
               };
@@ -345,6 +348,7 @@ class OllamaService {
                       tags: Array.isArray(sanitizedResult.tags) ? sanitizedResult.tags : [],
                       correspondent: sanitizedResult.correspondent || null,
                       title: sanitizedResult.title || null,
+		      document_type: sanitizedResult.document_type || null,
                       document_date: sanitizedResult.document_date || null,
                       language: sanitizedResult.language || null
                   };
