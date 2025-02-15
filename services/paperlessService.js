@@ -556,10 +556,10 @@ class PaperlessService {
         // Füge Tag-Filter hinzu, wenn Tags definiert sind
         if (shouldFilterByTags && tagIds.length > 0) {
           // Füge jeden Tag-ID als separaten Parameter hinzu
-          tagIds.forEach(id => {
+          if(tagIds.length > 0) {
             // Verwende tags__id__in für multiple Tag-Filterung
             params.tags__id__in = tagIds.join(',');
-          });
+          }
         }
 
         const response = await this.client.get('/documents/', { params });
