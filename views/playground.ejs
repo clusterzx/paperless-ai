@@ -55,43 +55,43 @@
                     <li>
                         <a href="/dashboard" class="sidebar-link">
                             <i class="fas fa-home"></i>
-                            <span>Dashboard</span>
+                            <span><%= t('common.dashboard') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/manual" class="sidebar-link">
                             <i class="fas fa-file-alt"></i>
-                            <span>Manual</span>
+                            <span><%= t('common.manual') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/chat" class="sidebar-link">
                             <i class="fa-solid fa-comment"></i>
-                            <span>Chat</span>
+                            <span><%= t('common.chat') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/playground" class="sidebar-link active">
                             <i class="fa-solid fa-flask-vial"></i>
-                            <span>Playground</span>
+                            <span><%= t('common.playground') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/history" class="sidebar-link">
                             <i class="fa-solid fa-clock-rotate-left"></i>
-                            <span>History</span>
+                            <span><%= t('common.history') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/settings" class="sidebar-link">
                             <i class="fas fa-cog"></i>
-                            <span>Settings</span>
+                            <span><%= t('common.settings') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/logout" class="sidebar-link">
                             <i class="fa-solid fa-right-from-bracket"></i>
-                            <span>Logout</span>
+                            <span><%= t('common.logout') %></span>
                         </a>
                     </li>
                 </ul>
@@ -102,14 +102,14 @@
          
         <main class="main-content p-6">
             <div class="mb-6">
-                <h1 class="text-2xl font-bold mb-4">Documents</h1>
+                <h1 class="text-2xl font-bold mb-4"><%= t('playground.title') %></h1>
                 <!-- Analysis Section -->
                 <div class="material-card mb-8">
-                    <h2 class="card-title">Document Analysis</h2>
+                    <h2 class="card-title"><%= t('playground.analysis.title') %></h2>
                     <div class="space-y-4">
                         <textarea 
                             id="analysisPrompt"
-                            placeholder="Enter your analysis prompt here..."
+                            placeholder="<%= t('playground.analysis.prompt') %>"
                             style="width: 100%; min-height: 128px; padding: 1rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 8px; resize: vertical;"
                         ></textarea>
                         <button 
@@ -118,7 +118,7 @@
                             onmouseover="this.style.background = 'var(--accent-secondary)'"
                             onmouseout="this.style.background = 'var(--accent-primary)'"
                         >
-                            Analyze Documents
+                            <%= t('playground.analysis.analyze') %>
                         </button>
                     </div>
                 </div>
@@ -138,7 +138,7 @@
                                     <% doc.tags.forEach(function(tagId) { %>
                                     <span class="tag text-xs px-2 py-1 rounded-full bg-blue-600 text-white" 
                                           data-tag-id="<%= tagId %>">
-                                        <%= tagNames[tagId] || 'Unknown' %>
+                                        <%= tagNames[tagId] || t('playground.document.unknown') %>
                                     </span>
                                     <% }); %>
                                 </div>
@@ -159,7 +159,7 @@
                                         <% if (doc.correspondent) { %>
                                         <p class="text-xs text-gray-600 truncate" 
                                            data-correspondent="<%= doc.correspondent %>">
-                                            <%= correspondentNames[doc.correspondent] || 'Unknown' %>
+                                            <%= correspondentNames[doc.correspondent] || t('playground.document.unknown') %>
                                         </p>
                                         <% } %>
                                     </div>
@@ -185,12 +185,30 @@
             <div class="modal-content">
                 <div class="modal-loader hidden">
                     <i class="fas fa-spinner fa-spin"></i>
-                    Loading...
+                    <%= t('playground.modal.loading') %>
                 </div>
                 <div class="modal-data"></div>
             </div>
         </div>
     </div>
+
+    <!-- Pass translations to client -->
+    <script>
+        window.translations = {
+            savedPrompts: {
+                title: '<%- JSON.stringify(t('playground.savedPrompts.title')).slice(1,-1) %>',
+                clearAll: '<%- JSON.stringify(t('playground.savedPrompts.clearAll')).slice(1,-1) %>',
+                confirmClear: '<%- JSON.stringify(t('playground.savedPrompts.confirmClear')).slice(1,-1) %>',
+                rating: {
+                    title: '<%- JSON.stringify(t('playground.savedPrompts.rating.title')).slice(1,-1) %>',
+                    addComment: '<%- JSON.stringify(t('playground.savedPrompts.rating.addComment')).slice(1,-1) %>',
+                    save: '<%- JSON.stringify(t('playground.savedPrompts.rating.save')).slice(1,-1) %>',
+                    selectRating: '<%- JSON.stringify(t('playground.savedPrompts.rating.selectRating')).slice(1,-1) %>'
+                }
+            }
+        };
+    </script>
+
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const mobileMenuButton = document.getElementById('mobileMenuButton');

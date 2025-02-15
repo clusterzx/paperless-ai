@@ -1,3 +1,12 @@
+// Add translation function if not defined
+const t = window.t || ((key, params) => {
+    // Simple fallback if translation function is not available
+    if (params) {
+        return `${key} (${Object.entries(params).map(([k,v]) => `${k}:${v}`).join(',')})`;
+    }
+    return key;
+});
+
 // Theme Management
 class ThemeManager {
     constructor() {
@@ -271,6 +280,132 @@ async function showCorrespondentDetails() {
         modalManager.hideLoader();
     }
 }
+
+// Update the status last updated text
+function updateLastUpdated() {
+    const statusLastUpdated = document.getElementById('statusLastUpdated');
+    if (statusLastUpdated) {
+        console.log({t})
+        statusLastUpdated.textContent = `${t('dashboard.processing.status.lastUpdated')}: ${new Date().toLocaleTimeString()}`;
+    }
+}
+
+// Format time ago with translations
+function formatTimeAgo(dateString) {
+    const date = new Date(dateString + 'Z');
+    const now = new Date();
+    const seconds = Math.floor((now - date) / 1000);
+
+    if (seconds < 5) {
+        return t('time.justNow');
+    } else if (seconds < 60) {
+        return t('time.secondsAgo', { count: seconds });
+    } else if (seconds < 3600) {
+        const minutes = Math.floor(seconds / 60);
+        return t('time.minutesAgo', { count: minutes });
+    } else if (seconds < 86400) {
+        const hours = Math.floor(seconds / 3600);
+        return t('time.hoursAgo', { count: hours });
+    } else {
+        const days = Math.floor(seconds / 86400);
+        return t('time.daysAgo', { count: days });
+    }
+}
+
+// Update processing status with translations
+function updateProcessingStatus() {
+    fetch('/api/processing-status')
+        .then(response => response.json())
+        .then(data => {
+            console.log('Processing status data:', data);
+            
+            const processingContainer = document.getElementById('processingContainer');
+            const idleContainer = document.getElementById('idleContainer');
+            
+            if (data.currentlyProcessing) {
+                processingContainer.classList.remove('hidden');
+                idleContainer.classList.add('hidden');
+                document.getElementById('scanButton').disabled = true;
+                
+                document.getElementById('currentDocId').textContent = `#${data.currentlyProcessing.documentId}`;
+                data.currentlyProcessing.title = data.currentlyProcessing.title.length > 50
+                    ? data.currentlyProcessing.title.slice(0, 90) + '...'
+                    : data.currentlyProcessing.title;
+                document.getElementById('currentDocTitle').textContent = data.currentlyProcessing.title;
+                
+                document.getElementById('lastProcessed').innerHTML = `
+                    <span class="text-blue-600">
+                        <i class="fas fa-spinner fa-spin"></i> ${t('dashboard.processing.status.processing')}...
+                    </span>`;
+            } else {
+                processingContainer.classList.add('hidden');
+                idleContainer.classList.remove('hidden');
+                document.getElementById('scanButton').disabled = false;
+                
+                if (data.lastProcessed) {
+                    const timeAgo = formatTimeAgo(data.lastProcessed.processed_at);
+                    document.getElementById('lastProcessed').textContent = timeAgo;
+                } else {
+                    document.getElementById('lastProcessed').textContent = t('dashboard.processing.status.noDocuments');
+                }
+            }
+            
+            document.getElementById('processedToday').textContent = data.processedToday;
+            updateLastUpdated();
+        })
+        .catch(error => console.error('Error fetching processing status:', error));
+}
+
+// Initialize everything when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    // Update status every 3 seconds
+    setInterval(updateProcessingStatus, 3000);
+
+    // Initial update
+    updateProcessingStatus();
+});
+
+// Update check functionality
+async function checkForUpdates() {
+    try {
+        const currentVersion = document.querySelector('[data-version]')?.dataset.version;
+        if (!currentVersion) return;
+
+        const response = await fetch('https://api.github.com/repos/clusterzx/paperless-ai/releases/latest');
+        if (!response.ok) throw new Error('Failed to fetch release info');
+        
+        const data = await response.json();
+        const latestVersion = data.tag_name;
+
+        const current = currentVersion.replace('v', '').split('.').map(Number);
+        const latest = latestVersion.replace('v', '').split('.').map(Number);
+
+        for (let i = 0; i < 3; i++) {
+            if ((latest[i] || 0) > (current[i] || 0)) {
+                document.getElementById('latestVersion').textContent = latestVersion;
+                const notification = document.getElementById('updateNotification');
+                notification.classList.remove('hidden');
+                notification.style.opacity = '0';
+                notification.style.transform = 'translateY(20px)';
+                
+                setTimeout(() => {
+                    notification.style.transition = 'all 0.3s ease-out';
+                    notification.style.opacity = '1';
+                    notification.style.transform = 'translateY(0)';
+                }, 100);
+                
+                break;
+            } else if ((latest[i] || 0) < (current[i] || 0)) {
+                break;
+            }
+        }
+    } catch (error) {
+        console.error('Failed to check for updates:', error);
+    }
+}
+
+// Check for updates when the page loads
+document.addEventListener('DOMContentLoaded', checkForUpdates);
 
 // Initialize everything when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {

@@ -715,9 +715,9 @@ router.get('/setup', async (req, res) => {
     // Generate appropriate success message
     let successMessage;
     if (isEnvConfigured && !hasUsers) {
-      successMessage = 'Environment is configured, but no users exist. Please create at least one user.';
+      successMessage = req.t('settings.messages.environmentConfigured');
     } else if (isEnvConfigured) {
-      successMessage = 'The application is already configured. You can update the configuration below.';
+      successMessage = req.t('settings.messages.alreadyConfigured');
     }
 
     // If everything is configured and we have users, redirect to dashboard
@@ -1013,8 +1013,9 @@ router.get('/settings', async (req, res) => {
   res.render('settings', { 
     version,
     config,
-    success: isConfigured ? 'The application is already configured. You can update the configuration below.' : undefined,
-    settingsError: showErrorCheckSettings ? 'Please check your settings. Something is not working correctly.' : undefined
+    language: req.language || 'en',
+    success: isConfigured ? req.t('settings.messages.alreadyConfigured') : undefined,
+    settingsError: showErrorCheckSettings ? req.t('settings.messages.error') : undefined
   });
 });
 

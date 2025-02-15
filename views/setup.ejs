@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paperless-ai Setup</title>
+    <title><%= t('setup.title') %></title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="css/setup.css">
@@ -25,10 +25,10 @@
             <div class="mx-auto max-w-7xl px-6 lg:px-8">
                 <div class="flex h-24 items-center justify-between">
                     <div class="flex items-center space-x-6">
-                        <img src="/favicon.ico" alt="Paperless AI Logo" style="height: 60px;">
+                        <img src="/favicon.ico" alt="<%= t('setup.logo.alt') %>" style="height: 60px;">
                         <div>
                             <h1 class="text-2xl font-bold">Paperless-AI <small><%= config.PAPERLESS_AI_VERSION %></small></h1>
-                            <p class="text-sm text-secondary">Configuration Setup</p>
+                            <p class="text-sm text-secondary"><%= t('setup.subtitle') %></p>
                         </div>
                     </div>
                 </div>
@@ -53,25 +53,25 @@
                                     class="tab-button active flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2" 
                                     data-tab="user-tab">
                                 <i class="fas fa-user"></i>
-                                User Setup
+                                <%= t('setup.tabs.user') %>
                             </button>
                             <button type="button" 
                                     class="tab-button flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2" 
                                     data-tab="connection-tab">
                                 <i class="fas fa-link"></i>
-                                Connection
+                                <%= t('setup.tabs.connection') %>
                             </button>
                             <button type="button" 
                                     class="tab-button flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2" 
                                     data-tab="ai-tab">
                                 <i class="fas fa-robot"></i>
-                                AI Settings
+                                <%= t('setup.tabs.ai') %>
                             </button>
                             <button type="button" 
                                     class="tab-button flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2" 
                                     data-tab="advanced-tab">
                                 <i class="fas fa-cog"></i>
-                                Advanced
+                                <%= t('setup.tabs.advanced') %>
                             </button>
                         </nav>
                     </div>
@@ -82,12 +82,26 @@
                             <section>
                                 <h2 class="section-title">
                                     <i class="fas fa-user"></i>
-                                    User Settings
+                                    <%= t('setup.sections.user') %>
                                 </h2>
                                 <div class="space-y-6">
+                                    <!-- Language Selection -->
+                                    <div class="form-group">
+                                        <label for="language"><%= t('setup.user.language') %></label>
+                                        <select id="language" 
+                                               name="language"
+                                               class="modern-input"
+                                               required>
+                                            <option value="en" <%= config.LANGUAGE === 'en' ? 'selected' : '' %>><%= t('setup.user.languages.en') %></option>
+                                            <option value="de" <%= config.LANGUAGE === 'de' ? 'selected' : '' %>><%= t('setup.user.languages.de') %></option>
+                                            <option value="es" <%= config.LANGUAGE === 'es' ? 'selected' : '' %>><%= t('setup.user.languages.es') %></option>
+                                        </select>
+                                        <p class="help-text text-sm text-gray-500"><%= t('setup.user.languageHelp') %></p>
+                                    </div>
+
                                     <!-- User settings content -->
                                     <div class="form-group">
-                                        <label for="username">Username</label>
+                                        <label for="username"><%= t('setup.user.username') %></label>
                                         <input type="text" 
                                                id="username" 
                                                name="username"
@@ -96,7 +110,7 @@
                                     </div>
                             
                                     <div class="form-group">
-                                        <label for="password">Password</label>
+                                        <label for="password"><%= t('setup.user.password') %></label>
                                         <div class="password-input">
                                             <input type="password" 
                                                    id="password" 
@@ -111,7 +125,7 @@
                                     </div>
                             
                                     <div class="form-group">
-                                        <label for="confirmPassword">Confirm Password</label>
+                                        <label for="confirmPassword"><%= t('setup.user.confirmPassword') %></label>
                                         <div class="password-input">
                                             <input type="password" 
                                                    id="confirmPassword" 
@@ -133,13 +147,13 @@
                             <section>
                                 <h2 class="section-title">
                                     <i class="fas fa-link"></i>
-                                    Connection Settings
+                                    <%= t('setup.sections.connection') %>
                                 </h2>
                                 <div class="space-y-6">
                                     <!-- Connection settings content -->
                                     <div class="form-group">
                                         <label for="paperlessUrl" class="flex items-center gap-2">
-                                            Paperless-ngx API URL
+                                            <%= t('setup.connection.apiUrl') %>
                                             <button type="button" 
                                                     class="help-btn text-gray-400 hover:text-gray-600 focus:outline-none"
                                                     id="urlHelp">
@@ -156,7 +170,7 @@
                                     </div>
 
                                     <div class="form-group">
-                                        <label for="paperlessToken">API Token</label>
+                                        <label for="paperlessToken"><%= t('setup.connection.apiToken') %></label>
                                         <div class="password-input">
                                             <input type="password" 
                                                    id="paperlessToken" 
@@ -171,7 +185,7 @@
                                     </div>
 
                                     <div class="form-group">
-                                        <label for="paperlessUsername">Paperless-ngx Username</label>
+                                        <label for="paperlessUsername"><%= t('settings.connection.paperlessUsername') %></label>
                                         <input type="text" 
                                                id="paperlessUsername" 
                                                name="paperlessUsername"
@@ -188,23 +202,23 @@
                             <section>
                                 <h2 class="section-title">
                                     <i class="fas fa-robot"></i>
-                                    AI Configuration
+                                    <%= t('setup.sections.ai') %>
                                 </h2>
                                 <div class="space-y-6">
                                     <!-- AI Provider Selection -->
                                     <div class="form-group">
-                                        <label for="aiProvider">AI Provider</label>
+                                        <label for="aiProvider"><%= t('settings.ai.provider') %></label>
                                         <select id="aiProvider" 
                                                 name="aiProvider"
                                                 class="modern-input">
                                             <option value="openai" <%= config.AI_PROVIDER === 'openai' ? 'selected' : '' %>>
-                                                OpenAI (ChatGPT)
+                                                <%= t('settings.ai.provider.openai') %>
                                             </option>
                                             <option value="ollama" <%= config.AI_PROVIDER === 'ollama' ? 'selected' : '' %>>
-                                                Ollama (Local LLM)
+                                                <%= t('settings.ai.provider.ollama') %>
                                             </option>
                                             <option value="custom" <%= config.AI_PROVIDER === 'custom' ? 'selected' : '' %>>
-                                                Custom
+                                                <%= t('settings.ai.provider.custom') %>
                                             </option>
                                         </select>
                                     </div>
@@ -212,7 +226,7 @@
                                     <!-- OpenAI Settings -->
                                     <div id="openaiSettings" class="provider-settings">
                                         <div class="form-group">
-                                            <label for="openaiKey">OpenAI API Key</label>
+                                            <label for="openaiKey"><%= t('settings.ai.openai.apiKey') %></label>
                                             <div class="password-input">
                                                 <input type="password" 
                                                        id="openaiKey" 
@@ -226,13 +240,13 @@
                                         </div>
                                         
                                         <div class="form-group">
-                                            <label for="openaiModel">OpenAI Model</label>
+                                            <label for="openaiModel"><%= t('settings.ai.openai.model') %></label>
                                             <select id="openaiModel" 
                                                     name="openaiModel"
                                                     class="modern-input">
-                                                <option value="gpt-3.5-turbo-0125" <%= config.OPENAI_MODEL === 'gpt-3.5-turbo-0125' ? 'selected' : '' %>>GPT-3.5 Turbo</option>
-                                                <option value="gpt-4o" <%= config.OPENAI_MODEL === 'gpt-4o' ? 'selected' : '' %>>GPT-4o</option>
-                                                <option value="gpt-4o-mini" <%= config.OPENAI_MODEL === 'gpt-4o-mini' ? 'selected' : '' %>>GPT-4o-mini (Best value)</option>
+                                                <option value="gpt-3.5-turbo-0125" <%= config.OPENAI_MODEL === 'gpt-3.5-turbo-0125' ? 'selected' : '' %>><%= t('settings.ai.openai.models.gpt35') %></option>
+                                                <option value="gpt-4o" <%= config.OPENAI_MODEL === 'gpt-4o' ? 'selected' : '' %>><%= t('settings.ai.openai.models.gpt4') %></option>
+                                                <option value="gpt-4o-mini" <%= config.OPENAI_MODEL === 'gpt-4o-mini' ? 'selected' : '' %>><%= t('settings.ai.openai.models.gpt4mini') %></option>
                                             </select>
                                         </div>
                                     </div>
@@ -240,7 +254,7 @@
                                     <!-- Ollama Settings -->
                                     <div id="ollamaSettings" class="provider-settings">
                                         <div class="form-group">
-                                            <label for="ollamaUrl">Ollama API URL</label>
+                                            <label for="ollamaUrl"><%= t('settings.ai.ollama.apiUrl') %></label>
                                             <input type="text" 
                                                    id="ollamaUrl" 
                                                    name="ollamaUrl"
@@ -249,19 +263,20 @@
                                         </div>
                                         
                                         <div class="form-group">
-                                            <label for="ollamaModel">Ollama Model</label>
+                                            <label for="ollamaModel"><%= t('settings.ai.ollama.model') %></label>
                                             <input type="text" 
                                                    id="ollamaModel" 
                                                    name="ollamaModel"
                                                    value="<%= config.OLLAMA_MODEL %>"
-                                                   class="modern-input">
+                                                   class="modern-input"
+                                                   placeholder="<%= t('settings.ai.ollama.modelPlaceholder') %>">
                                         </div>
                                     </div>
 
                                     <!-- Custom Provider Settings -->
                                     <div id="customSettings" class="provider-settings">
                                         <div class="form-group">
-                                            <label for="customBaseUrl">Base URL</label>
+                                            <label for="customBaseUrl"><%= t('settings.ai.custom.baseUrl') %></label>
                                             <input type="text" 
                                                    id="customBaseUrl" 
                                                    name="customBaseUrl"
@@ -271,7 +286,7 @@
                                         </div>
                                         
                                         <div class="form-group">
-                                            <label for="customApiKey">API Key</label>
+                                            <label for="customApiKey"><%= t('settings.ai.custom.apiKey') %></label>
                                             <div class="password-input">
                                                 <input type="password" 
                                                        id="customApiKey" 
@@ -285,13 +300,13 @@
                                         </div>
                                         
                                         <div class="form-group">
-                                            <label for="customModel">Model</label>
+                                            <label for="customModel"><%= t('settings.ai.custom.model') %></label>
                                             <input type="text" 
                                                    id="customModel" 
                                                    name="customModel"
                                                    value="<%= config.CUSTOM_MODEL %>"
                                                    class="modern-input"
-                                                   placeholder="Enter model name">
+                                                   placeholder="<%= t('settings.ai.custom.modelPlaceholder') %>">
                                         </div>
                                     </div>
                                 </div>
@@ -308,33 +323,33 @@
                                 <div class="space-y-6">
                                     <!-- Basic Settings -->
                                     <div class="form-group">
-                                        <label for="useExistingData">Use existing Correspondents and Tags?</label>
+                                        <label for="useExistingData"><%= t('settings.advanced.useExistingData.title') %></label>
                                         <select id="useExistingData" 
                                                 name="useExistingData" 
                                                 class="modern-input">
-                                                <option value="no" <%= config.USE_EXISTING_DATA === 'no' ? 'selected' : '' %>>No</option>
-                                                <option value="yes" <%= config.USE_EXISTING_DATA === 'yes' ? 'selected' : '' %>>Yes</option>
+                                                <option value="no" <%= config.USE_EXISTING_DATA === 'no' ? 'selected' : '' %>><%= t('settings.advanced.useExistingData.no') %></option>
+                                                <option value="yes" <%= config.USE_EXISTING_DATA === 'yes' ? 'selected' : '' %>><%= t('settings.advanced.useExistingData.yes') %></option>
                                             </select>
                                         </div>
     
                                         <div class="form-group">
-                                            <label for="scanInterval">Scan Interval (Cron Format)</label>
+                                            <label for="scanInterval"><%= t('settings.advanced.scanInterval.title') %></label>
                                             <input type="text" 
                                                    id="scanInterval" 
                                                    name="scanInterval"
                                                    value="<%= config.SCAN_INTERVAL %>"
                                                    class="modern-input"
                                                    required>
-                                            <p class="help-text">Default: every 30 minutes</p>
+                                            <p class="help-text"><%= t('settings.advanced.scanInterval.default') %></p>
                                         </div>
     
                                         <div class="form-group">
-                                            <label for="showTags">Process only specific pre tagged documents?</label>
+                                            <label for="showTags"><%= t('settings.advanced.processTagged.title') %></label>
                                             <select id="showTags" 
                                                     name="showTags" 
                                                     class="modern-input">
-                                                <option value="no" <%= config.PROCESS_PREDEFINED_DOCUMENTS === 'no' ? 'selected' : '' %>>No</option>
-                                                <option value="yes" <%= config.PROCESS_PREDEFINED_DOCUMENTS === 'yes' ? 'selected' : '' %>>Yes</option>
+                                                <option value="no" <%= config.PROCESS_PREDEFINED_DOCUMENTS === 'no' ? 'selected' : '' %>><%= t('settings.advanced.processTagged.no') %></option>
+                                                <option value="yes" <%= config.PROCESS_PREDEFINED_DOCUMENTS === 'yes' ? 'selected' : '' %>><%= t('settings.advanced.processTagged.yes') %></option>
                                             </select>
                                         </div>
     
@@ -346,11 +361,11 @@
                                                     <input type="text" 
                                                         id="tagInput" 
                                                         class="modern-input"
-                                                        placeholder="Enter a tag and press Enter">
+                                                        placeholder="<%= t('settings.advanced.promptTags.placeholder') %>">
                                                     <button type="button" 
                                                             class="material-button add-tag-btn">
                                                         <i class="fas fa-plus"></i>
-                                                        Add
+                                                        <%= t('settings.actions.add') %>
                                                     </button>
                                                 </div>
                                                 <div id="tagsContainer" class="tags-container">
@@ -394,27 +409,27 @@
                                         
                                         <hr/>
                                         <div class="form-group">
-                                            <label for="usePromptTags">Use specific tags in prompt?</label>
+                                            <label for="usePromptTags"><%= t('settings.advanced.promptTags.title') %></label>
                                             <select id="usePromptTags" 
                                                     name="usePromptTags" 
                                                     class="modern-input">
-                                                <option value="no" <%= config.USE_PROMPT_TAGS === 'no' ? 'selected' : '' %>>No</option>
-                                                <option value="yes" <%= config.USE_PROMPT_TAGS === 'yes' ? 'selected' : '' %>>Yes</option>
+                                                <option value="no" <%= config.USE_PROMPT_TAGS === 'no' ? 'selected' : '' %>><%= t('settings.advanced.useExistingData.no') %></option>
+                                                <option value="yes" <%= config.USE_PROMPT_TAGS === 'yes' ? 'selected' : '' %>><%= t('settings.advanced.useExistingData.yes') %></option>
                                             </select>
                                         </div>
     
                                         <div id="promptTagsSection" class="<%= config.USE_PROMPT_TAGS === 'yes' ? '' : 'hidden' %>">
                                             <div class="form-group">
-                                                <label for="promptTagInput">Prompt Tags</label>
+                                                <label for="promptTagInput"><%= t('settings.advanced.promptTags.title') %></label>
                                                 <div class="tag-input-container">
                                                     <input type="text" 
                                                         id="promptTagInput" 
                                                         class="modern-input"
-                                                        placeholder="Enter a tag and press Enter">
+                                                        placeholder="<%= t('settings.advanced.promptTags.placeholder') %>">
                                                     <button type="button" 
                                                             class="material-button add-prompt-tag-btn">
                                                         <i class="fas fa-plus"></i>
-                                                        Add
+                                                        <%= t('settings.actions.add') %>
                                                     </button>
                                                 </div>
                                                 <div id="promptTagsContainer" class="tags-container">
@@ -428,37 +443,32 @@
                                                     <% } %>
                                                 </div>
                                                 <input type="hidden" id="promptTags" name="promptTags" value="<%= Array.isArray(config.PROMPT_TAGS) ? config.PROMPT_TAGS.join(',') : '' %>">
-                                                <p class="help-text">These tags will be exclusively used in the AI prompt</p>
+                                                <p class="help-text"><%= t('settings.advanced.promptTags.description') %></p>
                                             </div>
                                         </div>
                                         <hr/>
-                                        <div class="form-group">
-                                            <label for="disableAutomaticProcessing">Disable automatic processing?</label>
-                                            <div class="modern-card flex-1 p-4 rounded-lg border border-gray-200 hover:border-blue-500 transition-colors duration-200">
-                                                <label class="flex items-start cursor-pointer w-full">
-                                                    <input type="checkbox" 
-                                                        id="disableAutomaticProcessing" 
-                                                        name="disableAutomaticProcessing" 
-                                                        class="mt-1 w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                                                        <%= config.DISABLE_AUTOMATIC_PROCESSING === 'yes' ? 'checked' : '' %>>
-                                                    <div class="ml-3">
-                                                        <div class="flex items-center font-medium">
-                                                            <i class="fas fa-tags text-blue-500 mr-2"></i>
-                                                            Disable Automatic Processing
-                                                        </div>
-                                                        <p class="text-sm text-gray-500 mt-1">Determines if the AI will run on its own or every scan is started manually</p>
-                                                    </div>
-                                                </label>
+                                        <!-- Automatic Processing -->
+                                        <div class="mb-6">
+                                            <label for="disableAutomaticProcessing"><%= t('settings.advanced.automaticProcessing.title') %></label>
+                                            <div class="mt-2">
+                                                <select
+                                                    id="disableAutomaticProcessing"
+                                                    name="disableAutomaticProcessing"
+                                                    class="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:max-w-xs sm:text-sm sm:leading-6"
+                                                >
+                                                    <option value="no"><%= t('settings.advanced.useExistingData.no') %></option>
+                                                    <option value="yes"><%= t('settings.advanced.useExistingData.yes') %></option>
+                                                </select>
                                             </div>
+                                            <p class="mt-2 text-sm text-gray-500"><%= t('settings.advanced.automaticProcessing.description') %></p>
                                         </div>
-                                        <hr/>
                                         <!-- Limit Functions Section -->
                                         <div class="form-group space-y-4">
                                             <label class="flex items-center gap-2 font-medium">
                                                 <i class="fas fa-sliders-h text-blue-500"></i>
-                                                Enable/Disable AI Functions
+                                                <%= t('settings.advanced.functionLimits.title') %>
                                             </label>
-                                            <p class="text-sm text-gray-500">Select which functions the AI should perform during document analysis</p>
+                                            <p class="text-sm text-gray-500"><%= t('settings.advanced.functionLimits.description') %></p>
                                             
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                                                 <div class="modern-card flex-1 p-4 rounded-lg border border-gray-200 hover:border-blue-500 transition-colors duration-200">
@@ -471,9 +481,9 @@
                                                         <div class="ml-3">
                                                             <div class="flex items-center font-medium">
                                                                 <i class="fas fa-tags text-blue-500 mr-2"></i>
-                                                                Tags Assignment
+                                                                <%= t('settings.advanced.functionLimits.tagsAssignment.title') %>
                                                             </div>
-                                                            <p class="text-sm text-gray-500 mt-1">Automatically assign relevant tags to documents</p>
+                                                            <p class="text-sm text-gray-500 mt-1"><%= t('settings.advanced.functionLimits.tagsAssignment.description') %></p>
                                                         </div>
                                                     </label>
                                                 </div>
@@ -488,9 +498,9 @@
                                                         <div class="ml-3">
                                                             <div class="flex items-center font-medium">
                                                                 <i class="fas fa-user text-blue-500 mr-2"></i>
-                                                                Correspondent Detection
+                                                                <%= t('settings.advanced.functionLimits.correspondentDetection.title') %>
                                                             </div>
-                                                            <p class="text-sm text-gray-500 mt-1">Identify document senders automatically</p>
+                                                            <p class="text-sm text-gray-500 mt-1"><%= t('settings.advanced.functionLimits.correspondentDetection.description') %></p>
                                                         </div>
                                                     </label>
                                                 </div>
@@ -505,9 +515,9 @@
                                                         <div class="ml-3">
                                                             <div class="flex items-center font-medium">
                                                                 <i class="fas fa-file-alt text-blue-500 mr-2"></i>
-                                                                Document Type Classification
+                                                                <%= t('settings.advanced.functionLimits.documentType.title') %>
                                                             </div>
-                                                            <p class="text-sm text-gray-500 mt-1">Determine the type of document automatically</p>
+                                                            <p class="text-sm text-gray-500 mt-1"><%= t('settings.advanced.functionLimits.documentType.description') %></p>
                                                         </div>
                                                     </label>
                                                 </div>
@@ -522,9 +532,9 @@
                                                         <div class="ml-3">
                                                             <div class="flex items-center font-medium">
                                                                 <i class="fas fa-heading text-blue-500 mr-2"></i>
-                                                                Title Generation
+                                                                <%= t('settings.advanced.functionLimits.titleGeneration.title') %>
                                                             </div>
-                                                            <p class="text-sm text-gray-500 mt-1">Generate meaningful titles for documents</p>
+                                                            <p class="text-sm text-gray-500 mt-1"><%= t('settings.advanced.functionLimits.titleGeneration.description') %></p>
                                                         </div>
                                                     </label>
                                                 </div>
@@ -539,9 +549,9 @@
                                                         <div class="ml-3">
                                                             <div class="flex items-center font-medium">
                                                                 <i class="fas fa-filter text-blue-500 mr-2"></i>
-                                                                Custom Fields
+                                                                <%= t('settings.advanced.functionLimits.customFields.title') %>
                                                             </div>
-                                                            <p class="text-sm text-gray-500 mt-1">Add custom fields to the documents</p>
+                                                            <p class="text-sm text-gray-500 mt-1"><%= t('settings.advanced.functionLimits.customFields.description') %></p>
                                                         </div>
                                                     </label>
                                                 </div>
@@ -554,9 +564,9 @@
                                             <div class="form-group space-y-4" id="customFieldsSection">
                                                 <label class="flex items-center gap-2 font-medium">
                                                     <i class="fas fa-table text-blue-500"></i>
-                                                    Custom Fields Configuration
+                                                    <%= t('settings.advanced.customFields.title') %>
                                                 </label>
-                                                <p class="text-sm text-gray-500">Configure custom fields that will be populated by AI during document analysis.</p>
+                                                <p class="text-sm text-gray-500"><%= t('settings.advanced.customFields.description') %></p>
                                                 
                                                 <!-- Fields Container -->
                                                 <div id="customFieldsList" class="space-y-2">
@@ -570,7 +580,7 @@
                                                                     <div class="flex-1">
                                                                         <p class="font-medium"><%= field.value %></p>
                                                                         <p class="text-sm text-gray-500">
-                                                                            Type: <%= field.data_type %>
+                                                                            <%= t('settings.advanced.customFields.type') %>: <%= t('settings.advanced.customFields.types.' + field.data_type) %>
                                                                             <% if (field.data_type === 'monetary' && field.currency) { %>
                                                                                 (<%= field.currency %>)
                                                                             <% } %>
@@ -594,30 +604,23 @@
                                                     <input type="text" 
                                                         id="newFieldName" 
                                                         class="modern-input w-full" 
-                                                        placeholder="Enter field name...">
+                                                        placeholder="<%= t('settings.advanced.customFields.newField') %>">
                                                 </div>
                                                 
                                                 <div class="col-span-2">
                                                     <select id="newFieldType" class="modern-input w-full" onchange="toggleCurrencySelect()">
-                                                        <option value="string">Text</option>
-                                                        <option value="float">Number</option>
-                                                        <option value="integer">Integer</option>
-                                                        <option value="monetary">Currency</option>
+                                                        <option value="string"><%= t('settings.advanced.customFields.types.string') %></option>
+                                                        <option value="float"><%= t('settings.advanced.customFields.types.float') %></option>
+                                                        <option value="integer"><%= t('settings.advanced.customFields.types.integer') %></option>
+                                                        <option value="monetary"><%= t('settings.advanced.customFields.types.monetary') %></option>
                                                     </select>
                                                 </div>
 
                                                 <div class="col-span-2">
                                                     <select id="currencyCode" class="modern-input w-full" style="display: none;">
-                                                        <option value="EUR">EUR</option>
-                                                        <option value="USD">USD</option>
-                                                        <option value="GBP">GBP</option>
-                                                        <option value="JPY">JPY</option>
-                                                        <option value="CHF">CHF</option>
-                                                        <option value="AUD">AUD</option>
-                                                        <option value="CAD">CAD</option>
-                                                        <option value="CNY">CNY</option>
-                                                        <option value="INR">INR</option>
-                                                        <option value="NZD">NZD</option>
+                                                        <% ['EUR', 'USD', 'GBP', 'JPY', 'CHF', 'AUD', 'CAD', 'CNY', 'INR', 'NZD'].forEach(currency => { %>
+                                                            <option value="<%= currency %>"><%= currency %></option>
+                                                        <% }); %>
                                                     </select>
                                                 </div>
 
@@ -627,7 +630,7 @@
                                                             class="material-button w-full flex items-center justify-center gap-2"
                                                             id="addFieldBtn">
                                                         <i class="fas fa-plus"></i>
-                                                        Add
+                                                        <%= t('settings.actions.add') %>
                                                     </button>
                                                 </div>
                                             </div>
@@ -643,17 +646,17 @@
                                     <hr/>
                                     <!-- System Prompt -->
                                     <div class="form-group">
-                                        <label for="systemPrompt">Prompt Description</label>
+                                        <label for="systemPrompt"><%= t('settings.advanced.prompt.title') %></label>
                                         <div class="prompt-container">
                                             <textarea id="systemPrompt" 
                                                      name="systemPrompt"
                                                      rows="8"
                                                      class="modern-input"
-                                                     placeholder="Describe how the AI should analyze your documents..."><%= config.SYSTEM_PROMPT %></textarea>
+                                                     placeholder="<%= t('settings.advanced.prompt.placeholder') %>"><%= config.SYSTEM_PROMPT %></textarea>
                                             <button id="systemPromptBtn" type="button" 
                                                     class="material-button example-btn">
                                                 <i class="fas fa-lightbulb"></i>
-                                                Example
+                                                <%= t('settings.advanced.prompt.example') %>
                                             </button>
                                         </div>
                                     </div>
@@ -665,15 +668,15 @@
                         <div class="flex justify-between pt-6">
                             <button type="button" id="prevBtn" class="material-button" style="display: none;">
                                 <i class="fas fa-arrow-left"></i>
-                                Previous
+                                <%= t('setup.navigation.previous') %>
                             </button>
                             <button type="button" id="nextBtn" class="material-button">
-                                Next
+                                <%= t('setup.navigation.next') %>
                                 <i class="fas fa-arrow-right"></i>
                             </button>
                             <button type="submit" id="submitBtn" class="material-button submit-btn" style="display: none;">
                                 <i class="fas fa-save"></i>
-                                Save Configuration
+                                <%= t('setup.navigation.save') %>
                             </button>
                         </div>
                     </form>

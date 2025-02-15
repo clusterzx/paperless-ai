@@ -96,43 +96,43 @@
                     <li>
                         <a href="/dashboard" class="sidebar-link">
                             <i class="fas fa-home"></i>
-                            <span>Dashboard</span>
+                            <span><%= t('common.dashboard') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/manual" class="sidebar-link">
                             <i class="fas fa-file-alt"></i>
-                            <span>Manual</span>
+                            <span><%= t('common.manual') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/chat" class="sidebar-link">
                             <i class="fa-solid fa-comment"></i>
-                            <span>Chat</span>
+                            <span><%= t('common.chat') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/playground" class="sidebar-link">
                             <i class="fa-solid fa-flask-vial"></i>
-                            <span>Playground</span>
+                            <span><%= t('common.playground') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/history" class="sidebar-link">
                             <i class="fa-solid fa-clock-rotate-left"></i>
-                            <span>History</span>
+                            <span><%= t('common.history') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/settings" class="sidebar-link active">
                             <i class="fas fa-cog"></i>
-                            <span>Settings</span>
+                            <span><%= t('common.settings') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/logout" class="sidebar-link">
                             <i class="fa-solid fa-right-from-bracket"></i>
-                            <span>Logout</span>
+                            <span><%= t('common.logout') %></span>
                         </a>
                     </li>
                 </ul>
@@ -154,7 +154,7 @@
                         <button id="regenerateBtn" 
                                 class="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 dark:hover:bg-blue-700 transition-colors duration-200 flex items-center space-x-2">
                             <i class="fas fa-sync-alt" id="regenerateIcon"></i>
-                            <span>Regenerate</span>
+                            <span><%= t('settings.apiKey.regenerate') %></span>
                         </button>
                         <div id="copyNotification" 
                              class="absolute right-0 top-0 mt-12 w-64 bg-green-50 dark:bg-green-900 text-green-800 dark:text-green-100 border border-green-200 dark:border-green-700 rounded-lg p-3 hidden">
@@ -189,12 +189,12 @@
                         <section class="space-y-6">
                             <h2 class="text-xl font-bold flex items-center gap-2 text-primary mb-4">
                                 <i class="fas fa-link"></i>
-                                Connection Settings
+                                <%= t('settings.connection.title') %>
                             </h2>
                             <div class="space-y-4">
                                 <div class="space-y-2">
                                     <label for="paperlessUrl" class="flex items-center gap-2 text-sm font-medium">
-                                        Paperless-ngx API URL
+                                        <%= t('settings.connection.paperlessUrl') %>
                                         <button type="button" class="text-gray-400 hover:text-gray-600 focus:outline-none" id="urlHelp">
                                             <i class="fas fa-circle-question"></i>
                                         </button>
@@ -209,7 +209,7 @@
                                 </div>
         
                                 <div class="space-y-2">
-                                    <label for="paperlessToken" class="text-sm font-medium">API Token</label>
+                                    <label for="paperlessToken" class="text-sm font-medium"><%= t('settings.connection.paperlessToken') %></label>
                                     <div class="relative">
                                         <input type="password" 
                                                id="paperlessToken" 
@@ -225,7 +225,7 @@
 
                                 <div class="space-y-2">
                                     <label for="paperlessUsername" class="flex items-center gap-2 text-sm font-medium">
-                                        Paperless-ngx Username
+                                        <%= t('settings.connection.paperlessUsername') %>
                                     </label>
                                     <input type="text" 
                                            id="paperlessUsername" 
@@ -237,6 +237,26 @@
                                 </div>                                
                             </div>
                         </section>
+
+                        <!-- Language Settings Section -->
+                        <section class="space-y-6">
+                            <h2 class="text-xl font-bold flex items-center gap-2 text-primary mb-4">
+                                <i class="fas fa-language"></i>
+                                <%= t('settings.language.title') %>
+                            </h2>
+                            <div class="space-y-4">
+                                <div class="space-y-2">
+                                    <label for="language" class="text-sm font-medium"><%= t('settings.language.select') %></label>
+                                    <select id="language" 
+                                            name="language"
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        <option value="en" <%= language === 'en' ? 'selected' : '' %>>English</option>
+                                        <option value="de" <%= language === 'de' ? 'selected' : '' %>>Deutsch</option>
+                                        <option value="es" <%= language === 'es' ? 'selected' : '' %>>Español</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </section>
         
                         <!-- AI Configuration Section -->
                         <section class="space-y-6">
@@ -246,7 +266,7 @@
                             </h2>
                             <div class="space-y-4">
                                 <div class="space-y-2">
-                                    <label for="aiProvider" class="text-sm font-medium">AI Provider</label>
+                                    <label for="aiProvider" class="text-sm font-medium"><%= t('settings.ai.provider') %></label>
                                     <select id="aiProvider" 
                                             name="aiProvider"
                                             class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
@@ -338,7 +358,7 @@
                                             name="customModel"
                                             value="<%= config.CUSTOM_MODEL %>"
                                             class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                            placeholder="Enter model name">
+                                            placeholder="<%= t('settings.ai.custom.modelPlaceholder') %>">
                                     </div>
                                 </div>
                             </div>
@@ -361,14 +381,14 @@
                                     </select>
                                 </div>
                                 <div class="space-y-2">
-                                    <label for="scanInterval" class="text-sm font-medium">Scan Interval (Cron Format)</label>
+                                    <label for="scanInterval" class="text-sm font-medium"><%= t('settings.advanced.scanInterval.title') %></label>
                                     <input type="text" 
                                            id="scanInterval" 
                                            name="scanInterval"
                                            value="<%= config.SCAN_INTERVAL %>"
                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                            required>
-                                    <p class="text-sm text-gray-500">Default: every 30 minutes</p>
+                                    <p class="text-sm text-gray-500"><%= t('settings.advanced.scanInterval.default') %></p>
                                 </div>
         
                                 <!-- Tags Section -->
@@ -390,11 +410,11 @@
                                                 <input type="text" 
                                                     id="tagInput" 
                                                     class="flex-1 px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                                    placeholder="Enter a tag and press Enter">
+                                                    placeholder="<%= t('settings.advanced.promptTags.placeholder') %>">
                                                 <button type="button" 
                                                         class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
                                                     <i class="fas fa-plus mr-2"></i>
-                                                    Add
+                                                    <%= t('settings.actions.add') %>
                                                 </button>
                                             </div>
                                             <div id="tagsContainer" class="flex flex-wrap gap-2 mt-2">
@@ -415,36 +435,36 @@
                                 <!-- AI Tag Section -->
                                 <div class="border-t pt-4 space-y-4">
                                     <div class="space-y-2">
-                                        <label for="aiProcessedTag" class="text-sm font-medium">Add AI-processed tag to documents?</label>
+                                        <label for="aiProcessedTag" class="text-sm font-medium"><%= t('settings.advanced.aiProcessedTag.title') %></label>
                                         <select id="aiProcessedTag" 
                                                 name="aiProcessedTag" 
                                                 class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                            <option value="no" <%= config.ADD_AI_PROCESSED_TAG === 'no' ? 'selected' : '' %>>No</option>
-                                            <option value="yes" <%= config.ADD_AI_PROCESSED_TAG === 'yes' ? 'selected' : '' %>>Yes</option>
+                                            <option value="no" <%= config.ADD_AI_PROCESSED_TAG === 'no' ? 'selected' : '' %>><%= t('settings.advanced.useExistingData.no') %></option>
+                                            <option value="yes" <%= config.ADD_AI_PROCESSED_TAG === 'yes' ? 'selected' : '' %>><%= t('settings.advanced.useExistingData.yes') %></option>
                                         </select>
                                     </div>
         
                                     <div id="aiTagNameSection" class="<%= config.ADD_AI_PROCESSED_TAG === 'yes' ? '' : 'hidden' %> space-y-2">
-                                        <label for="aiTagName" class="text-sm font-medium">AI-processed Tag Name</label>
+                                        <label for="aiTagName" class="text-sm font-medium"><%= t('settings.advanced.aiProcessedTag.name.title') %></label>
                                         <input type="text" 
                                             id="aiTagName" 
                                             name="aiTagName"
                                             value="<%= config.AI_PROCESSED_TAG_NAME || 'ai-processed' %>"
                                             class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                            placeholder="ai-processed">
-                                        <p class="text-sm text-gray-500">This tag will be added to documents after AI processing</p>
+                                            placeholder="<%= t('settings.advanced.aiProcessedTag.name.placeholder') %>">
+                                        <p class="text-sm text-gray-500"><%= t('settings.advanced.aiProcessedTag.name.description') %></p>
                                     </div>
                                 </div>
         
                                 <!-- Prompt Tags Section -->
                                 <div class="border-t pt-4 space-y-4">
                                     <div class="space-y-2">
-                                        <label for="usePromptTags" class="text-sm font-medium">Use specific tags in prompt?</label>
+                                        <label for="usePromptTags" class="text-sm font-medium"><%= t('settings.advanced.promptTags.title') %></label>
                                         <select id="usePromptTags" 
                                                 name="usePromptTags" 
                                                 class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                            <option value="no" <%= config.USE_PROMPT_TAGS === 'no' ? 'selected' : '' %>>No</option>
-                                            <option value="yes" <%= config.USE_PROMPT_TAGS === 'yes' ? 'selected' : '' %>>Yes</option>
+                                            <option value="no" <%= config.USE_PROMPT_TAGS === 'no' ? 'selected' : '' %>><%= t('settings.advanced.useExistingData.no') %></option>
+                                            <option value="yes" <%= config.USE_PROMPT_TAGS === 'yes' ? 'selected' : '' %>><%= t('settings.advanced.useExistingData.yes') %></option>
                                         </select>
                                     </div>
         
@@ -459,7 +479,7 @@
                                                 <button type="button" 
                                                         class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
                                                     <i class="fas fa-plus mr-2"></i>
-                                                    Add
+                                                    <%= t('settings.actions.add') %>
                                                 </button>
                                             </div>
                                             <div id="promptTagsContainer" class="flex flex-wrap gap-2 mt-2">
@@ -481,7 +501,7 @@
                                 <!-- Automatic Processing Section -->
                                 <div class="border-t pt-4 space-y-4">
                                     <div class="space-y-2">
-                                        <label for="disableAutomaticProcessing" class="text-sm font-medium">Disable automatic processing?</label>
+                                        <label for="disableAutomaticProcessing" class="text-sm font-medium"><%= t('settings.advanced.automaticProcessing.title') %></label>
                                         <div class="border border-gray-200 shadow-sm rounded-lg hover:border-blue-500 transition-colors duration-200">
                                             <label for="disableAutomaticProcessing" class="flex items-center p-4 cursor-pointer w-full">
                                                 <input type="checkbox" 
@@ -491,9 +511,9 @@
                                                 <div class="ml-3">
                                                     <div class="flex items-center text-gray-900 font-medium">
                                                         <i class="fas fa-robot mr-2 text-blue-500"></i>
-                                                        Disable Automatic Processing
+                                                        <%= t('settings.advanced.automaticProcessing.label') %>
                                                     </div>
-                                                    <p class="text-sm text-gray-500 mt-1">Determines if the AI will run on its own or every scan is started manually</p>
+                                                    <p class="text-sm text-gray-500 mt-1"><%= t('settings.advanced.automaticProcessing.description') %></p>
                                                 </div>
                                             </label>
                                         </div>
@@ -505,12 +525,12 @@
                                 <section class="space-y-6">
                                     <h2 class="text-xl font-bold flex items-center gap-2 text-primary mb-4">
                                         <i class="fas fa-tasks"></i>
-                                        AI Function Limits
+                                        <%= t('settings.advanced.functionLimits.title') %>
                                     </h2>
                                     <div class="space-y-4">
                                         <div class="space-y-2">
-                                            <label class="text-sm font-medium">Enable/Disable AI Functions</label>
-                                            <p class="text-sm text-gray-500 mb-4">Select which functions the AI should perform during document analysis</p>
+                                            <label class="text-sm font-medium"><%= t('settings.advanced.functionLimits.label') %></label>
+                                            <p class="text-sm text-gray-500 mb-4"><%= t('settings.advanced.functionLimits.description') %></p>
                                             
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 <div class="border border-gray-200 shadow-sm rounded-lg hover:border-blue-500 transition-colors duration-200">
@@ -523,9 +543,9 @@
                                                         <div class="ml-3">
                                                             <div class="flex items-center text-gray-900 font-medium">
                                                                 <i class="fas fa-tags mr-2 text-blue-500"></i>
-                                                                Tags Assignment
+                                                                <%= t('settings.advanced.functionLimits.functions.tagging.title') %>
                                                             </div>
-                                                            <p class="text-sm text-gray-500 mt-1">Automatically assign relevant tags to documents</p>
+                                                            <p class="text-sm text-gray-500 mt-1"><%= t('settings.advanced.functionLimits.functions.tagging.description') %></p>
                                                         </div>
                                                     </label>
                                                 </div>
@@ -540,9 +560,9 @@
                                                         <div class="ml-3">
                                                             <div class="flex items-center text-gray-900 font-medium">
                                                                 <i class="fas fa-user mr-2 text-blue-500"></i>
-                                                                Correspondent Detection
+                                                                <%= t('settings.advanced.functionLimits.functions.correspondent.title') %>
                                                             </div>
-                                                            <p class="text-sm text-gray-500 mt-1">Identify document senders automatically</p>
+                                                            <p class="text-sm text-gray-500 mt-1"><%= t('settings.advanced.functionLimits.functions.correspondent.description') %></p>
                                                         </div>
                                                     </label>
                                                 </div>
@@ -557,9 +577,9 @@
                                                         <div class="ml-3">
                                                             <div class="flex items-center text-gray-900 font-medium">
                                                                 <i class="fas fa-file-alt mr-2 text-blue-500"></i>
-                                                                Document Type Classification
+                                                                <%= t('settings.advanced.functionLimits.functions.documentType.title') %>
                                                             </div>
-                                                            <p class="text-sm text-gray-500 mt-1">Determine the type of document automatically</p>
+                                                            <p class="text-sm text-gray-500 mt-1"><%= t('settings.advanced.functionLimits.functions.documentType.description') %></p>
                                                         </div>
                                                     </label>
                                                 </div>
@@ -574,9 +594,9 @@
                                                         <div class="ml-3">
                                                             <div class="flex items-center text-gray-900 font-medium">
                                                                 <i class="fas fa-heading mr-2 text-blue-500"></i>
-                                                                Title Generation
+                                                                <%= t('settings.advanced.functionLimits.functions.titleGeneration.title') %>
                                                             </div>
-                                                            <p class="text-sm text-gray-500 mt-1">Generate meaningful titles for documents</p>
+                                                            <p class="text-sm text-gray-500 mt-1"><%= t('settings.advanced.functionLimits.functions.titleGeneration.description') %></p>
                                                         </div>
                                                     </label>
                                                 </div>
@@ -590,9 +610,9 @@
                                                         <div class="ml-3">
                                                             <div class="flex items-center text-gray-900 font-medium">
                                                                 <i class="fas fa-filter mr-2 text-blue-500"></i>
-                                                                Custom Fields
+                                                                <%= t('settings.advanced.functionLimits.functions.customFields.title') %>
                                                             </div>
-                                                            <p class="text-sm text-gray-500 mt-1">Add custom fields to the documents</p>
+                                                            <p class="text-sm text-gray-500 mt-1"><%= t('settings.advanced.functionLimits.functions.customFields.description') %></p>
                                                         </div>
                                                     </label>
                                                 </div>
@@ -604,7 +624,7 @@
                                 <section class="space-y-6">
                                     <h2 class="text-xl font-bold flex items-center gap-2 text-primary mb-4">
                                         <i class="fas fa-table text-blue-500"></i>
-                                        Custom Fields
+                                        <%= t('settings.advanced.customFields.title') %>
                                     </h2>
                                     <div class="space-y-4">
                                         <div id="customFieldsList" class="space-y-2">
@@ -638,7 +658,7 @@
                                                 <input type="text" 
                                                     id="newFieldName" 
                                                     class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" 
-                                                    placeholder="Enter field name...">
+                                                    placeholder="<%= t('settings.advanced.customFields.newField') %>">
                                             </div>
                                             
                                             <div class="col-span-3">
@@ -667,8 +687,8 @@
                                                 <button type="button" 
                                                         onclick="addCustomField()"
                                                         class="w-full px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center gap-2">
-                                                    <i class="fas fa-plus"></i>
-                                                    Add
+                                                    <i class="fas fa-plus mr-2"></i>
+                                                    <%= t('settings.actions.add') %>
                                                 </button>
                                             </div>
                                         </div>
@@ -679,17 +699,17 @@
                                 <!-- System Prompt Section -->
                                 <div class="border-t pt-4 space-y-4">
                                     <div class="space-y-2">
-                                        <label for="systemPrompt" class="text-sm font-medium">Prompt Description</label>
+                                        <label for="systemPrompt" class="text-sm font-medium"><%= t('settings.advanced.prompt.title') %></label>
                                         <div class="space-y-2">
                                             <textarea id="systemPrompt" 
                                                       name="systemPrompt"
                                                       rows="8"
                                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                                      placeholder="Describe how the AI should analyze your documents..."><%= config.SYSTEM_PROMPT %></textarea>
+                                                      placeholder="<%= t('settings.advanced.prompt.placeholder') %>"><%= config.SYSTEM_PROMPT %></textarea>
                                             <button id="systemPromptBtn" type="button" 
                                                     class="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
                                                 <i class="fas fa-lightbulb mr-2"></i>
-                                                Example
+                                                <%= t('settings.advanced.prompt.example') %>
                                             </button>
                                         </div>
                                     </div>
@@ -701,7 +721,7 @@
                         <div class="border-t pt-6">
                             <button type="submit" class="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center gap-2">
                                 <i class="fas fa-save"></i>
-                                Save Configuration
+                                <%= t('settings.actions.save') %>
                             </button>
                         </div>
                     </form>

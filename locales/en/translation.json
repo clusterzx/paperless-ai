@@ -1,0 +1,310 @@
+{
+  "common": {
+    "dashboard": "Dashboard",
+    "settings": "Settings",
+    "manual": "Manual",
+    "playground": "Playground",
+    "chat": "Chat",
+    "setup": "Setup",
+    "logout": "Logout",
+    "history": "History",
+    "appTitle": "Paperless-AI Dashboard"
+  },
+  "settings": {
+    "connection": {
+      "title": "Connection Settings",
+      "paperlessUrl": "Paperless-ngx API URL",
+      "paperlessToken": "API Token",
+      "paperlessUsername": "Paperless-ngx Username",
+      "urlHelp": "Help with URL configuration"
+    },
+    "ai": {
+      "title": "AI Configuration",
+      "provider": "AI Provider",
+      "model": "Model",
+      "apiKey": "API Key",
+      "openai": {
+        "title": "OpenAI Settings",
+        "apiKey": "OpenAI API Key"
+      },
+      "ollama": {
+        "title": "Ollama Settings",
+        "url": "Ollama API URL",
+        "model": "Ollama Model"
+      },
+      "custom": {
+        "title": "Custom Provider Settings",
+        "baseUrl": "Base URL",
+        "apiKey": "API Key",
+        "model": "Model",
+        "modelPlaceholder": "Enter model name"
+      }
+    },
+    "processing": {
+      "title": "Processing Settings",
+      "scanInterval": "Scan Interval",
+      "systemPrompt": "System Prompt",
+      "tags": "Tags",
+      "usePromptTags": "Use Prompt Tags"
+    },
+    "language": {
+      "title": "Language Settings",
+      "select": "Select Language",
+      "current": "Current Language"
+    },
+    "advanced": {
+      "title": "Advanced Settings",
+      "useExistingData": {
+        "title": "Use existing Correspondents and Tags?",
+        "yes": "Yes",
+        "no": "No"
+      },
+      "scanInterval": {
+        "title": "Scan Interval (Cron Format)",
+        "default": "Default: every 30 minutes"
+      },
+      "processTagged": {
+        "title": "Process only specific pre tagged documents?",
+        "yes": "Yes",
+        "no": "No"
+      },
+      "aiProcessedTag": {
+        "title": "Add AI-processed tag to documents?",
+        "yes": "Yes",
+        "no": "No",
+        "name": {
+          "title": "AI-processed Tag Name",
+          "placeholder": "ai-processed",
+          "description": "This tag will be added to documents after AI processing"
+        }
+      },
+      "promptTags": {
+        "title": "Use specific tags in prompt?",
+        "yes": "Yes",
+        "no": "No",
+        "label": "Prompt Tags",
+        "placeholder": "Enter a tag and press Enter",
+        "description": "These tags will be exclusively used in the AI prompt"
+      },
+      "automaticProcessing": {
+        "title": "Disable automatic processing?",
+        "label": "Disable Automatic Processing",
+        "description": "Determines if the AI will run on its own or every scan is started manually"
+      },
+      "functionLimits": {
+        "title": "AI Function Limits",
+        "description": "Select which functions the AI should perform during document analysis",
+        "label": "Enable/Disable AI Functions",
+        "functions": {
+          "tagging": {
+            "title": "Tags Assignment",
+            "description": "Automatically assign relevant tags to documents"
+          },
+          "correspondent": {
+            "title": "Correspondent Detection",
+            "description": "Identify document senders automatically"
+          },
+          "documentType": {
+            "title": "Document Type Classification",
+            "description": "Determine the type of document automatically"
+          },
+          "titleGeneration": {
+            "title": "Title Generation",
+            "description": "Generate meaningful titles for documents"
+          },
+          "customFields": {
+            "title": "Custom Fields",
+            "description": "Add custom fields to the documents"
+          }
+        }
+      },
+      "customFields": {
+        "title": "Custom Fields",
+        "newField": "Enter field name...",
+        "types": {
+          "text": "Text",
+          "number": "Number",
+          "integer": "Integer",
+          "currency": "Currency"
+        }
+      },
+      "prompt": {
+        "title": "Prompt Description",
+        "placeholder": "Describe how the AI should analyze your documents...",
+        "example": "Example"
+      }
+    },
+    "apiKey": {
+      "label": "API-KEY",
+      "copy": "API key copied to clipboard!",
+      "regenerate": "Regenerate"
+    },
+    "messages": {
+      "alreadyConfigured": "The application is already configured. You can update the configuration below.",
+      "environmentConfigured": "Environment is configured, but no users exist. Please create at least one user.",
+      "success": "Settings saved successfully",
+      "error": "Error saving settings"
+    },
+    "actions": {
+      "save": "Save Configuration",
+      "add": "Add"
+    },
+    "pageTitle": "Configuration"
+  },
+  "dashboard": {
+    "overview": "Dashboard Overview",
+    "documentTypeDistribution": "Document Type Distribution",
+    "stats": {
+      "title": "System Statistics",
+      "totalTags": "Total Tags",
+      "correspondents": "Correspondents"
+    },
+    "processing": {
+      "title": "Task Runner Status",
+      "status": {
+        "idle": "System Idle",
+        "waiting": "Waiting for new documents",
+        "processing": "Processing Document",
+        "lastUpdated": "Last updated",
+        "processedToday": "Processed Today",
+        "lastProcessed": "Last Processed",
+        "documents": "documents",
+        "scanning": "Scanning...",
+        "noDocuments": "No documents processed yet"
+      },
+      "actions": {
+        "scanNow": "Scan Now",
+        "scanComplete": "Scan completed successfully!"
+      }
+    },
+    "tokenUsage": {
+      "title": "AI Token Usage",
+      "averagePerDoc": "Average Token Usage per Document",
+      "promptTokens": "Prompt Tokens",
+      "completionTokens": "Completion Tokens",
+      "averageTotal": "Average Total",
+      "totalTokens": "Total Tokens Used",
+      "documentsProcessed": "Documents Processed"
+    },
+    "documentStatus": {
+      "title": "Document Processing Status",
+      "processed": "AI Processed",
+      "unprocessed": "Unprocessed",
+      "total": "Total Documents"
+    },
+    "updates": {
+      "available": "Update Available",
+      "clickToDownload": "Click to download version"
+    }
+  },
+  "time": {
+    "justNow": "just now",
+    "secondsAgo": "{{count}} seconds ago",
+    "minutesAgo": "{{count}} minutes ago",
+    "hoursAgo": "{{count}} hours ago",
+    "daysAgo": "{{count}} days ago",
+    "seconds": "time.seconds",
+    "minutes": "time.minutes",
+    "hours": "time.hours",
+    "days": "time.days"
+  },
+  "messages": {
+    "success": "Success",
+    "error": "Error",
+    "saving": "Saving...",
+    "loading": "Loading...",
+    "confirmDelete": "Are you sure you want to delete this?",
+    "noDocuments": "No documents found"
+  },
+  "manual": {
+    "title": "Manual Document Processing",
+    "document": {
+      "select": "Select Document",
+      "preview": "Document Preview",
+      "choose": "Choose a document...",
+      "correspondent": "Correspondent",
+      "title": "Title"
+    },
+    "ai": {
+      "title": "AI Analysis",
+      "analyze": "Analyze with AI",
+      "chat": "Chat with AI (Beta)",
+      "analyzing": "AI is analyzing the document..."
+    },
+    "tags": {
+      "title": "Tags",
+      "suggestions": "AI Suggestions",
+      "current": "Current Tags",
+      "save": "Save Tags",
+      "add": "Add New Tag",
+      "select": "Select a tag..."
+    },
+    "messages": {
+      "errorLoadingTags": "Error loading tags",
+      "errorLoadingDocuments": "Error loading documents",
+      "errorLoadingContent": "Error loading document content",
+      "errorSavingTags": "Error saving tags",
+      "tagsSaved": "Tags saved successfully"
+    }
+  },
+  "chat": {
+    "title": "Document Chat",
+    "document": {
+      "select": "Select Document",
+      "choose": "Please choose...",
+      "start": "Please select a document to start the chat."
+    },
+    "messages": {
+      "placeholder": "Type your message... (Shift + Enter for new line)"
+    }
+  },
+  "playground": {
+    "title": "Documents",
+    "analysis": {
+      "title": "Document Analysis",
+      "prompt": "Enter your analysis prompt here...",
+      "analyze": "Analyze Documents"
+    },
+    "savedPrompts": {
+      "title": "Saved Prompts",
+      "clearAll": "Clear All",
+      "confirmClear": "Are you sure you want to delete all saved prompts?",
+      "rating": {
+        "title": "Rate this Prompt",
+        "addComment": "Add your comments about this prompt...",
+        "save": "Save Rating",
+        "selectRating": "Please select a rating"
+      }
+    },
+    "modal": {
+      "loading": "Loading..."
+    },
+    "document": {
+      "unknown": "Unknown"
+    }
+  },
+  "history": {
+    "title": "Processing History",
+    "filters": {
+      "allTags": "All Tags",
+      "allCorrespondents": "All Correspondents"
+    },
+    "table": {
+      "id": "ID",
+      "title": "Title",
+      "tags": "Tags",
+      "correspondent": "Correspondent",
+      "actions": "Actions"
+    },
+    "actions": {
+      "resetSelected": "Reset Selected",
+      "resetAll": "Reset All"
+    },
+    "confirmReset": {
+      "title": "Confirm Reset All",
+      "message": "Are you sure you want to reset all documents to their original values? This action cannot be undone.",
+      "cancel": "Cancel",
+      "confirm": "Confirm Reset"
+    }
+  }
+}

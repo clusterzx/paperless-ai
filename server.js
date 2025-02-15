@@ -8,28 +8,13 @@ const AIServiceFactory = require('./services/aiServiceFactory');
 const documentModel = require('./models/document');
 const setupService = require('./services/setupService');
 const setupRoutes = require('./routes/setup');
+const translationsRoutes = require('./routes/translations');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const Logger = require('./services/loggerService');
-const { max } = require('date-fns');
-
-const htmlLogger = new Logger({
-  logFile: 'logs.html',
-  format: 'html',
-  timestamp: true,
-  maxFileSize: 1024 * 1024 * 10
-});
-
-const txtLogger = new Logger({
-  logFile: 'logs.txt',
-  format: 'txt',
-  timestamp: true,
-  maxFileSize: 1024 * 1024 * 10
-});
+const { i18nextMiddleware } = require('./config/i18n');
 
 const app = express();
 let runningTask = false;
-
 
 const corsOptions = {
   origin: true,
@@ -43,6 +28,14 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+app.use(cookieParser());
+app.use(i18nextMiddleware);
+
+// Make i18next available in templates
+app.use((req, res, next) => {
+  res.locals.t = req.t.bind(req);
+  next();
+});
 
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -59,7 +52,6 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(cookieParser());
 
 // View engine setup
 app.set('view engine', 'ejs');
@@ -329,6 +321,7 @@ async function scanDocuments() {
 
 // Routes
 app.use('/', setupRoutes);
+app.use(translationsRoutes);
 
 app.get('/', async (req, res) => {
   try {

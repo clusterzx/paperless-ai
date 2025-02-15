@@ -73,7 +73,7 @@ class PromptRatingSystem {
                 if (saveButton) {
                     saveButton.addEventListener('click', () => {
                         if (selectedRating === 0) {
-                            alert('Please select a rating');
+                            alert(window.translations.savedPrompts.rating.selectRating);
                             return;
                         }
 
@@ -101,7 +101,7 @@ class PromptRatingSystem {
             const clearButton = document.getElementById('clearPrompts');
             if (clearButton) {
                 clearButton.addEventListener('click', () => {
-                    if (confirm('Are you sure you want to delete all saved prompts?')) {
+                    if (confirm(window.translations.savedPrompts.confirmClear)) {
                         this.clearAllPrompts();
                     }
                 });
@@ -122,7 +122,7 @@ class PromptRatingSystem {
                 <div class="fixed inset-0 flex items-center justify-center p-4">
                     <div class="bg-white rounded-lg shadow-xl max-w-md w-full relative" style="background: var(--bg-primary); color: var(--text-primary)">
                         <div class="p-4 flex justify-between items-center border-b" style="border-color: var(--border-color)">
-                            <h3 class="text-lg font-semibold">Rate this Prompt</h3>
+                            <h3 class="text-lg font-semibold">${window.translations.savedPrompts.rating.title}</h3>
                             <button class="modal-close hover:opacity-70">
                                 <i class="fas fa-times"></i>
                             </button>
@@ -140,13 +140,13 @@ class PromptRatingSystem {
                             </div>
                             <textarea
                                 id="ratingComment"
-                                placeholder="Add your comments about this prompt..."
+                                placeholder="${window.translations.savedPrompts.rating.addComment}"
                                 class="w-full p-2 mt-4 rounded"
                                 style="background: var(--bg-primary); border: 1px solid var(--border-color);"
                                 rows="3"
                             ></textarea>
                             <button id="saveRating" class="w-full mt-4 px-4 py-2 text-white rounded hover:opacity-90 transition-opacity" style="background: var(--accent-primary)">
-                                Save Rating
+                                ${window.translations.savedPrompts.rating.save}
                             </button>
                         </div>
                     </div>
@@ -167,9 +167,9 @@ class PromptRatingSystem {
         promptsSection.className = 'material-card mb-8 saved-prompts-section';
         promptsSection.innerHTML = `
             <h2 class="card-title flex justify-between items-center">
-                Saved Prompts
+                ${window.translations.savedPrompts.title}
                 <button id="clearPrompts" class="text-sm px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700">
-                    Clear All
+                    ${window.translations.savedPrompts.clearAll}
                 </button>
             </h2>
             <div id="savedPromptsList"></div>

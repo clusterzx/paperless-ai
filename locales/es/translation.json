@@ -1,0 +1,310 @@
+{
+  "common": {
+    "dashboard": "Panel de Control",
+    "settings": "Configuración",
+    "manual": "Manual",
+    "playground": "Área de Pruebas",
+    "chat": "Chat",
+    "setup": "Configuración",
+    "logout": "Cerrar Sesión",
+    "history": "Historial",
+    "appTitle": "Panel de Control Paperless-AI"
+  },
+  "settings": {
+    "connection": {
+      "title": "Configuración de Conexión",
+      "paperlessUrl": "URL de API Paperless-ngx",
+      "paperlessToken": "Token de API",
+      "paperlessUsername": "Usuario de Paperless-ngx",
+      "urlHelp": "Ayuda con la configuración de URL"
+    },
+    "ai": {
+      "title": "Configuración de IA",
+      "provider": "Proveedor de IA",
+      "model": "Modelo",
+      "apiKey": "Clave de API",
+      "openai": {
+        "title": "Configuración de OpenAI",
+        "apiKey": "Clave de API de OpenAI"
+      },
+      "ollama": {
+        "title": "Configuración de Ollama",
+        "url": "URL de API de Ollama",
+        "model": "Modelo de Ollama"
+      },
+      "custom": {
+        "title": "Configuración de Proveedor Personalizado",
+        "baseUrl": "URL Base",
+        "apiKey": "Clave de API",
+        "model": "Modelo",
+        "modelPlaceholder": "Ingrese el nombre del modelo"
+      }
+    },
+    "processing": {
+      "title": "Configuración de Procesamiento",
+      "scanInterval": "Intervalo de Escaneo",
+      "systemPrompt": "Prompt del Sistema",
+      "tags": "Etiquetas",
+      "usePromptTags": "Usar Etiquetas de Prompt"
+    },
+    "language": {
+      "title": "Configuración de Idioma",
+      "select": "Seleccionar Idioma",
+      "current": "Idioma Actual"
+    },
+    "advanced": {
+      "title": "Configuración Avanzada",
+      "useExistingData": {
+        "title": "¿Usar Corresponsales y Etiquetas existentes?",
+        "yes": "Sí",
+        "no": "No"
+      },
+      "scanInterval": {
+        "title": "Intervalo de Escaneo (Formato Cron)",
+        "default": "Predeterminado: cada 30 minutos"
+      },
+      "processTagged": {
+        "title": "¿Procesar solo documentos pre-etiquetados específicos?",
+        "yes": "Sí",
+        "no": "No"
+      },
+      "aiProcessedTag": {
+        "title": "¿Agregar etiqueta de procesado por IA a los documentos?",
+        "yes": "Sí",
+        "no": "No",
+        "name": {
+          "title": "Nombre de Etiqueta Procesado por IA",
+          "placeholder": "procesado-por-ia",
+          "description": "Esta etiqueta se agregará a los documentos después del procesamiento de IA"
+        }
+      },
+      "promptTags": {
+        "title": "¿Usar etiquetas específicas en el prompt?",
+        "yes": "Sí",
+        "no": "No",
+        "label": "Etiquetas de Prompt",
+        "placeholder": "Ingrese una etiqueta y presione Enter",
+        "description": "Estas etiquetas se usarán exclusivamente en el prompt de IA"
+      },
+      "automaticProcessing": {
+        "title": "¿Deshabilitar procesamiento automático?",
+        "label": "Deshabilitar Procesamiento Automático",
+        "description": "Determina si la IA se ejecutará por sí sola o si cada escaneo se iniciará manualmente"
+      },
+      "functionLimits": {
+        "title": "Límites de Funciones de IA",
+        "description": "Seleccione qué funciones debe realizar la IA durante el análisis de documentos",
+        "label": "Habilitar/Deshabilitar Funciones de IA",
+        "functions": {
+          "tagging": {
+            "title": "Asignación de Etiquetas",
+            "description": "Asignar automáticamente etiquetas relevantes a los documentos"
+          },
+          "correspondent": {
+            "title": "Detección de Corresponsal",
+            "description": "Identificar automáticamente los remitentes de documentos"
+          },
+          "documentType": {
+            "title": "Clasificación de Tipo de Documento",
+            "description": "Determinar automáticamente el tipo de documento"
+          },
+          "titleGeneration": {
+            "title": "Generación de Título",
+            "description": "Generar títulos significativos para los documentos"
+          },
+          "customFields": {
+            "title": "Campos Personalizados",
+            "description": "Agregar campos personalizados a los documentos"
+          }
+        }
+      },
+      "customFields": {
+        "title": "Campos Personalizados",
+        "newField": "Ingrese el nombre del campo...",
+        "types": {
+          "text": "Texto",
+          "number": "Número",
+          "integer": "Entero",
+          "currency": "Moneda"
+        }
+      },
+      "prompt": {
+        "title": "Descripción del Prompt",
+        "placeholder": "Describa cómo la IA debe analizar sus documentos...",
+        "example": "Ejemplo"
+      }
+    },
+    "apiKey": {
+      "label": "CLAVE-API",
+      "copy": "¡Clave de API copiada al portapapeles!",
+      "regenerate": "Regenerar"
+    },
+    "messages": {
+      "alreadyConfigured": "La aplicación ya está configurada. Puede actualizar la configuración a continuación.",
+      "environmentConfigured": "El entorno está configurado, pero no existen usuarios. Por favor, cree al menos un usuario.",
+      "success": "Configuración guardada exitosamente",
+      "error": "Error al guardar la configuración"
+    },
+    "actions": {
+      "save": "Guardar Configuración",
+      "add": "Agregar"
+    },
+    "pageTitle": "Configuración"
+  },
+  "dashboard": {
+    "overview": "Vista General del Panel",
+    "documentTypeDistribution": "Distribución de Tipos de Documento",
+    "stats": {
+      "title": "Estadísticas del Sistema",
+      "totalTags": "Total de Etiquetas",
+      "correspondents": "Corresponsales"
+    },
+    "processing": {
+      "title": "Estado del Ejecutor de Tareas",
+      "status": {
+        "idle": "Sistema Inactivo",
+        "waiting": "Esperando nuevos documentos",
+        "processing": "Procesando Documento",
+        "lastUpdated": "Última actualización",
+        "processedToday": "Procesados Hoy",
+        "lastProcessed": "Último Procesado",
+        "documents": "documentos",
+        "scanning": "Escaneando...",
+        "noDocuments": "Aún no se han procesado documentos"
+      },
+      "actions": {
+        "scanNow": "Escanear Ahora",
+        "scanComplete": "¡Escaneo completado exitosamente!"
+      }
+    },
+    "tokenUsage": {
+      "title": "Uso de Tokens de IA",
+      "averagePerDoc": "Uso Promedio de Tokens por Documento",
+      "promptTokens": "Tokens de Prompt",
+      "completionTokens": "Tokens de Completado",
+      "averageTotal": "Promedio Total",
+      "totalTokens": "Total de Tokens Usados",
+      "documentsProcessed": "Documentos Procesados"
+    },
+    "documentStatus": {
+      "title": "Estado de Procesamiento de Documentos",
+      "processed": "Procesado por IA",
+      "unprocessed": "Sin Procesar",
+      "total": "Total de Documentos"
+    },
+    "updates": {
+      "available": "Actualización Disponible",
+      "clickToDownload": "Haga clic para descargar la versión"
+    }
+  },
+  "time": {
+    "justNow": "justo ahora",
+    "secondsAgo": "hace {{count}} segundos",
+    "minutesAgo": "hace {{count}} minutos",
+    "hoursAgo": "hace {{count}} horas",
+    "daysAgo": "hace {{count}} días",
+    "seconds": "time.seconds",
+    "minutes": "time.minutes",
+    "hours": "time.hours",
+    "days": "time.days"
+  },
+  "messages": {
+    "success": "Éxito",
+    "error": "Error",
+    "saving": "Guardando...",
+    "loading": "Cargando...",
+    "confirmDelete": "¿Está seguro de que desea eliminar esto?",
+    "noDocuments": "No se encontraron documentos"
+  },
+  "manual": {
+    "title": "Procesamiento Manual de Documentos",
+    "document": {
+      "select": "Seleccionar Documento",
+      "preview": "Vista Previa del Documento",
+      "choose": "Elija un documento...",
+      "correspondent": "Corresponsal",
+      "title": "Título"
+    },
+    "ai": {
+      "title": "Análisis de IA",
+      "analyze": "Analizar con IA",
+      "chat": "Chatear con IA (Beta)",
+      "analyzing": "La IA está analizando el documento..."
+    },
+    "tags": {
+      "title": "Etiquetas",
+      "suggestions": "Sugerencias de IA",
+      "current": "Etiquetas Actuales",
+      "save": "Guardar Etiquetas",
+      "add": "Agregar Nueva Etiqueta",
+      "select": "Seleccionar una etiqueta..."
+    },
+    "messages": {
+      "errorLoadingTags": "Error al cargar etiquetas",
+      "errorLoadingDocuments": "Error al cargar documentos",
+      "errorLoadingContent": "Error al cargar el contenido del documento",
+      "errorSavingTags": "Error al guardar etiquetas",
+      "tagsSaved": "Etiquetas guardadas exitosamente"
+    }
+  },
+  "chat": {
+    "title": "Chat de Documentos",
+    "document": {
+      "select": "Seleccionar Documento",
+      "choose": "Por favor elija...",
+      "start": "Por favor seleccione un documento para iniciar el chat."
+    },
+    "messages": {
+      "placeholder": "Escriba su mensaje... (Shift + Enter para nueva línea)"
+    }
+  },
+  "playground": {
+    "title": "Documentos",
+    "analysis": {
+      "title": "Análisis de Documentos",
+      "prompt": "Ingrese su prompt de análisis aquí...",
+      "analyze": "Analizar Documentos"
+    },
+    "savedPrompts": {
+      "title": "Prompts Guardados",
+      "clearAll": "Borrar Todo",
+      "confirmClear": "¿Está seguro de que desea eliminar todos los prompts guardados?",
+      "rating": {
+        "title": "Calificar este Prompt",
+        "addComment": "Agregue sus comentarios sobre este prompt...",
+        "save": "Guardar Calificación",
+        "selectRating": "Por favor seleccione una calificación"
+      }
+    },
+    "modal": {
+      "loading": "Cargando..."
+    },
+    "document": {
+      "unknown": "Desconocido"
+    }
+  },
+  "history": {
+    "title": "Historial de Procesamiento",
+    "filters": {
+      "allTags": "Todas las Etiquetas",
+      "allCorrespondents": "Todos los Corresponsales"
+    },
+    "table": {
+      "id": "ID",
+      "title": "Título",
+      "tags": "Etiquetas",
+      "correspondent": "Corresponsal",
+      "actions": "Acciones"
+    },
+    "actions": {
+      "resetSelected": "Restablecer Seleccionados",
+      "resetAll": "Restablecer Todo"
+    },
+    "confirmReset": {
+      "title": "Confirmar Restablecimiento Total",
+      "message": "¿Está seguro de que desea restablecer todos los documentos a sus valores originales? Esta acción no se puede deshacer.",
+      "cancel": "Cancelar",
+      "confirm": "Confirmar Restablecimiento"
+    }
+  }
+}

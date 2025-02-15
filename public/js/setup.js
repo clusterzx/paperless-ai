@@ -696,6 +696,46 @@ class PasswordManager {
     }
 }
 
+class LanguageManager {
+    constructor() {
+        this.languageSelect = document.getElementById('language');
+        this.init();
+    }
+
+    init() {
+        if (this.languageSelect) {
+            this.languageSelect.addEventListener('change', this.handleLanguageChange.bind(this));
+        }
+    }
+
+    async handleLanguageChange(event) {
+        const newLanguage = event.target.value;
+        try {
+            const response = await fetch('/translations/change-language', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ language: newLanguage })
+            });
+
+            if (response.ok) {
+                // Reload the page to apply new language
+                window.location.reload();
+            } else {
+                throw new Error('Failed to change language');
+            }
+        } catch (error) {
+            console.error('Error changing language:', error);
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'Failed to change language. Please try again.'
+            });
+        }
+    }
+}
+
 // Initialize everything when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     /* eslint-disable no-unused-vars */
@@ -706,6 +746,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const promptTagsManager = new PromptTagsManager();
     const promptManager = new PromptManager();
     const passwordManager = new PasswordManager();
+    const languageManager = new LanguageManager();
     /* eslint-enable no-unused-vars */
 });
 

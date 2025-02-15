@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paperless-AI Dashboard</title>
+    <title>Paperless-AI - <%= t('common.manual') %></title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.0/css/all.min.css">
     <link rel="stylesheet" href="css/dashboard.css">
@@ -31,25 +31,25 @@
                     <li>
                         <a href="/dashboard" class="sidebar-link">
                             <i class="fas fa-home"></i>
-                            <span>Dashboard</span>
+                            <span><%= t('common.dashboard') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/manual" class="sidebar-link active">
                             <i class="fas fa-file-alt"></i>
-                            <span>Manual</span>
+                            <span><%= t('common.manual') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/chat" class="sidebar-link">
                             <i class="fa-solid fa-comment"></i>
-                            <span>Chat</span>
+                            <span><%= t('common.chat') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/playground" class="sidebar-link">
                             <i class="fa-solid fa-flask-vial"></i>
-                            <span>Playground</span>
+                            <span><%= t('common.playground') %></span>
                         </a>
                     </li>
                     <li>
@@ -61,13 +61,13 @@
                     <li>
                         <a href="/settings" class="sidebar-link">
                             <i class="fas fa-cog"></i>
-                            <span>Settings</span>
+                            <span><%= t('common.settings') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/logout" class="sidebar-link">
                             <i class="fa-solid fa-right-from-bracket"></i>
-                            <span>Logout</span>
+                            <span><%= t('common.logout') %></span>
                         </a>
                     </li>
                 </ul>
@@ -84,9 +84,9 @@
         
                 <!-- Document Selection -->
                 <div class="material-card mb-6">
-                    <h2 class="card-title">Select Document</h2>
+                    <h2 class="card-title"><%= t('manual.document.select') %></h2>
                     <select id="documentSelect" class="w-full rounded-md border-border-color bg-bg-primary text-text-primary p-2 focus:border-accent-primary focus:ring-accent-primary">
-                        <option value="">Choose a document...</option>
+                        <option value=""><%= t('manual.document.choose') %></option>
                     </select>
                 </div>
         
@@ -94,14 +94,14 @@
                 <div class="card-grid">
                     <!-- Document Preview Card -->
                     <div class="material-card col-span-2">
-                        <h2 class="card-title">Document Preview</h2>
+                        <h2 class="card-title"><%= t('manual.document.preview') %></h2>
                         <!-- Correspondent Info -->
                         <div id="correspondentInfo" class="stat-box mb-4 hidden">
-                            <h3 class="text-sm font-medium">Correspondent:</h3>
+                            <h3 class="text-sm font-medium"><%= t('manual.document.correspondent') %>:</h3>
                             <p id="correspondentName"></p>
                         </div>
                         <div id="titleInfo" class="stat-box mb-4 hidden">
-                            <h3 class="text-sm font-medium">Title:</h3>
+                            <h3 class="text-sm font-medium"><%= t('manual.document.title') %>:</h3>
                             <p id="titleName"></p>
                         </div>
                         <div class="stat-box">
@@ -115,18 +115,18 @@
                     <div class="col-span-2">
                         <!-- AI Analysis Card -->
                         <div class="material-card mb-6">
-                            <h2 class="card-title">AI Analysis</h2>
+                            <h2 class="card-title"><%= t('manual.ai.title') %></h2>
                             <button id="analyzeBtn" 
                                     class="w-full flex justify-center items-center px-4 py-2 border border-border-color rounded-md shadow-sm text-sm font-medium text-text-primary bg-bg-primary hover:bg-hover-bg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-primary transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" 
                                     disabled>
                                     <i class="fas fa-robot mr-2"></i>
-                                    Analyze with AI
+                                    <%= t('manual.ai.analyze') %>
                             </button>
                             <button id="chatBtn" 
                                     class="mt-2 w-full flex justify-center items-center px-4 py-2 border border-border-color rounded-md shadow-sm text-sm font-medium text-text-primary bg-bg-primary hover:bg-hover-bg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-primary transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" 
                                     disabled>
                                     <i class="fas fa-comment mr-2"></i>
-                                    Chat with AI (Beta)
+                                    <%= t('manual.ai.chat') %>
                             </button>
                             <div id="aiStatus" class="mt-4 hidden">
                                 <div class="flex items-center">
@@ -134,7 +134,7 @@
                                         <i class="fas fa-spinner fa-spin text-accent-primary"></i>
                                     </div>
                                     <div class="text-sm text-text-secondary">
-                                        AI is analyzing the document...
+                                        <%= t('manual.ai.analyzing') %>
                                     </div>
                                 </div>
                             </div>
@@ -142,10 +142,10 @@
         
                         <!-- Tags Card -->
                         <div class="material-card">
-                            <h2 class="card-title">Tags</h2>
+                            <h2 class="card-title"><%= t('manual.tags.title') %></h2>
                             <!-- AI Suggested Tags -->
                             <div class="mb-4">
-                                <h3 class="text-sm font-medium text-text-secondary mb-2">AI Suggestions</h3>
+                                <h3 class="text-sm font-medium text-text-secondary mb-2"><%= t('manual.tags.suggestions') %></h3>
                                 <div id="suggestedTags" class="flex flex-wrap gap-2"></div>
                                 <input type="hidden" id="tags" name="tags" value="">
                             </div>
@@ -153,10 +153,10 @@
                             <!-- Current Tags -->
                             <div class="mb-4">
                                 <div class="flex justify-between items-center mb-2">
-                                    <h3 class="text-sm font-medium text-text-secondary">Current Tags</h3>
+                                    <h3 class="text-sm font-medium text-text-secondary"><%= t('manual.tags.current') %></h3>
                                     <button id="saveTagsBtn" 
                                             class="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all duration-200">
-                                        Save Tags
+                                        <%= t('manual.tags.save') %>
                                     </button>
                                 </div>
                                 <div id="currentTags" class="flex flex-wrap gap-2"></div>
@@ -164,10 +164,10 @@
         
                             <!-- Add New Tag -->
                             <div>
-                                <h3 class="text-sm font-medium text-text-secondary mb-2">Add New Tag</h3>
+                                <h3 class="text-sm font-medium text-text-secondary mb-2"><%= t('manual.tags.add') %></h3>
                                 <div class="flex space-x-2">
                                     <select id="newTagSelect" class="flex-1 rounded-md border-border-color bg-bg-primary text-text-primary focus:border-accent-primary focus:ring-accent-primary">
-                                        <option value="">Select a tag...</option>
+                                        <option value=""><%= t('manual.tags.select') %></option>
                                     </select>
                                     <button id="addTagBtn" class="inline-flex items-center px-3 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-accent-primary hover:bg-accent-secondary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-primary transition-all duration-200">
                                         <i class="fas fa-plus"></i>
@@ -218,23 +218,23 @@ function showMessage(message, type = 'error') {
 async function fetchTags() {
     try {
         const response = await fetch('/manual/tags');
-        if (!response.ok) throw new Error('Failed to fetch tags');
+        if (!response.ok) throw new Error('<%= t('manual.messages.errorLoadingTags') %>');
         const tags = await response.json();
         availableTags = tags;
         updateTagSelect(tags);
     } catch (error) {
-        showMessage('Error loading tags: ' + error.message);
+        showMessage(error.message);
     }
 }
 
 async function fetchDocuments() {
     try {
         const response = await fetch('/manual/documents');
-        if (!response.ok) throw new Error('Failed to fetch documents');
+        if (!response.ok) throw new Error('<%= t('manual.messages.errorLoadingDocuments') %>');
         const documents = await response.json();
         updateDocumentSelect(documents);
     } catch (error) {
-        showMessage('Error loading documents: ' + error.message);
+        showMessage(error.message);
     }
 }
 
@@ -242,7 +242,7 @@ async function fetchDocuments() {
 function updateDocumentSelect(documents) {
     if (!Array.isArray(documents)) return;
     const select = document.getElementById('documentSelect');
-    select.innerHTML = '<option value="">Choose a document...</option>';
+    select.innerHTML = '<option value=""><%= t('manual.document.choose') %></option>';
     documents.forEach(doc => {
         const option = document.createElement('option');
         option.value = doc.id;

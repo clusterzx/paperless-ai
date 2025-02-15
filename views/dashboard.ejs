@@ -8,6 +8,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.0/css/all.min.css">
     <link rel="stylesheet" href="css/dashboard.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+    <script src="js/i18n.js"></script>
+    <script src="js/dashboard.js"></script>
 </head>
 <body class="h-full">
     <button id="themeToggle" class="theme-toggle">
@@ -31,25 +33,25 @@
                     <li>
                         <a href="/dashboard" class="sidebar-link active">
                             <i class="fas fa-home"></i>
-                            <span>Dashboard</span>
+                            <span><%= t('common.dashboard') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/manual" class="sidebar-link">
                             <i class="fas fa-file-alt"></i>
-                            <span>Manual</span>
+                            <span><%= t('common.manual') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/chat" class="sidebar-link">
                             <i class="fa-solid fa-comment"></i>
-                            <span>Chat</span>
+                            <span><%= t('common.chat') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/playground" class="sidebar-link">
                             <i class="fa-solid fa-flask-vial"></i>
-                            <span>Playground</span>
+                            <span><%= t('common.playground') %></span>
                         </a>
                     </li>
                     <li>
@@ -61,13 +63,13 @@
                     <li>
                         <a href="/settings" class="sidebar-link">
                             <i class="fas fa-cog"></i>
-                            <span>Settings</span>
+                            <span><%= t('common.settings') %></span>
                         </a>
                     </li>
                     <li>
                         <a href="/logout" class="sidebar-link">
                             <i class="fa-solid fa-right-from-bracket"></i>
-                            <span>Logout</span>
+                            <span><%= t('common.logout') %></span>
                         </a>
                     </li>
                 </ul>
@@ -78,7 +80,7 @@
         <main class="main-content">
             <div class="content-wrapper">
                 <div class="content-header flex items-center justify-between">
-                    <h2 class="content-title">Dashboard Overview</h2>
+                    <h2 class="content-title"><%= t('dashboard.overview') %></h2>
                     <div class="flex items-center gap-4">
                         <div id="updateNotification" class="hidden fixed bottom-4 right-4 z-50">
                             <a href="https://github.com/clusterzx/paperless-ai/releases/" target="_blank" 
@@ -87,8 +89,8 @@
                                     <i class="fas fa-arrow-up text-blue-500"></i>
                                 </div>
                                 <div class="flex flex-col">
-                                    <span class="text-sm font-medium text-gray-900">Update Available</span>
-                                    <span class="text-xs text-gray-500">Click to download version <span id="latestVersion"></span></span>
+                                    <span class="text-sm font-medium text-gray-900"><%= t('dashboard.updates.available') %></span>
+                                    <span class="text-xs text-gray-500"><%= t('dashboard.updates.clickToDownload') %> <span id="latestVersion"></span></span>
                                 </div>
                                 <i class="fas fa-chevron-right text-gray-400 group-hover:text-gray-600 group-hover:transform group-hover:translate-x-1 transition-all duration-300"></i>
                             </a>
@@ -99,13 +101,13 @@
                             onclick="triggerScan()"
                         >
                             <i class="fas fa-sync-alt"></i>
-                            <span>Scan Now</span>
+                            <span><%= t('dashboard.processing.actions.scanNow') %></span>
                         </button>
                         <!-- Success message toast -->
                         <div id="successToast" class="hidden fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg transition-opacity">
                             <div class="flex items-center gap-2">
                                 <i class="fas fa-check"></i>
-                                <span>Scan completed successfully!</span>
+                                <span><%= t('dashboard.processing.actions.scanComplete') %></span>
                             </div>
                         </div>
                     </div>
@@ -115,7 +117,7 @@
                 <div class="card-grid">
                     <!-- Document Chart -->
                     <div class="material-card col-span-2">
-                        <h3 class="card-title">Document Processing Status</h3>
+                        <h3 class="card-title"><%= t('dashboard.documentStatus.title') %></h3>
                         <div class="flex items-center">
                             <div class="w-1/2">
                                 <canvas id="documentChart" height="200"></canvas>
@@ -126,7 +128,7 @@
                                         <div class="flex items-center justify-between">
                                             <div class="flex items-center">
                                                 <div class="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
-                                                <span>AI Processed</span>
+                                                <span><%= t('dashboard.documentStatus.processed') %></span>
                                             </div>
                                             <span class="font-semibold"><%= paperless_data.processedDocumentCount %></span>
                                         </div>
@@ -135,13 +137,13 @@
                                         <div class="flex items-center justify-between">
                                             <div class="flex items-center">
                                                 <div class="w-3 h-3 rounded-full bg-gray-200 mr-2"></div>
-                                                <span>Unprocessed</span>
+                                                <span><%= t('dashboard.documentStatus.unprocessed') %></span>
                                             </div>
                                             <span class="font-semibold"><%= paperless_data.documentCount - paperless_data.processedDocumentCount %></span>
                                         </div>
                                     </div>
                                     <div class="total-stats mt-6 pt-4 border-t">
-                                        <div class="text-sm text-gray-600">Total Documents</div>
+                                        <div class="text-sm text-gray-600"><%= t('dashboard.documentStatus.total') %></div>
                                         <div class="text-2xl font-bold"><%= paperless_data.documentCount %></div>
                                     </div>
                                 </div>
@@ -151,7 +153,7 @@
                     
                     <!-- Statistics Card -->
                     <div class="material-card">
-                        <h3 class="card-title">System Statistics</h3>
+                        <h3 class="card-title"><%= t('dashboard.stats.title') %></h3>
                         <div class="space-y-6">
                             <div class="stat-box cursor-pointer hover:shadow-lg transition-all" onclick="showTagDetails()">
                                 <div class="flex items-center justify-between">
@@ -160,7 +162,7 @@
                                             <i class="fas fa-tags text-blue-500"></i>
                                         </div>
                                         <div>
-                                            <div class="text-sm text-gray-600">Total Tags</div>
+                                            <div class="text-sm text-gray-600"><%= t('dashboard.stats.totalTags') %></div>
                                             <div class="text-xl font-bold"><%= paperless_data.tagCount %></div>
                                         </div>
                                     </div>
@@ -174,7 +176,7 @@
                                             <i class="fas fa-building text-purple-500"></i>
                                         </div>
                                         <div>
-                                            <div class="text-sm text-gray-600">Correspondents</div>
+                                            <div class="text-sm text-gray-600"><%= t('dashboard.stats.correspondents') %></div>
                                             <div class="text-xl font-bold"><%= paperless_data.correspondentCount %></div>
                                         </div>
                                     </div>
@@ -205,23 +207,23 @@
 
                     <!-- Token Usage Card -->
                     <div class="material-card">
-                        <h3 class="card-title">AI Token Usage</h3>
+                        <h3 class="card-title"><%= t('dashboard.tokenUsage.title') %></h3>
                         <div class="space-y-4">
                             <div class="p-4 bg-blue-50 rounded-lg">
                                 <div class="flex items-center justify-between mb-2">
-                                    <span class="text-sm text-gray-600">Average Token Usage per Document</span>
+                                    <span class="text-sm text-gray-600"><%= t('dashboard.tokenUsage.averagePerDoc') %></span>
                                 </div>
                                 <div class="mt-2 text-sm">
                                     <div class="flex items-center justify-between mb-2">
-                                        <span>Prompt Tokens:</span>
+                                        <span><%= t('dashboard.tokenUsage.promptTokens') %>:</span>
                                         <span class="font-semibold"><%= Math.round(openai_data.averagePromptTokens) %></span>
                                     </div>
                                     <div class="flex items-center justify-between mb-2">
-                                        <span>Completion Tokens:</span>
+                                        <span><%= t('dashboard.tokenUsage.completionTokens') %>:</span>
                                         <span class="font-semibold"><%= Math.round(openai_data.averageCompletionTokens) %></span>
                                     </div>
                                     <div class="flex items-center justify-between pt-2 border-t">
-                                        <span class="font-medium">Average Total:</span>
+                                        <span class="font-medium"><%= t('dashboard.tokenUsage.averageTotal') %>:</span>
                                         <span class="font-semibold"><%= Math.round(openai_data.averageTotalTokens) %></span>
                                     </div>
                                 </div>
@@ -230,11 +232,11 @@
                                 <div class="p-4 bg-gray-50 rounded-lg">
                                     <div class="flex items-center justify-between">
                                         <div>
-                                            <div class="text-sm text-gray-600">Total Tokens Used</div>
+                                            <div class="text-sm text-gray-600"><%= t('dashboard.tokenUsage.totalTokens') %></div>
                                             <div class="text-xl font-bold"><%= openai_data.tokensOverall.toLocaleString() %></div>
                                         </div>
                                         <div class="text-right">
-                                            <div class="text-sm text-gray-600">Documents Processed</div>
+                                            <div class="text-sm text-gray-600"><%= t('dashboard.tokenUsage.documentsProcessed') %></div>
                                             <div class="text-xl font-bold"><%= paperless_data.processedDocumentCount.toLocaleString() %></div>
                                         </div>
                                     </div>
@@ -247,7 +249,7 @@
                     <!-- Task Runner Status -->
                     <div class="material-card col-span-2">
                         <div class="flex items-center justify-between mb-4">
-                            <h3 class="card-title mb-0">Task Runner Status</h3>
+                            <h3 class="card-title mb-0"><%= t('dashboard.processing.title') %></h3>
                             <span id="statusLastUpdated" class="text-sm text-gray-500"></span>
                         </div>
 
@@ -265,7 +267,7 @@
                                     <!-- Document Info -->
                                     <div class="flex-1">
                                         <div class="flex items-center gap-2 mb-1">
-                                            <span class="font-medium">Processing Document</span>
+                                            <span class="font-medium"><%= t('dashboard.processing.status.processing') %></span>
                                             <span id="currentDocId" class="text-sm bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full"></span>
                                         </div>
                                         <div id="currentDocTitle" class="text-sm text-gray-600 truncate"></div>
@@ -278,8 +280,8 @@
                                     <i class="fas fa-check text-gray-400"></i>
                                 </div>
                                 <div>
-                                    <div class="font-medium">System Idle</div>
-                                    <div class="text-sm text-gray-600">Waiting for new documents</div>
+                                    <div class="font-medium"><%= t('dashboard.processing.status.idle') %></div>
+                                    <div class="text-sm text-gray-600"><%= t('dashboard.processing.status.waiting') %></div>
                                 </div>
                             </div>
                         </div>
@@ -288,16 +290,16 @@
                         <div class="grid grid-cols-2 gap-4">
                             <!-- Today's Stats -->
                             <div class="bg-white rounded-xl border border-gray-100 p-4">
-                                <div class="text-sm text-gray-600 mb-1">Processed Today</div>
+                                <div class="text-sm text-gray-600 mb-1"><%= t('dashboard.processing.status.processedToday') %></div>
                                 <div class="flex items-end gap-2">
                                     <span id="processedToday" class="text-2xl font-bold">0</span>
-                                    <span class="text-sm text-gray-500 mb-1">documents</span>
+                                    <span class="text-sm text-gray-500 mb-1"><%= t('dashboard.processing.status.documents') %></span>
                                 </div>
                             </div>
 
                             <!-- Last Processed -->
                             <div class="bg-white rounded-xl border border-gray-100 p-4">
-                                <div class="text-sm text-gray-600 mb-1">Last Processed</div>
+                                <div class="text-sm text-gray-600 mb-1"><%= t('dashboard.processing.status.lastProcessed') %></div>
                                 <div id="lastProcessed" class="text-sm font-medium"></div>
                             </div>
                         </div>
@@ -305,7 +307,7 @@
                 
                     <!-- Token Distribution Chart -->
                     <div class="material-card">
-                        <h3 class="card-title">Token Usage Distribution</h3>
+                        <h3 class="card-title"><%= t('dashboard.tokenUsage.title') %></h3>
                         <div class="chart-container">
                             <canvas id="tokenDistribution"></canvas>
                         </div>
@@ -313,7 +315,7 @@
                 
                     <!-- Document Types Chart -->
                     <div class="material-card">
-                        <h3 class="card-title">Document Type Distribution</h3>
+                        <h3 class="card-title"><%= t('dashboard.documentTypeDistribution') %></h3>
                         <div class="chart-container">
                             <canvas id="documentTypes"></canvas>
                         </div>
@@ -508,7 +510,7 @@
             button.disabled = true;
             button.classList.add('opacity-50', 'cursor-not-allowed');
             icon.classList.add('animate-spin');
-            span.textContent = 'Scanning...';
+            span.textContent = '<%= t('dashboard.processing.status.scanning') %>';
             
             try {
                 const response = await fetch('/api/scan/now', {
@@ -539,97 +541,91 @@
                 button.disabled = false;
                 button.classList.remove('opacity-50', 'cursor-not-allowed');
                 icon.classList.remove('animate-spin');
-                span.textContent = 'Scan Now';
+                span.textContent = '<%= t('dashboard.processing.actions.scanNow') %>';
             }
         }
         document.addEventListener('DOMContentLoaded', function() {
             checkForUpdates();
+            // Start processing status updates
+            setInterval(updateProcessingStatus, 3000);
+            updateProcessingStatus();
         });
-    </script>
-    <script>
+
         function formatTimeAgo(dateString) {
             const date = new Date(dateString + 'Z');
             const now = new Date();
             const seconds = Math.floor((now - date) / 1000);
 
             if (seconds < 5) {
-                return 'just now';
+                return '<%= t('time.justNow') %>';
             } else if (seconds < 60) {
-                return `${seconds} seconds ago`;
+                return seconds + ' <%= t('time.seconds') %>';
             } else if (seconds < 3600) {
                 const minutes = Math.floor(seconds / 60);
-                return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+                return minutes + ' <%= t('time.minutes') %>';
             } else if (seconds < 86400) {
                 const hours = Math.floor(seconds / 3600);
-                return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+                return hours + ' <%= t('time.hours') %>';
             } else {
                 const days = Math.floor(seconds / 86400);
-                return `${days} day${days > 1 ? 's' : ''} ago`;
+                return days + ' <%= t('time.days') %>';
             }
         }
 
-        function updateProcessingStatus() {
-            fetch('/api/processing-status')
-                .then(response => response.json())
-                .then(data => {
-                    console.log('Processing status data:', data);
-                    
-                    const processingContainer = document.getElementById('processingContainer');
-                    const idleContainer = document.getElementById('idleContainer');
-                    
-                    if (data.currentlyProcessing) {
-                        // Show processing state
-                        processingContainer.classList.remove('hidden');
-                        idleContainer.classList.add('hidden');
+        async function updateProcessingStatus() {
+            try {
+                const response = await fetch('/api/processing-status');
+                const data = await response.json();
+                console.log('Processing status data:', data);
+                
+                const processingContainer = document.getElementById('processingContainer');
+                const idleContainer = document.getElementById('idleContainer');
+                
+                if (data.currentlyProcessing) {
+                    // Show processing state
+                    processingContainer.classList.remove('hidden');
+                    idleContainer.classList.add('hidden');
 
-                        // disable scanButton if processing
-                        document.getElementById('scanButton').disabled = true;
-                                                
-                        // Update document info
-                        document.getElementById('currentDocId').textContent = `#${data.currentlyProcessing.documentId}`;
-                        // Trim title to 50 characters and add ... if longer
-                        data.currentlyProcessing.title = data.currentlyProcessing.title.length > 50
-                            ? data.currentlyProcessing.title.slice(0, 90) + '...'
-                            : data.currentlyProcessing.title;
-                        document.getElementById('currentDocTitle').textContent = data.currentlyProcessing.title;
-                        
-                        // Show "Processing..."
-                        document.getElementById('lastProcessed').innerHTML = `
-                            <span class="text-blue-600">
-                                <i class="fas fa-spinner fa-spin"></i> Processing...
-                            </span>`;
+                    // disable scanButton if processing
+                    document.getElementById('scanButton').disabled = true;
+                                            
+                    // Update document info
+                    document.getElementById('currentDocId').textContent = `#${data.currentlyProcessing.documentId}`;
+                    // Trim title to 50 characters and add ... if longer
+                    data.currentlyProcessing.title = data.currentlyProcessing.title.length > 50
+                        ? data.currentlyProcessing.title.slice(0, 90) + '...'
+                        : data.currentlyProcessing.title;
+                    document.getElementById('currentDocTitle').textContent = data.currentlyProcessing.title;
+                    
+                    // Show "Processing..."
+                    document.getElementById('lastProcessed').innerHTML = `
+                        <span class="text-blue-600">
+                            <i class="fas fa-spinner fa-spin"></i> <%= t('dashboard.processing.status.processing') %>...
+                        </span>`;
+                } else {
+                    // Show idle state
+                    processingContainer.classList.add('hidden');
+                    idleContainer.classList.remove('hidden');
+                    // enable scanButton if idle
+                    document.getElementById('scanButton').disabled = false;
+                    if (data.lastProcessed) {
+                        const timeAgo = formatTimeAgo(data.lastProcessed.processed_at);
+                        document.getElementById('lastProcessed').textContent = timeAgo;
                     } else {
-                        // Show idle state
-                        processingContainer.classList.add('hidden');
-                        idleContainer.classList.remove('hidden');
-                        // enable scanButton if idle
-                        document.getElementById('scanButton').disabled = false;
-                        if (data.lastProcessed) {
-                            const timeAgo = formatTimeAgo(data.lastProcessed.processed_at);
-                            console.log('Last processed:', data.lastProcessed.processed_at);
-                            console.log('Formatted time:', timeAgo);
-                            document.getElementById('lastProcessed').textContent = timeAgo;
-                        } else {
-                            document.getElementById('lastProcessed').textContent = 'No documents processed yet';
-                        }
+                        document.getElementById('lastProcessed').textContent = '<%= t('dashboard.processing.status.noDocuments') %>';
                     }
-                    
-                    // Update stats
-                    document.getElementById('processedToday').textContent = data.processedToday;
-                    
-                    // Update timestamp
-                    document.getElementById('statusLastUpdated').textContent = 
-                        `Last updated: ${new Date().toLocaleTimeString()}`;
-                })
-                .catch(error => console.error('Error fetching processing status:', error));
+                }
+                
+                // Update stats
+                document.getElementById('processedToday').textContent = data.processedToday;
+                
+                // Update timestamp
+                document.getElementById('statusLastUpdated').textContent = 
+                    '<%= t('dashboard.processing.status.lastUpdated') %>: ' + new Date().toLocaleTimeString();
+            } catch (error) {
+                console.error('Error fetching processing status:', error);
+            }
         }
-
-        // Update status every 3 seconds
-        setInterval(updateProcessingStatus, 3000);
-
-        // Initial update
-        updateProcessingStatus();
     </script>
-    <script src="js/dashboard.js"></script>
 </body>
 </html>

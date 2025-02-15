@@ -58,13 +58,13 @@
 
             <nav class="sidebar-nav">
                 <ul>
-                    <li><a href="/dashboard" class="sidebar-link"><i class="fas fa-home"></i><span>Dashboard</span></a></li>
-                    <li><a href="/manual" class="sidebar-link"><i class="fas fa-file-alt"></i><span>Manual</span></a></li>
-                    <li><a href="/chat" class="sidebar-link"><i class="fa-solid fa-comment"></i><span>Chat</span></a></li>
-                    <li><a href="/playground" class="sidebar-link"><i class="fa-solid fa-flask-vial"></i><span>Playground</span></a></li>
-                    <li><a href="/history" class="sidebar-link active"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></a></li>
-                    <li><a href="/settings" class="sidebar-link"><i class="fas fa-cog"></i><span>Settings</span></a></li>
-                    <li><a href="/logout" class="sidebar-link"><i class="fa-solid fa-right-from-bracket"></i><span>Logout</span></a></li>
+                    <li><a href="/dashboard" class="sidebar-link"><i class="fas fa-home"></i><span><%= t('common.dashboard') %></span></a></li>
+                    <li><a href="/manual" class="sidebar-link"><i class="fas fa-file-alt"></i><span><%= t('common.manual') %></span></a></li>
+                    <li><a href="/chat" class="sidebar-link"><i class="fa-solid fa-comment"></i><span><%= t('common.chat') %></span></a></li>
+                    <li><a href="/playground" class="sidebar-link"><i class="fa-solid fa-flask-vial"></i><span><%= t('common.playground') %></span></a></li>
+                    <li><a href="/history" class="sidebar-link active"><i class="fa-solid fa-clock-rotate-left"></i><span><%= t('common.history') %></span></a></li>
+                    <li><a href="/settings" class="sidebar-link"><i class="fas fa-cog"></i><span><%= t('common.settings') %></span></a></li>
+                    <li><a href="/logout" class="sidebar-link"><i class="fa-solid fa-right-from-bracket"></i><span><%= t('common.logout') %></span></a></li>
                 </ul>
             </nav>
         </aside>
@@ -72,13 +72,13 @@
         <main class="main-content modified-documents-page">
             <div class="content-wrapper">
                 <div class="content-header flex justify-between items-center mb-6">
-                    <h1 class="content-title">Modified Documents</h1>
+                    <h1 class="content-title"><%= t('history.title') %></h1>
                     <div class="flex gap-4">
                         <button id="resetSelectedBtn" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">
-                            Reset Selected
+                            <%= t('history.actions.resetSelected') %>
                         </button>
                         <button id="resetAllBtn" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">
-                            Reset All
+                            <%= t('history.actions.resetAll') %>
                         </button>
                     </div>
                 </div>
@@ -87,7 +87,7 @@
                 <div class="flex flex-wrap gap-4 mb-6">
                     <div class="min-w-[200px]">
                         <select id="tagFilter" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <option value="">All Tags</option>
+                            <option value=""><%= t('history.filters.allTags') %></option>
                             <% filters.allTags.forEach(function(tag) { %>
                                 <option value="<%= tag.id %>"><%= tag.name %></option>
                             <% }); %>
@@ -96,7 +96,7 @@
                     
                     <div class="min-w-[200px]">
                         <select id="correspondentFilter" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <option value="">All Correspondents</option>
+                            <option value=""><%= t('history.filters.allCorrespondents') %></option>
                             <% filters.allCorrespondents.forEach(function(corr) { %>
                                 <option value="<%= corr %>"><%= corr %></option>
                             <% }); %>
@@ -111,11 +111,11 @@
                             <thead>
                                 <tr>
                                     <th><input type="checkbox" id="selectAll" class="rounded"></th>
-                                    <th>ID</th>
-                                    <th>Title</th>
-                                    <th>Tags</th>
-                                    <th>Correspondent</th>
-                                    <th>Actions</th>
+                                    <th><%= t('history.table.id') %></th>
+                                    <th><%= t('history.table.title') %></th>
+                                    <th><%= t('history.table.tags') %></th>
+                                    <th><%= t('history.table.correspondent') %></th>
+                                    <th><%= t('history.table.actions') %></th>
                                 </tr>
                             </thead>
                         </table>
@@ -148,14 +148,14 @@
         <div class="modal-overlay"></div>
         <div class="modal-container">
             <div class="modal-header">
-                <h3 class="modal-title">Confirm Reset All</h3>
+                <h3 class="modal-title"><%= t('history.confirmReset.title') %></h3>
                 <button class="modal-close"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-content">
-                <p class="mb-4">Are you sure you want to reset <b>all</b> documents to their original values? This action cannot be undone.</p>
+                <p class="mb-4"><%= t('history.confirmReset.message') %></p>
                 <div class="flex justify-end gap-4">
-                    <button id="cancelResetAll" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100">Cancel</button>
-                    <button id="confirmResetAll" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">Confirm Reset</button>
+                    <button id="cancelResetAll" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"><%= t('history.confirmReset.cancel') %></button>
+                    <button id="confirmResetAll" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"><%= t('history.confirmReset.confirm') %></button>
                 </div>
             </div>
         </div>
