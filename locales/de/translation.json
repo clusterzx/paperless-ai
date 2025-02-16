@@ -1,0 +1,306 @@
+{
+  "common": {
+    "dashboard": "Dashboard",
+    "settings": "Einstellungen",
+    "manual": "Manuell",
+    "playground": "Spielwiese",
+    "chat": "Chat",
+    "setup": "Einrichtung",
+    "logout": "Abmelden",
+    "history": "Verlauf",
+    "appTitle": "Paperless-AI Dashboard"
+  },
+  "settings": {
+    "connection": {
+      "title": "Verbindungseinstellungen",
+      "paperlessUrl": "Paperless-ngx API URL",
+      "paperlessToken": "API Token",
+      "paperlessUsername": "Paperless-ngx Benutzername",
+      "urlHelp": "Hilfe zur URL-Konfiguration"
+    },
+    "ai": {
+      "title": "KI-Konfiguration",
+      "provider": "KI-Anbieter",
+      "model": "Modell",
+      "apiKey": "API-Schlüssel",
+      "openai": {
+        "title": "OpenAI Einstellungen",
+        "apiKey": "OpenAI API-Schlüssel"
+      },
+      "ollama": {
+        "title": "Ollama Einstellungen",
+        "url": "Ollama API URL",
+        "model": "Ollama Modell"
+      },
+      "custom": {
+        "title": "Benutzerdefinierte Anbieter Einstellungen",
+        "baseUrl": "Basis-URL",
+        "apiKey": "API-Schlüssel",
+        "model": "Modell",
+        "modelPlaceholder": "Modellname eingeben"
+      }
+    },
+    "processing": {
+      "title": "Verarbeitungseinstellungen",
+      "scanInterval": "Scan-Intervall",
+      "systemPrompt": "System-Prompt",
+      "tags": "Tags",
+      "usePromptTags": "Prompt-Tags verwenden"
+    },
+    "language": {
+      "title": "Spracheinstellungen",
+      "select": "Sprache auswählen",
+      "current": "Aktuelle Sprache"
+    },
+    "advanced": {
+      "title": "Erweiterte Einstellungen",
+      "useExistingData": {
+        "title": "Vorhandene Korrespondenten und Tags verwenden?",
+        "yes": "Ja",
+        "no": "Nein"
+      },
+      "scanInterval": {
+        "title": "Scan-Intervall (Cron Format)",
+        "default": "Standard: alle 30 Minuten"
+      },
+      "processTagged": {
+        "title": "Nur spezifisch vormarkierte Dokumente verarbeiten?",
+        "yes": "Ja",
+        "no": "Nein"
+      },
+      "aiProcessedTag": {
+        "title": "KI-verarbeitet Tag zu Dokumenten hinzufügen?",
+        "yes": "Ja",
+        "no": "Nein",
+        "name": {
+          "title": "KI-verarbeitet Tag Name",
+          "placeholder": "ki-verarbeitet",
+          "description": "Dieser Tag wird nach der KI-Verarbeitung zu Dokumenten hinzugefügt"
+        }
+      },
+      "promptTags": {
+        "title": "Spezifische Tags im Prompt verwenden?",
+        "yes": "Ja",
+        "no": "Nein",
+        "label": "Prompt Tags",
+        "placeholder": "Geben Sie einen Tag ein und drücken Sie Enter",
+        "description": "Diese Tags werden ausschließlich im KI-Prompt verwendet"
+      },
+      "automaticProcessing": {
+        "title": "Automatische Verarbeitung deaktivieren?",
+        "label": "Automatische Verarbeitung deaktivieren",
+        "description": "Bestimmt, ob die KI selbstständig läuft oder jeder Scan manuell gestartet wird"
+      },
+      "functionLimits": {
+        "title": "KI-Funktionsbeschränkungen",
+        "description": "Wählen Sie aus, welche Funktionen die KI während der Dokumentenanalyse ausführen soll",
+        "label": "KI-Funktionen aktivieren/deaktivieren",
+        "functions": {
+          "tagging": {
+            "title": "Tag-Zuweisung",
+            "description": "Automatisch relevante Tags zu Dokumenten zuweisen"
+          },
+          "correspondent": {
+            "title": "Korrespondentenerkennung",
+            "description": "Dokumentabsender automatisch identifizieren"
+          },
+          "documentType": {
+            "title": "Dokumenttyp-Klassifizierung",
+            "description": "Automatisch den Dokumenttyp bestimmen"
+          },
+          "titleGeneration": {
+            "title": "Titelgenerierung",
+            "description": "Aussagekräftige Titel für Dokumente generieren"
+          },
+          "customFields": {
+            "title": "Benutzerdefinierte Felder",
+            "description": "Benutzerdefinierte Felder zu den Dokumenten hinzufügen"
+          }
+        }
+      },
+      "customFields": {
+        "title": "Benutzerdefinierte Felder",
+        "newField": "Feldname eingeben...",
+        "types": {
+          "text": "Text",
+          "number": "Zahl",
+          "integer": "Ganzzahl",
+          "currency": "Währung"
+        }
+      },
+      "prompt": {
+        "title": "Prompt-Beschreibung",
+        "placeholder": "Beschreiben Sie, wie die KI Ihre Dokumente analysieren soll...",
+        "example": "Beispiel"
+      }
+    },
+    "apiKey": {
+      "label": "API-SCHLÜSSEL",
+      "copy": "API-Schlüssel in die Zwischenablage kopiert!",
+      "regenerate": "Neu generieren"
+    },
+    "messages": {
+      "alreadyConfigured": "Die Anwendung ist bereits konfiguriert. Sie können die Konfiguration unten aktualisieren.",
+      "environmentConfigured": "Die Umgebung ist konfiguriert, aber es existieren keine Benutzer. Bitte erstellen Sie mindestens einen Benutzer.",
+      "success": "Einstellungen erfolgreich gespeichert",
+      "error": "Fehler beim Speichern der Einstellungen"
+    },
+    "actions": {
+      "save": "Konfiguration speichern",
+      "add": "Hinzufügen"
+    },
+    "pageTitle": "Konfiguration"
+  },
+  "dashboard": {
+    "overview": "Dashboard Übersicht",
+    "documentTypeDistribution": "Dokumenttypen-Verteilung",
+    "stats": {
+      "title": "System Statistiken",
+      "totalTags": "Anzahl Tags",
+      "correspondents": "Korrespondenten"
+    },
+    "processing": {
+      "title": "Task Runner Status",
+      "status": {
+        "idle": "System inaktiv",
+        "waiting": "Warte auf neue Dokumente",
+        "processing": "Verarbeite Dokument",
+        "lastUpdated": "Zuletzt aktualisiert",
+        "processedToday": "Heute verarbeitet",
+        "lastProcessed": "Zuletzt verarbeitet",
+        "documents": "Dokumente",
+        "scanning": "Scanne...",
+        "noDocuments": "Noch keine Dokumente verarbeitet"
+      },
+      "actions": {
+        "scanNow": "Jetzt scannen",
+        "scanComplete": "Scan erfolgreich abgeschlossen!"
+      }
+    },
+    "tokenUsage": {
+      "title": "KI Token Nutzung",
+      "averagePerDoc": "Durchschnittliche Token-Nutzung pro Dokument",
+      "promptTokens": "Prompt Tokens",
+      "completionTokens": "Antwort Tokens",
+      "averageTotal": "Durchschnitt Gesamt",
+      "totalTokens": "Tokens Gesamt",
+      "documentsProcessed": "Verarbeitete Dokumente"
+    },
+    "documentStatus": {
+      "title": "Dokumentenverarbeitungsstatus",
+      "processed": "KI verarbeitet",
+      "unprocessed": "Unverarbeitet",
+      "total": "Dokumente Gesamt"
+    },
+    "updates": {
+      "available": "Update verfügbar",
+      "clickToDownload": "Klicken Sie hier, um Version herunterzuladen"
+    }
+  },
+  "time": {
+    "justNow": "gerade eben",
+    "secondsAgo": "vor {{count}} Sekunden",
+    "minutesAgo": "vor {{count}} Minuten",
+    "hoursAgo": "vor {{count}} Stunden",
+    "daysAgo": "vor {{count}} Tagen"
+  },
+  "messages": {
+    "success": "Erfolgreich",
+    "error": "Fehler",
+    "saving": "Speichern...",
+    "loading": "Laden...",
+    "confirmDelete": "Sind Sie sicher, dass Sie dies löschen möchten?",
+    "noDocuments": "Keine Dokumente gefunden"
+  },
+  "manual": {
+    "title": "Manuelle Dokumentenverarbeitung",
+    "document": {
+      "select": "Dokument auswählen",
+      "preview": "Dokumentenvorschau",
+      "choose": "Wählen Sie ein Dokument...",
+      "correspondent": "Korrespondent",
+      "title": "Titel"
+    },
+    "ai": {
+      "title": "KI-Analyse",
+      "analyze": "Mit KI analysieren",
+      "chat": "Mit KI chatten (Beta)",
+      "analyzing": "KI analysiert das Dokument..."
+    },
+    "tags": {
+      "title": "Tags",
+      "suggestions": "KI-Vorschläge",
+      "current": "Aktuelle Tags",
+      "save": "Tags speichern",
+      "add": "Neuen Tag hinzufügen",
+      "select": "Tag auswählen..."
+    },
+    "messages": {
+      "errorLoadingTags": "Fehler beim Laden der Tags",
+      "errorLoadingDocuments": "Fehler beim Laden der Dokumente",
+      "errorLoadingContent": "Fehler beim Laden des Dokumenteninhalts",
+      "errorSavingTags": "Fehler beim Speichern der Tags",
+      "tagsSaved": "Tags erfolgreich gespeichert"
+    }
+  },
+  "chat": {
+    "title": "Dokumenten-Chat",
+    "document": {
+      "select": "Dokument auswählen",
+      "choose": "Bitte auswählen...",
+      "start": "Bitte wählen Sie ein Dokument aus, um den Chat zu starten."
+    },
+    "messages": {
+      "placeholder": "Nachricht eingeben... (Umschalt + Enter für neue Zeile)"
+    }
+  },
+  "playground": {
+    "title": "Dokumente",
+    "analysis": {
+      "title": "Dokumentenanalyse",
+      "prompt": "Geben Sie hier Ihre Analyseanfrage ein...",
+      "analyze": "Dokumente analysieren"
+    },
+    "savedPrompts": {
+      "title": "Gespeicherte Anfragen",
+      "clearAll": "Alle löschen",
+      "confirmClear": "Sind Sie sicher, dass Sie alle gespeicherten Anfragen löschen möchten?",
+      "rating": {
+        "title": "Bewerten Sie diese Anfrage",
+        "addComment": "Fügen Sie Ihre Kommentare zu dieser Anfrage hinzu...",
+        "save": "Bewertung speichern",
+        "selectRating": "Bitte wählen Sie eine Bewertung aus"
+      }
+    },
+    "modal": {
+      "loading": "Lädt..."
+    },
+    "document": {
+      "unknown": "Unbekannt"
+    }
+  },
+  "history": {
+    "title": "Verarbeitungsverlauf",
+    "filters": {
+      "allTags": "Alle Tags",
+      "allCorrespondents": "Alle Korrespondenten"
+    },
+    "table": {
+      "id": "ID",
+      "title": "Titel",
+      "tags": "Tags",
+      "correspondent": "Korrespondent",
+      "actions": "Aktionen"
+    },
+    "actions": {
+      "resetSelected": "Ausgewählte zurücksetzen",
+      "resetAll": "Alle zurücksetzen"
+    },
+    "confirmReset": {
+      "title": "Zurücksetzen bestätigen",
+      "message": "Sind Sie sicher, dass Sie alle Dokumente auf ihre ursprünglichen Werte zurücksetzen möchten? Diese Aktion kann nicht rückgängig gemacht werden.",
+      "cancel": "Abbrechen",
+      "confirm": "Zurücksetzen bestätigen"
+    }
+  }
+} 

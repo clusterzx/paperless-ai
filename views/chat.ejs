@@ -31,13 +31,13 @@
 
             <nav class="sidebar-nav">
                 <ul>
-                    <li><a href="/dashboard" class="sidebar-link"><i class="fas fa-home"></i><span>Dashboard</span></a></li>
-                    <li><a href="/manual" class="sidebar-link"><i class="fas fa-file-alt"></i><span>Manual</span></a></li>
-                    <li><a href="/chat" class="sidebar-link active"><i class="fa-solid fa-comment"></i><span>Chat</span></a></li>
-                    <li><a href="/playground" class="sidebar-link"><i class="fa-solid fa-flask-vial"></i><span>Playground</span></a></li>
+                    <li><a href="/dashboard" class="sidebar-link"><i class="fas fa-home"></i><span><%= t('common.dashboard') %></span></a></li>
+                    <li><a href="/manual" class="sidebar-link"><i class="fas fa-file-alt"></i><span><%= t('common.manual') %></span></a></li>
+                    <li><a href="/chat" class="sidebar-link active"><i class="fa-solid fa-comment"></i><span><%= t('common.chat') %></span></a></li>
+                    <li><a href="/playground" class="sidebar-link"><i class="fa-solid fa-flask-vial"></i><span><%= t('common.playground') %></span></a></li>
                     <li><a href="/history" class="sidebar-link"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></a></li>
-                    <li><a href="/settings" class="sidebar-link"><i class="fas fa-cog"></i><span>Settings</span></a></li>
-                    <li><a href="/logout" class="sidebar-link"><i class="fa-solid fa-right-from-bracket"></i><span>Logout</span></a></li>
+                    <li><a href="/settings" class="sidebar-link"><i class="fas fa-cog"></i><span><%= t('common.settings') %></span></a></li>
+                    <li><a href="/logout" class="sidebar-link"><i class="fa-solid fa-right-from-bracket"></i><span><%= t('common.logout') %></span></a></li>
                 </ul>
             </nav>
         </aside>
@@ -46,15 +46,15 @@
         <main class="main-content">
             <div class="content-wrapper">
                 <div class="content-header">
-                    <h2 class="content-title">Document Chat</h2>
+                    <h2 class="content-title"><%= t('chat.title') %></h2>
                 </div>
 
                 <div class="chat-container">
                     <!-- Document Selection -->
                     <div class="material-card">
-                        <h2 class="card-title">Select Document</h2>
+                        <h2 class="card-title"><%= t('chat.document.select') %></h2>
                         <select id="documentSelect" class="select-input">
-                            <option value="">Please choose...</option>
+                            <option value=""><%= t('chat.document.choose') %></option>
                             <% documents.forEach(function(doc) { %>
                                 <option value="<%= doc.id %>" <%= doc.id == open ? 'selected="true"' : '' %>><%= doc.title %></option>
                             <% }); %>
@@ -65,7 +65,7 @@
                     <div class="material-card chat-interface">
                         <!-- Initial State -->
                         <div class="initial-state" id="initialState">
-                            <p>Please select a document to start the chat.</p>
+                            <p><%= t('chat.document.start') %></p>
                         </div>
 
                         <!-- Chat History -->
@@ -80,7 +80,7 @@
                                 id="messageInput"
                                 name="message" 
                                 class="message-input"
-                                placeholder="Type your message... (Shift + Enter for new line)"
+                                placeholder="<%= t('chat.messages.placeholder') %>"
                                 rows="1"
                                 required></textarea>
                             <button type="submit" class="send-button">

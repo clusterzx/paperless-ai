@@ -404,6 +404,32 @@ For the language:
     }
 }
 
+class LanguageManager {
+    constructor() {
+        this.languageSelect = document.getElementById('language');
+        this.init();
+    }
+
+    init() {
+        if (this.languageSelect) {
+            this.languageSelect.addEventListener('change', this.handleLanguageChange.bind(this));
+        } else {
+            console.warn('Language select element not found');
+        }
+    }
+
+    async handleLanguageChange(event) {
+        console.log('Language change event triggered');
+        const newLanguage = event.target.value;
+        console.log('New language selected:', newLanguage);
+        // Set the cookie
+        document.cookie = `i18next=${newLanguage};path=/;max-age=31536000`; // expires in 1 year
+        
+        // Reload the page to apply the new language
+        window.location.reload();
+    }
+}
+
 // Initialize everything when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     const themeManager = new ThemeManager();
@@ -411,10 +437,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const tagsManager = new TagsManager();
     const promptTagsManager = new PromptTagsManager();
     const promptManager = new PromptManager();
+    const languageManager = new LanguageManager();
 
     // Initialize textarea newlines
     const systemPromptTextarea = document.getElementById('systemPrompt');
-    systemPromptTextarea.value = systemPromptTextarea.value.replace(/\\n/g, '\n');
+    if (systemPromptTextarea) {
+        systemPromptTextarea.value = systemPromptTextarea.value.replace(/\\n/g, '\n');
+    }
 });
 
 // Form Submission Handler
