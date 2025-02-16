@@ -33,7 +33,7 @@ class OllamaService {
             if(!customPrompt) {
                 prompt = this._buildPrompt(content, existingTags, existingCorrespondentList);
             }else{
-                prompt = customPrompt + "\n\n" + JSON.stringify(content);
+                prompt = customPrompt;
                 console.log('[DEBUG] Ollama Service started with custom prompt');
             }
 
@@ -107,7 +107,7 @@ class OllamaService {
             const expectedResponseTokens = 1024;
             const promptTokenCount = calculatePromptTokenCount(prompt);
             
-            let systemPromptFinal = `
+            let systemPromptFinal =  + content + `
                     You are a document analyzer. Your task is to analyze documents and extract relevant information. You do not ask back questions. 
                     YOU MUSTNOT: Ask for additional information or clarification, or ask questions about the document, or ask for additional context.
                     YOU MUSTNOT: Return a response without the desired JSON format.
