@@ -136,11 +136,11 @@ class OllamaService {
                     stream: false,
                     options: {
                         temperature: 0.7, 
-                        top_p: 0.9,
-                        repeat_penalty: 1.1,
-                        top_k: 7,
-                        num_predict: 256,
-                        num_ctx: numCtx 
+                        //top_p: 0.9,
+                        //repeat_penalty: 1.1,
+                        //top_k: 7,
+                        //num_predict: 256,
+                        //num_ctx: numCtx
                     }
                     //   options: {
                         //     temperature: 0.3,        // Moderately low for balance between consistency and creativity
@@ -151,12 +151,14 @@ class OllamaService {
                         //     num_ctx: 2048           // Reduced context window for more stable processing
                         // }
                     });
-                    
                     if (!response.data || !response.data.response) {
                         throw new Error('Invalid response from Ollama API');
                     }
-                    
-                    const parsedResponse = this._parseResponse(response.data.response);
+                    var responsevalue = response.data.response
+                    console.log("[DEBUG] Response is: ", responsevalue)
+                    responsevalue = responsevalue.replace(/<think>[\s\S]*?<\/think>/g, '').replace("```json","").replace("```","");
+                    console.log("[DEBUG] Response without reasoning is: ", responsevalue)
+                    const parsedResponse = this._parseResponse(responsevalue);
                     //console.log('Ollama response:', parsedResponse);
                     if(parsedResponse.tags.length === 0 && parsedResponse.correspondent === null) {
                         console.warn('No tags or correspondent found in response from Ollama for Document.\nPlease review your prompt or switch to OpenAI for better results.',);
