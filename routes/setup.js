@@ -820,7 +820,7 @@ function extractDocumentId(url) {
 
 async function processQueue(customPrompt) {
   if (customPrompt) {
-    console.log('Using custom prompt:', customPrompt);
+    console.log('[DEBUG] Using custom prompt:', customPrompt);
   }
 
   if (isProcessing || documentQueue.length === 0) return;
@@ -890,7 +890,6 @@ router.post('/api/webhook/document', async (req, res) => {
       documentQueue.push(document);
       if (prompt) {
         usePrompt = true;
-        console.log('[DEBUG] Using custom prompt:', prompt);
         await processQueue(prompt);
       } else {
         await processQueue();
