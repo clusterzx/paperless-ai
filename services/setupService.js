@@ -5,22 +5,18 @@ const { OpenAI } = require('openai');
 const config = require('../config/config');
 
 class SetupService {
-  constructor() {
-    this.envPath = path.join(process.cwd(), 'data', '.env');
+  constructor(param = undefined) {
+    this.envPath = param?.envPath || path.join(process.cwd(), 'data', '.env');
     this.configured = null; // Variable to store the configuration status
   }
 
   async loadConfig() {
     try {
-      const envContent = await fs.readFile(this.envPath, 'utf8');
-      const config = {};
-      envContent.split('\n').forEach(line => {
-        const [key, value] = line.split('=');
-        if (key && value) {
-          config[key.trim()] = value.trim();
-        }
-      });
-      return config;
+      const envContent = {}
+
+      const result = require('dotenv').config({ path: this.envPath, processEnv: envContent });
+
+      return result.parsed
     } catch (error) {
       console.error('Error loading config:', error.message);
       return null;
@@ -186,15 +182,7 @@ class SetupService {
       // Ensure data directory exists
       const dataDir = path.dirname(this.envPath);
       await fs.mkdir(dataDir, { recursive: true });
-
-      const envContent = Object.entries(config)
-        .map(([key, value]) => {
-          if (key === "SYSTEM_PROMPT") {
-            return `${key}=\`${value}\n\``;
-          }
-          return `${key}=${value}`;
-        })
-        .join('\n');
+      const envContent = this.asEnvFileContent(config);
 
       await fs.writeFile(this.envPath, envContent);
       
@@ -206,6 +194,27 @@ class SetupService {
       console.error('Error saving config:', error.message);
       throw error;
     }
+  }
+
+  /**
+   * Converts the provided `config` object and serializes the content in the dotenv format.
+   *
+   * This implementation respects multiline strings.
+   *
+   * @param config the key-value pairs to be written as a the body of an .env file
+   * @returns {string} the generated .env file content
+   */
+  asEnvFileContent(config) {
+    return Object.entries(config)
+      .map(([key, value]) => {
+
+        if (typeof value === "string" && value.indexOf('\n') > 0) {
+          // multi line string. Encode using the multiline syntax
+          return `${key}="${value}"`;
+        }
+        return `${key}=${value}`;
+      })
+      .join('\n');
   }
 
   async isConfigured() {
@@ -254,4 +263,4 @@ class SetupService {
   }
 }
 
-module.exports = new SetupService();
+module.exports = SetupService;

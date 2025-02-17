@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const setupService = require('../services/setupService.js');
+const SetupService = require('../services/setupService.js');
+const setupService = new SetupService();
 const paperlessService = require('../services/paperlessService.js');
 const openaiService = require('../services/openaiService.js');
 const ollamaService = require('../services/ollamaService.js');
