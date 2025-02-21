@@ -19,7 +19,6 @@ const { authenticateJWT, isAuthenticated } = require('./auth.js');
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const customService = require('../services/customService.js');
 const config = require('../config/config.js');
-require('dotenv').config({ path: '../data/.env' });
 
 
 // API endpoints that should not redirect
@@ -409,7 +408,7 @@ router.post('/api/scan/now', async (req, res) => {
 try {
     const isConfigured = await setupService.isConfigured();
     if (!isConfigured) {
-      console.log('Setup not completed. Visit http://your-ip-or-host.com:3000/setup to complete setup.');
+      console.log(`Setup not completed. Visit http://your-ip-or-host.com:${config.PAPERLESS_AI_PORT}/setup to complete setup.`);
       return;
     }
 
@@ -830,7 +829,7 @@ async function processQueue(customPrompt) {
   try {
     const isConfigured = await setupService.isConfigured();
     if (!isConfigured) {
-      console.log('Setup not completed. Visit http://your-ip-or-host.com:3000/setup to complete setup.');
+      console.log(`Setup not completed. Visit http://your-ip-or-host.com:${config.PAPERLESS_AI_PORT}/setup to complete setup.`);
       return;
     }
 

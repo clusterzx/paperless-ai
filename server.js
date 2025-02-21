@@ -1,6 +1,13 @@
+const path = require('path');
+const dotenv = require('dotenv');
+const envDataPath = path.join(process.cwd(), 'data', '.env');
+console.log('Loading .env from:', envDataPath); // Debug log
+dotenv.config({ path: envDataPath }); // Load .env from data folder, variables in this file will overwrite the ones in the root
+console.log('Loading .env from:', path.join(process.cwd(), '.env')); // Debug log
+dotenv.config(); // Load .env from root, these variables will be overwritten by the ones in the data folder
+
 const express = require('express');
 const cron = require('node-cron');
-const path = require('path');
 const fs = require('fs').promises;
 const config = require('./config/config');
 const paperlessService = require('./services/paperlessService');
@@ -371,7 +378,7 @@ async function startScanning() {
   try {
     const isConfigured = await setupService.isConfigured();
     if (!isConfigured) {
-      console.log('Setup not completed. Visit http://your-ip-or-host.com:3000/setup to complete setup.');
+      console.log(`Setup not completed. Visit http://your-ip-or-host.com:${config.PAPERLESS_AI_PORT}/setup to complete setup.`);
       return;
     }
 
@@ -441,8 +448,8 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 async function startServer() {
   try {
     await initializeDataDirectory();
-    app.listen(3000, () => {
-      console.log('Server running on port 3000');
+    app.listen(config.PAPERLESS_AI_PORT, () => {
+      console.log(`Server running on port ${config.PAPERLESS_AI_PORT}`);
       startScanning();
     });
   } catch (error) {
