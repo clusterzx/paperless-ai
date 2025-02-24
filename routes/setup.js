@@ -1088,7 +1088,8 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
 
 router.post('/manual/playground', express.json(), async (req, res) => {
   try {
-    const { content, existingTags, prompt, documentId } = req.body;
+    const { content, prompt, documentId } = req.body;
+    let existingTags = await paperlessService.getTags();
     let existingCorrespondentList = await paperlessService.listCorrespondentsNames();
     existingCorrespondentList = existingCorrespondentList.map(correspondent => correspondent.name);
     
