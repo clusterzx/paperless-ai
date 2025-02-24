@@ -27,9 +27,9 @@ class DocumentsService {
     return Object.fromEntries(this.correspondentCache);
   }
 
-  async getDocumentsWithMetadata() {
+  async getDocumentsWithMetadata(numberOfDocuments = -1) {
     const [documents, tagNames, correspondentNames] = await Promise.all([
-      paperlessService.getDocuments(),
+      paperlessService.getDocuments(numberOfDocuments),
       this.getTagNames(),
       this.getCorrespondentNames()
     ]);

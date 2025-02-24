@@ -173,15 +173,14 @@ router.get('/sampleData/:id', async (req, res) => {
 // Documents view route
 router.get('/playground', protectApiRoute, async (req, res) => {
   try {
+    //limit documents to 16 items
+    const numberOfDocuments = 16;
     const {
       documents,
       tagNames,
       correspondentNames,
       paperlessUrl
-    } = await documentsService.getDocumentsWithMetadata();
-
-    //limit documents to 16 items
-    documents.length = 16;
+    } = await documentsService.getDocumentsWithMetadata(numberOfDocuments);
 
     res.render('playground', {
       documents,
@@ -1090,6 +1089,8 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
 router.post('/manual/playground', express.json(), async (req, res) => {
   try {
     const { content, existingTags, prompt, documentId } = req.body;
+    let existingCorrespondentList = await paperlessService.listCorrespondentsNames();
+    existingCorrespondentList = existingCorrespondentList.map(correspondent => correspondent.name);
     
     if (!content || typeof content !== 'string') {
       console.log('Invalid content received:', content);
@@ -1106,7 +1107,7 @@ router.post('/manual/playground', express.json(), async (req, res) => {
       )
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'ollama') {
-      const analyzeDocument = await ollamaService.analyzePlayground(content, prompt);
+      const analyzeDocument = await ollamaService.analyzePlayground(content, existingTags, existingCorrespondentList, prompt);
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'custom') {
       const analyzeDocument = await customService.analyzePlayground(content, prompt);

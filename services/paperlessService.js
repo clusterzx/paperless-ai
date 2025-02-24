@@ -506,7 +506,7 @@ class PaperlessService {
     }
   }
   
-  async getAllDocuments() {
+  async getAllDocuments(numberOfDocuments = -1) {
     this.initialize();
     if (!this.client) {
       console.error('[DEBUG] Client not initialized');
@@ -549,7 +549,7 @@ class PaperlessService {
       try {
         const params = {
           page,
-          page_size: 100,
+          page_size: numberOfDocuments > 0 ? numberOfDocuments : 100,
           fields: 'id,title,created,created_date,added,tags,correspondent'
         };
 
@@ -570,7 +570,7 @@ class PaperlessService {
         }
 
         documents = documents.concat(response.data.results);
-        hasMore = response.data.next !== null;
+        hasMore = numberOfDocuments < 0 && response.data.next !== null;
         page++;
 
         console.log(
@@ -763,8 +763,8 @@ class PaperlessService {
 
 
   // Aktualisierte getDocuments Methode
-  async getDocuments() {
-    return this.getAllDocuments();
+  async getDocuments(numberOfDocuments = -1) {
+    return this.getAllDocuments(numberOfDocuments);
   }
 
   async getDocumentContent(documentId) {
