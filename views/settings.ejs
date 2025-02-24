@@ -303,6 +303,17 @@
                                             value="<%= config.OLLAMA_MODEL %>"
                                             class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                     </div>
+
+                                    <div class="space-y-2">
+                                        <label for="ollamaStructuredOutput" class="text-sm font-medium">Use Ollama structured outputs?</label>
+                                        <select id="ollamaStructuredOutput"
+                                                name="ollamaStructuredOutput"
+                                                class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="no" <%= config.OLLAMA_STRUCTURED_OUTPUT === 'no' ? 'selected' : '' %>>No</option>
+                                            <option value="yes" <%= config.OLLAMA_STRUCTURED_OUTPUT === 'yes' ? 'selected' : '' %>>Yes</option>
+                                        </select>
+                                        <p class="text-sm text-gray-500">Structured outputs requires Ollama 0.5.0 or later.</p>
+                                    </div>
                                 </div>
 
                                 <!-- Custom Provider Settings -->

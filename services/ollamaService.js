@@ -10,6 +10,7 @@ class OllamaService {
     constructor() {
         this.apiUrl = config.ollama.apiUrl;
         this.model = config.ollama.model;
+        this.structuredOutput = config.ollama.structuredOutput;
         this.client = axios.create({
             timeout: 1800000 // 30 minutes timeout
         });
@@ -69,10 +70,18 @@ class OllamaService {
             systemPrompt = process.env.SYSTEM_PROMPT + '\n\n';
         }
 
-        if (process.env.USE_PROMPT_TAGS === 'yes') {
-            systemPrompt += config.specialPromptPreDefinedTags.replace('%CUSTOMFIELDS%', this._getCustomFields());
+        if (this.structuredOutput === 'yes') {
+            if (process.env.USE_PROMPT_TAGS === 'yes') {
+                systemPrompt += config.specialPromptPreDefinedTagsWithoutJson;
+            } else {
+                systemPrompt += config.mustHavePromptWithoutJson;
+            }
         } else {
-            systemPrompt += config.mustHavePrompt.replace('%CUSTOMFIELDS%', this._getCustomFields());
+            if (process.env.USE_PROMPT_TAGS === 'yes') {
+                systemPrompt += config.specialPromptPreDefinedTags.replace('%CUSTOMFIELDS%', this._getCustomFields());
+            } else {
+                systemPrompt += config.mustHavePrompt.replace('%CUSTOMFIELDS%', this._getCustomFields());
+            }
         }
 
         // Format existing tags
@@ -206,6 +215,53 @@ class OllamaService {
         return customFieldsStr;
     }
 
+    _getFormat() {
+        if (!this.structuredOutput) {
+            return "json";
+        }
+
+        // Parse CUSTOM_FIELDS from environment variable
+        let customFieldsObj;
+        try {
+            customFieldsObj = JSON.parse(process.env.CUSTOM_FIELDS);
+        } catch (error) {
+            console.error('Failed to parse CUSTOM_FIELDS:', error);
+            customFieldsObj = { custom_fields: [] };
+        }
+
+        const format = { ...config.jsonFormat };
+
+        if (customFieldsObj.custom_fields.length !== 0) {
+            format.properties.custom_fields = {
+                "type": "object",
+                "properties": {}
+            };
+
+            customFieldsObj.custom_fields.forEach((field, index) => {
+                format.properties.custom_fields.properties[index] = {
+                    "type": "object",
+                    "properties": {
+                        "field_name": {
+                            "type": "string",
+                            "const": field.value
+                        },
+                        "value": {
+                            "type": "string"
+                        }
+                    }
+                };
+                if (field.data_type === 'float'
+                    || field.data_type === 'monetary') {
+                    format.properties.custom_fields.properties[index].properties.value.type = "number";
+                } else if (field.data_type === 'integer') {
+                    format.properties.custom_fields.properties[index].properties.value.type = "integer";
+                }
+            });
+
+        }
+        return format;
+    }
+
     _calculatePromptTokenCount(prompt) {
         return Math.ceil(prompt.length / 4);
     }
@@ -248,16 +304,19 @@ class OllamaService {
 
     async _postOllamaRequest(content, existingTags = [], existingCorrespondent = [], customPrompt = null, writeToFile = false) {
         const systemPrompt = this._buildSystemPrompt(existingTags, existingCorrespondent, customPrompt);
+        let format = this._getFormat();
+
         const expectedResponseTokens = 1024;
         const numCtx = this._calculateNumCtx(content, expectedResponseTokens);
         const truncatedContent = this._truncateContent(content);
         console.debug('Ollama Request:',
-            `\nSystem Prompt: ${systemPrompt}\nPrompt: ${truncatedContent}\nnum_ctx: ${numCtx}`)
+            `\nSystem Prompt: ${systemPrompt}\n\nPrompt: ${truncatedContent}\n\nnum_ctx: ${numCtx}\n\nFormat: ${JSON.stringify(format)}`)
 
         const response = await this.client.post(`${this.apiUrl}/api/generate`, {
             model: this.model,
             prompt: truncatedContent,
             system: systemPrompt,
+            format: format,
             stream: false,
             options: {
                 temperature: 0.7,

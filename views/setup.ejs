@@ -256,6 +256,18 @@
                                                    value="<%= config.OLLAMA_MODEL %>"
                                                    class="modern-input">
                                         </div>
+
+                                        <div class="form-group">
+                                            <label for="ollamaStructuredOutput">Use Ollama structured outputs?</label>
+                                            <select id="ollamaStructuredOutput"
+                                                    name="ollamaStructuredOutput"
+                                                    class="modern-input">
+                                                <option value="no" <%= config.OLLAMA_STRUCTURED_OUTPUT === 'no' ? 'selected' : '' %>>No</option>
+                                                <option value="yes" <%= config.OLLAMA_STRUCTURED_OUTPUT === 'yes' ? 'selected' : '' %>>Yes</option>
+                                                <p class="text-sm text-gray-500">Structured outputs requires Ollama 0.5.0 or later.</p>
+                                                <p class="help-text">Structured outputs requires Ollama 0.5.0 or later.</p>
+                                            </select>
+                                        </div>
                                     </div>
 
                                     <!-- Custom Provider Settings -->

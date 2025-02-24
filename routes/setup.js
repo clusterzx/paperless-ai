@@ -673,6 +673,7 @@ router.get('/setup', async (req, res) => {
       OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o-mini',
       OLLAMA_API_URL: process.env.OLLAMA_API_URL || 'http://localhost:11434',
       OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'llama3.2',
+      OLLAMA_STRUCTURED_OUTPUT: process.env.OLLAMA_STRUCTURED_OUTPUT || 'yes',
       SCAN_INTERVAL: process.env.SCAN_INTERVAL || '*/30 * * * *',
       SYSTEM_PROMPT: process.env.SYSTEM_PROMPT || '',
       PROCESS_PREDEFINED_DOCUMENTS: process.env.PROCESS_PREDEFINED_DOCUMENTS || 'no',
@@ -1217,6 +1218,7 @@ router.post('/setup', express.json(), async (req, res) => {
       openaiModel,
       ollamaUrl,
       ollamaModel,
+      ollamaStructuredOutput,
       scanInterval,
       systemPrompt,
       showTags,
@@ -1375,6 +1377,7 @@ router.post('/setup', express.json(), async (req, res) => {
       }
       config.OLLAMA_API_URL = ollamaUrl || 'http://localhost:11434';
       config.OLLAMA_MODEL = ollamaModel || 'llama3.2';
+      config.OLLAMA_STRUCTURED_OUTPUT = ollamaStructuredOutput || 'yes';
     } else if (aiProvider === 'custom') {
       const isCustomValid = await setupService.validateCustomConfig(customBaseUrl, customApiKey, customModel);
       if (!isCustomValid) {
@@ -1421,6 +1424,7 @@ router.post('/settings', express.json(), async (req, res) => {
       openaiModel,
       ollamaUrl,
       ollamaModel,
+      ollamaStructuredOutput,
       scanInterval,
       systemPrompt,
       showTags,
@@ -1556,6 +1560,7 @@ router.post('/settings', express.json(), async (req, res) => {
         }
         if (ollamaUrl) updatedConfig.OLLAMA_API_URL = ollamaUrl;
         if (ollamaModel) updatedConfig.OLLAMA_MODEL = ollamaModel;
+        if (ollamaStructuredOutput) updatedConfig.OLLAMA_STRUCTURED_OUTPUT = ollamaStructuredOutput;
       }
     }
 

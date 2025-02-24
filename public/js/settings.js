@@ -87,6 +87,7 @@ class FormManager {
         const openaiKey = document.getElementById('openaiKey');
         const ollamaUrl = document.getElementById('ollamaUrl');
         const ollamaModel = document.getElementById('ollamaModel');
+        const ollamaStructuredOutput = document.getElementById('ollamaStructuredOutput');
         const customBaseUrl = document.getElementById('customBaseUrl');
         const customApiKey = document.getElementById('customApiKey');
         const customModel = document.getElementById('customModel');
@@ -100,6 +101,7 @@ class FormManager {
         openaiKey.required = false;
         ollamaUrl.required = false;
         ollamaModel.required = false;
+        ollamaStructuredOutput.required = false;
         customBaseUrl.required = false;
         customApiKey.required = false;
         customModel.required = false;
@@ -114,6 +116,7 @@ class FormManager {
                 ollamaSettings.classList.remove('hidden');
                 ollamaUrl.required = true;
                 ollamaModel.required = true;
+                ollamaStructuredOutput.required = true;
                 break;
             case 'custom':
                 customSettings.classList.remove('hidden');
