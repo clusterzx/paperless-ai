@@ -62,19 +62,11 @@ class OllamaService {
     _buildSystemPrompt(existingTags = [], existingCorrespondent = [], prompt = null) {
         let systemPrompt = '';
 
-        if (prompt) {
-            console.debug('Replace system prompt with custom prompt');
-            systemPrompt = prompt + '\n\n';
-        }
-        else {
-            systemPrompt = process.env.SYSTEM_PROMPT + '\n\n';
-        }
-
         if (this.structuredOutput === 'yes') {
             if (process.env.USE_PROMPT_TAGS === 'yes') {
-                systemPrompt += config.specialPromptPreDefinedTagsWithoutJson;
+                systemPrompt = config.specialPromptPreDefinedTagsWithoutJson;
             } else {
-                systemPrompt += config.mustHavePromptWithoutJson;
+                systemPrompt = config.mustHavePromptWithoutJson;
             }
         } else {
             if (process.env.USE_PROMPT_TAGS === 'yes') {
@@ -105,10 +97,18 @@ class OllamaService {
             : '';
     
         if (process.env.USE_EXISTING_DATA === 'yes') {
-            systemPrompt = `
-                Existing tags: ${existingTagsList}\n\n
-                Existing Correspondents: ${existingCorrespondentList}\n\n
-                ${systemPrompt}`;
+            systemPrompt = `${systemPrompt}
+                ${config.existingDataPrompt}
+                Existing tags: ${existingTagsList}
+                Existing Correspondents: ${existingCorrespondentList}`;
+        }
+
+        if (prompt) {
+            console.debug('Replace system prompt with custom prompt');
+            systemPrompt += "\n\n" + prompt;
+        }
+        else {
+            systemPrompt += "\n\n" + process.env.SYSTEM_PROMPT;
         }
 
         return systemPrompt;

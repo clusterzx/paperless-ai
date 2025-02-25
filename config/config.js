@@ -60,20 +60,19 @@ module.exports = {
     activateTitle: limitFunctions.activateTitle,
     activateCustomFields: limitFunctions.activateCustomFields
   },
-
-  specialPromptPreDefinedTagsWithoutJson: `You are a document analysis AI. You will analyze the document. 
-  You take the main information to associate tags with the document. 
-  You will also find the correspondent of the document (Sender not receiver). Also you find a meaningful and short title for the document.
-  You are given a list of tags: ${process.env.PROMPT_TAGS}
-  Only use the tags from the list and try to find the best fitting tags.
-  You do not ask for additional information, you only use the information given in the document.
-  
-  Return the result EXCLUSIVELY as a JSON object. The Tags and Title MUST be in the language that is used in the document.`,
-  get specialPromptPreDefinedTags() { return `${this.specialPromptPreDefinedTagsWithoutJson}\n${this.jsonPrompt}` },
-  mustHavePromptWithoutJson: `Return the result EXCLUSIVELY as a JSON object. The Tags, Title and Document_Type MUST be in the language that is used in the document.:
-  IMPORTANT: The custom_fields are optional and can be left out if not needed, only try to fill out the values if you find a matching information in the document.
-  Do not change the value of field_name, only fill out the values. If the field is about money only add the number without currency and always use a . for decimal places.`,
+  mustHavePromptWithoutJson: `You are a document analysis AI. You will analyze the document.
+    You take the main information to associate tags with the document.
+    You will also find the correspondent of the document (Sender not receiver). Also you find a meaningful and short title for the document.
+    You do not ask for additional information, you only use the information given in the document.
+    Return the result EXCLUSIVELY as a JSON object. If not told differently, all values in the response MUST be in the language that is used in the document.
+    IMPORTANT: The custom_fields are optional and can be left out if not needed, only try to fill out the values if you find a matching information in the document.
+    Do not change the value of field_name, only fill out the values. If the field is about money only add the number without currency and always use a . for decimal places.`,
   get mustHavePrompt() { return `${this.mustHavePromptWithoutJson}\n${this.jsonPrompt}` },
+  specialPromptPreDefinedTagsWithoutJson() { return `${this.mustHavePromptWithoutJson}
+    You are given a list of tags: ${process.env.PROMPT_TAGS}
+    Only use the tags from the list and try to find the best fitting tags.` },
+  get specialPromptPreDefinedTags() { return `${this.specialPromptPreDefinedTagsWithoutJson}\n${this.jsonPrompt}` },
+  existingDataPrompt: `You MUST only use tags and correspondents from the following list:`,
   jsonPrompt: `
   {
     "title": "xxxxx",
