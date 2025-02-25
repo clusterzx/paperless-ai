@@ -179,6 +179,7 @@ router.get('/playground', protectApiRoute, async (req, res) => {
       documents,
       tagNames,
       correspondentNames,
+      documentTypes,
       paperlessUrl
     } = await documentsService.getDocumentsWithMetadata(numberOfDocuments);
 
@@ -186,6 +187,7 @@ router.get('/playground', protectApiRoute, async (req, res) => {
       documents,
       tagNames,
       correspondentNames,
+      documentTypes,
       paperlessUrl,
       version: configFile.PAPERLESS_AI_VERSION || ' '
     });

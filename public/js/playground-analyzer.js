@@ -602,7 +602,9 @@ class PlaygroundAnalyzer {
                 }));
             
             const existingCorrespondent = docCard.querySelector('[data-correspondent]')?.dataset.correspondent;
+            const existingDocumentType = docCard.querySelector('[data-document_type]')?.dataset.document_type;
             const existingTitle = docCard.querySelector('h3').textContent;
+            const existingDocumentDate = docCard.querySelector('[data-document_date]')?.dataset.document_date;
 
             // Analyse durchführen
             const analysisResponse = await fetch('/manual/playground', {
@@ -628,7 +630,9 @@ class PlaygroundAnalyzer {
             await this.updateDocumentCard(docCard, result.document, {
                 existingTags,
                 existingCorrespondent,
-                existingTitle
+                existingDocumentType,
+                existingTitle,
+                existingDocumentDate
             });
 
         } catch (error) {
@@ -657,7 +661,31 @@ class PlaygroundAnalyzer {
                 });
             }
         }
-    
+
+        // Update document date
+        let documentDate = new Date(analysisResult.document_date);
+        if (!isNaN(documentDate) && analysisResult.document_date.valueOf() !== existing.existingDocumentDate) {
+            const dateElem = docCard.querySelector('[data-document_date]');
+            if (dateElem) {
+                const oldDocumentDate = dateElem.textContent.trim();
+                const infoContainer = document.createElement('div');
+                infoContainer.className = 'info-item';
+
+                const newValue = document.createElement('span');
+                newValue.className = 'updated-text text-sm truncate';
+                newValue.textContent = documentDate.toLocaleDateString();
+
+                const oldValue = document.createElement('span');
+                oldValue.className = 'old-value';
+                oldValue.textContent = oldDocumentDate;
+
+                infoContainer.appendChild(newValue);
+                infoContainer.appendChild(oldValue);
+
+                dateElem.parentNode.replaceChild(infoContainer, dateElem);
+            }
+        }
+
         // Correspondent aktualisieren
         if (analysisResult.correspondent && analysisResult.correspondent !== existing.existingCorrespondent) {
             const correspondentElem = docCard.querySelector('[data-correspondent]');
@@ -668,7 +696,7 @@ class PlaygroundAnalyzer {
                 infoContainer.className = 'info-item';
                 
                 const newValue = document.createElement('span');
-                newValue.className = 'updated-text truncate';
+                newValue.className = 'updated-text text-sm truncate';
                 // Hier müssen wir den neuen Namen aus correspondentNames holen
                 newValue.textContent = window.correspondentNames?.[analysisResult.correspondent] || analysisResult.correspondent;
                 
@@ -682,6 +710,33 @@ class PlaygroundAnalyzer {
                 
                 correspondentElem.parentNode.replaceChild(infoContainer, correspondentElem);
                 infoContainer.dataset.correspondent = analysisResult.correspondent;
+            }
+        }
+
+        // Update document type
+        if (analysisResult.document_type && analysisResult.document_type !== existing.existingDocumentType) {
+            const documentTypeElem = docCard.querySelector('[data-document_type]');
+            if (documentTypeElem) {
+                // Save name instead of id
+                const oldDocumentTypeName = documentTypeElem.textContent.trim();
+                const infoContainer = document.createElement('div');
+                infoContainer.className = 'info-item';
+
+                const newValue = document.createElement('span');
+                newValue.className = 'updated-text text-sm truncate';
+                // get new  name from document types list
+                newValue.textContent = window.documentTypes?.[analysisResult.document_type] || analysisResult.document_type;
+
+                const oldValue = document.createElement('span');
+                oldValue.className = 'old-value';
+                // Use saved name
+                oldValue.textContent = oldDocumentTypeName;
+
+                infoContainer.appendChild(newValue);
+                infoContainer.appendChild(oldValue);
+
+                documentTypeElem.parentNode.replaceChild(infoContainer, documentTypeElem);
+                infoContainer.dataset.document_type = analysisResult.document_type;
             }
         }
     
@@ -706,7 +761,18 @@ class PlaygroundAnalyzer {
                 titleElem.parentNode.replaceChild(infoContainer, titleElem);
             }
         }
-    
+
+        // Show custom fields
+        if (analysisResult.custom_fields) {
+            const infoContainer = docCard.querySelector('.info-item-meta');
+            for (const key in analysisResult.custom_fields) {
+                const newField = document.createElement('span');
+                newField.className = 'updated-text text-sm truncate';
+                newField.textContent = `${analysisResult.custom_fields[key].field_name}: ${analysisResult.custom_fields[key].value}`;
+                infoContainer.appendChild(newField);
+            }
+        }
+
         // Highlight-Effekt
         docCard.classList.add('updated');
         setTimeout(() => {

@@ -151,17 +151,22 @@
                                         <h3 class="text-sm font-medium truncate"><%= doc.title %></h3>
                                     </div>
                                     
-                                    <div class="info-item">
-                                        <p class="text-xs text-gray-600 truncate">
+                                    <div class="info-item info-item-meta">
+                                        <p class="text-xs text-gray-600 truncate"
+                                           data-document_date="<%= new Date(doc.created).valueOf() %>">
                                             <%= new Date(doc.created).toLocaleDateString() %>
                                         </p>
                                         
-                                        <% if (doc.correspondent) { %>
-                                        <p class="text-xs text-gray-600 truncate" 
+                                        <p class="text-xs text-gray-600 truncate"
                                            data-correspondent="<%= doc.correspondent %>">
-                                            <%= correspondentNames[doc.correspondent] || 'Unknown' %>
+                                            Correspondent: <%= correspondentNames[doc.correspondent] || 'Unknown' %>
                                         </p>
-                                        <% } %>
+
+                                        <p class="text-xs text-gray-600 truncate"
+                                           data-document_type="<%= doc.document_type %>">
+                                            Document type: <%= documentTypes[doc.document_type] || 'Unknown' %>
+                                        </p>
+
                                     </div>
                                 </div>
                             </div>

@@ -469,6 +469,50 @@ class PaperlessService {
     }
   }
 
+  async listDocumentTypes() {
+    this.initialize();
+    let documentTypes = [];
+    let page = 1;
+    let hasNextPage = true;
+
+    try {
+      while (hasNextPage) {
+        const response = await this.client.get('/document_types/', {
+          params: {
+            fields: 'id,name',
+            count: true,
+            page: page
+          }
+        });
+
+        const { results, next } = response.data;
+
+        documentTypes = documentTypes.concat(
+            results.map(documentType => ({
+              name: documentType.name,
+              id: documentType.id,
+              document_count: documentType.document_count
+            }))
+        );
+
+        // Prüfe, ob es eine nächste Seite gibt
+        hasNextPage = next !== null;
+        page++;
+
+        // Optional: Füge eine kleine Verzögerung hinzu, um die API nicht zu überlasten
+        if (hasNextPage) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+
+      return documentTypes;
+
+    } catch (error) {
+      console.error('[ERROR] fetching document types:', error.message);
+      return [];
+    }
+  }
+
   async listTagNames() {
     this.initialize();
     let allTags = [];
@@ -550,7 +594,7 @@ class PaperlessService {
         const params = {
           page,
           page_size: numberOfDocuments > 0 ? numberOfDocuments : 100,
-          fields: 'id,title,created,created_date,added,tags,correspondent'
+          fields: 'id,title,created,created_date,added,tags,correspondent,document_type'
         };
 
         // Füge Tag-Filter hinzu, wenn Tags definiert sind
