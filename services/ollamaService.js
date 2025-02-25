@@ -309,8 +309,8 @@ class OllamaService {
         const expectedResponseTokens = 1024;
         const numCtx = this._calculateNumCtx(content, expectedResponseTokens);
         const truncatedContent = this._truncateContent(content);
-        console.debug('Ollama Request:',
-            `\nSystem Prompt: ${systemPrompt}\n\nPrompt: ${truncatedContent}\n\nnum_ctx: ${numCtx}\n\nFormat: ${JSON.stringify(format)}`)
+        // console.debug('Ollama Request:',
+        //    `\nSystem Prompt: ${systemPrompt}\n\nPrompt: ${truncatedContent}\n\nnum_ctx: ${numCtx}\n\nFormat: ${JSON.stringify(format)}`)
 
         const response = await this.client.post(`${this.apiUrl}/api/generate`, {
             model: this.model,
@@ -339,10 +339,10 @@ class OllamaService {
         if (!response.data || !response.data.response) {
             throw new Error('Invalid response from Ollama API');
         }
-        console.debug('Ollama response:', response.data.response);
+        // console.debug('Ollama response:', response.data.response);
 
         const parsedResponse = this._parseResponse(response.data.response);
-        console.debug('Ollama response (parsed):', parsedResponse);
+        // console.debug('Ollama response (parsed):', parsedResponse);
 
         if (writeToFile) {
             await this._writePromptToFile(systemPrompt + "\n\n" + truncatedContent + "\n\n" + JSON.stringify(parsedResponse));
