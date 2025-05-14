@@ -13,23 +13,7 @@ class AzureOpenAIService {
   }
 
   initialize() {
-    if (!this.client && config.aiProvider === 'ollama') {
-      this.client = new OpenAI({
-        baseURL: config.ollama.apiUrl + '/v1',
-        apiKey: 'ollama'
-      });
-    } else if (!this.client && config.aiProvider === 'custom') {
-      this.client = new OpenAI({
-        baseURL: config.custom.apiUrl,
-        apiKey: config.custom.apiKey
-      });
-    } else if (!this.client && config.aiProvider === 'openai') {
-    if (!this.client && config.openai.apiKey) {
-      this.client = new OpenAI({
-        apiKey: config.openai.apiKey
-      });
-    }
-    } else if (!this.client && config.aiProvider === 'azure') {
+    if (!this.client && config.aiProvider === 'azure') {
       this.client = new AzureOpenAI({
         apiKey: config.azure.apiKey,
         endpoint: config.azure.endpoint,
@@ -181,7 +165,7 @@ class AzureOpenAIService {
       await this.writePromptToFile(systemPrompt, truncatedContent);
 
       const response = await this.client.chat.completions.create({
-        model: model,
+        model: "", //no model has to be set in azure openai when deplyoment is set on init
         messages: [
           {
             role: "system",
@@ -302,7 +286,7 @@ class AzureOpenAIService {
       
       // Make API request
       const response = await this.client.chat.completions.create({
-        model: process.env.OPENAI_MODEL,
+        model: "", //no model has to be set in azure openai when deplyoment is set on init
         messages: [
           {
             role: "system",
