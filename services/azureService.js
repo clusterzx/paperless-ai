@@ -165,7 +165,7 @@ class AzureOpenAIService {
       await this.writePromptToFile(systemPrompt, truncatedContent);
 
       const response = await this.client.chat.completions.create({
-        model: "", //no model has to be set in azure openai when deplyoment is set on init
+        model: config.azure.deploymentName, //no model has to be set in azure openai when deplyoment is set on init
         messages: [
           {
             role: "system",
@@ -286,7 +286,7 @@ class AzureOpenAIService {
       
       // Make API request
       const response = await this.client.chat.completions.create({
-        model: "", //no model has to be set in azure openai when deplyoment is set on init
+        model: config.azure.deploymentName, //no model has to be set in azure openai when deplyoment is set on init
         messages: [
           {
             role: "system",
