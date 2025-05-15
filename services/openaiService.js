@@ -1,6 +1,11 @@
+const { 
+    calculateTokens, 
+    calculateTotalPromptTokens, 
+    truncateToTokenLimit, 
+    writePromptToFile 
+} = require('./serviceUtils');
 const OpenAI = require('openai');
 const config = require('../config/config');
-const tiktoken = require('tiktoken');
 const paperlessService = require('./paperlessService');
 const fs = require('fs').promises;
 const path = require('path');
@@ -8,7 +13,6 @@ const path = require('path');
 class OpenAIService {
   constructor() {
     this.client = null;
-    this.tokenizer = null;
   }
 
   initialize() {
@@ -23,51 +27,12 @@ class OpenAIService {
         apiKey: config.custom.apiKey
       });
     } else if (!this.client && config.aiProvider === 'openai') {
-    if (!this.client && config.openai.apiKey) {
-      this.client = new OpenAI({
-        apiKey: config.openai.apiKey
-      });
-    }
-    }}
-
-  // Calculate tokens for a given text
-  async calculateTokens(text) {
-    if (!this.tokenizer) {
-      // Use the appropriate model encoding
-      this.tokenizer = await tiktoken.encoding_for_model(process.env.OPENAI_MODEL || "gpt-4o-mini");
-    }
-    return this.tokenizer.encode(text).length;
-  }
-
-  // Calculate tokens for a given text
-  async calculateTotalPromptTokens(systemPrompt, additionalPrompts = []) {
-    let totalTokens = 0;
-    
-    // Count tokens for system prompt
-    totalTokens += await this.calculateTokens(systemPrompt);
-    
-    // Count tokens for additional prompts
-    for (const prompt of additionalPrompts) {
-      if (prompt) { // Only count if prompt exists
-        totalTokens += await this.calculateTokens(prompt);
+      if (!this.client && config.openai.apiKey) {
+        this.client = new OpenAI({
+          apiKey: config.openai.apiKey
+        });
       }
     }
-    
-    // Add tokens for message formatting (approximately 4 tokens per message)
-    const messageCount = 1 + additionalPrompts.filter(p => p).length; // Count system + valid additional prompts
-    totalTokens += messageCount * 4;
-    
-    return totalTokens;
-  }
-
-  // Truncate text to fit within token limit
-  async truncateToTokenLimit(text, maxTokens) {
-    const tokens = await this.calculateTokens(text);
-    if (tokens <= maxTokens) return text;
-
-    // Simple truncation strategy - could be made more sophisticated
-    const ratio = maxTokens / tokens;
-    return text.slice(0, Math.floor(text.length * ratio));
   }
 
   async analyzeDocument(content, existingTags = [], existingCorrespondentList = [], id, customPrompt = null) {
@@ -158,7 +123,7 @@ class OpenAIService {
       }
       
       // Rest of the function remains the same
-      const totalPromptTokens = await this.calculateTotalPromptTokens(
+      const totalPromptTokens = await calculateTotalPromptTokens(
         systemPrompt,
         process.env.USE_PROMPT_TAGS === 'yes' ? [promptTags] : []
       );
@@ -167,9 +132,9 @@ class OpenAIService {
       const reservedTokens = totalPromptTokens + Number(config.responseTokens);
       const availableTokens = maxTokens - reservedTokens;
       
-      const truncatedContent = await this.truncateToTokenLimit(content, availableTokens);
+      const truncatedContent = await truncateToTokenLimit(content, availableTokens);
       
-      await this.writePromptToFile(systemPrompt, truncatedContent);
+      await writePromptToFile(systemPrompt, truncatedContent);
 
       const response = await this.client.chat.completions.create({
         model: model,
@@ -232,28 +197,6 @@ class OpenAIService {
         error: error.message 
       };
     }
-}
-
-  async writePromptToFile(systemPrompt, truncatedContent) {
-    const filePath = './logs/prompt.txt';
-    const maxSize = 10 * 1024 * 1024;
-  
-    try {
-      const stats = await fs.stat(filePath);
-      if (stats.size > maxSize) {
-        await fs.unlink(filePath); // Delete the file if is biger 10MB
-      }
-    } catch (error) {
-      if (error.code !== 'ENOENT') {
-        console.warn('[WARNING] Error checking file size:', error);
-      }
-    }
-  
-    try {
-      await fs.appendFile(filePath, systemPrompt + truncatedContent + '\n\n');
-    } catch (error) {
-      console.error('[ERROR] Error writing to file:', error);
-    }
   }
 
   async analyzePlayground(content, prompt) {
@@ -277,7 +220,7 @@ class OpenAIService {
       }
       
       // Calculate total prompt tokens including musthavePrompt
-      const totalPromptTokens = await this.calculateTotalPromptTokens(
+      const totalPromptTokens = await calculateTotalPromptTokens(
         prompt + musthavePrompt // Combined system prompt
       );
       
@@ -287,7 +230,7 @@ class OpenAIService {
       const availableTokens = maxTokens - reservedTokens;
       
       // Truncate content if necessary
-      const truncatedContent = await this.truncateToTokenLimit(content, availableTokens);
+      const truncatedContent = await truncateToTokenLimit(content, availableTokens);
       const model = process.env.OPENAI_MODEL;
       // Make API request
       const response = await this.client.chat.completions.create({

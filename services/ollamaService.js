@@ -1,3 +1,9 @@
+const { 
+    calculateTokens, 
+    calculateTotalPromptTokens, 
+    truncateToTokenLimit, 
+    writePromptToFile 
+} = require('./serviceUtils');
 const axios = require('axios');
 const config = require('../config/config');
 const fs = require('fs').promises;
@@ -137,12 +143,12 @@ class OllamaService {
     async analyzePlayground(content, prompt) {
         try {
             // Calculate context window size
-            const promptTokenCount = this._calculatePromptTokenCount(prompt);
+            const promptTokenCount = await calculateTokens(prompt);
             const numCtx = this._calculateNumCtx(promptTokenCount, 1024);
-            
+
             // Generate playground system prompt (simpler than full analysis)
             const systemPrompt = this._generatePlaygroundSystemPrompt();
-            
+
             // Call Ollama API
             const response = await this._callOllamaAPI(
                 prompt + "\n\n" + JSON.stringify(content), 
@@ -535,33 +541,7 @@ class OllamaService {
             + '\n\n' 
             + '================================================================================\n\n';
             
-        await this._writePromptToFile(content);
-    }
-
-    /**
-     * Write prompt to log file
-     * @param {string} content - Content to write
-     */
-    async _writePromptToFile(content) {
-        const filePath = './logs/prompt.txt';
-        const maxSize = 10 * 1024 * 1024;
-      
-        try {
-            try {
-                const stats = await fs.stat(filePath);
-                if (stats.size > maxSize) {
-                    await fs.unlink(filePath); // Delete the file if is bigger than 10MB
-                }
-            } catch (error) {
-                if (error.code !== 'ENOENT') {
-                    console.warn('[WARNING] Error checking file size:', error);
-                }
-            }
-          
-            await fs.appendFile(filePath, content);
-        } catch (error) {
-            console.error('[ERROR] Error writing to file:', error);
-        }
+        await writePromptToFile(content);
     }
 }
 
