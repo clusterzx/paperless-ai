@@ -1,3 +1,9 @@
+const { 
+    calculateTokens, 
+    calculateTotalPromptTokens, 
+    truncateToTokenLimit, 
+    writePromptToFile 
+} = require('./serviceUtils');
 const axios = require('axios');
 const OpenAI = require('openai');
 const config = require('../config/config');
@@ -26,27 +32,6 @@ class ManualService {
         }
     }
 
-    async writePromptToFile(systemPrompt, truncatedContent) {
-        const filePath = './logs/prompt.txt';
-        const maxSize = 10 * 1024 * 1024;
-      
-        try {
-          const stats = await fs.stat(filePath);
-          if (stats.size > maxSize) {
-            await fs.unlink(filePath); // Delete the file if is biger 10MB
-          }
-        } catch (error) {
-          if (error.code !== 'ENOENT') {
-            console.warn('[WARNING] Error checking file size:', error);
-          }
-        }
-      
-        try {
-          await fs.appendFile(filePath, systemPrompt + truncatedContent + '\n\n');
-        } catch (error) {
-          console.error('[ERROR] Error writing to file:', error);
-        }
-      }
     
     async analyzeDocument(content, existingTags, provider) {
         try {
@@ -74,7 +59,7 @@ class ManualService {
             .join(', ');
         const model = process.env.OPENAI_MODEL;
         const systemPrompt = process.env.SYSTEM_PROMPT;
-        await this.writePromptToFile(systemPrompt, content);
+        await writePromptToFile(systemPrompt, content);
         const response = await this.openai.chat.completions.create({
             model: model,
             messages: [
@@ -122,7 +107,7 @@ class ManualService {
             .join(', ');
     
         const systemPrompt = process.env.SYSTEM_PROMPT;
-        await this.writePromptToFile(systemPrompt, content);
+        await writePromptToFile(systemPrompt, content);
         const response = await this.openai.chat.completions.create({
             model: process.env.AZURE_DEPLOYMENT_NAME,
             messages: [

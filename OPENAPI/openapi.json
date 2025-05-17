@@ -2165,16 +2165,6 @@
                     "description": "Custom system prompt for document analysis",
                     "example": "Extract key information from the following document..."
                   },
-                  "tokenLimit": {
-                    "type": "integer",
-                    "description": "The maximum number of tokens the AI can handle",
-                    "example": 128000
-                  },
-                  "responseTokens": {
-                    "type": "integer",
-                    "description": "The approximate amount of tokens required for the response",
-                    "example": 1000
-                  },
                   "showTags": {
                     "type": "boolean",
                     "description": "Whether to show tags in the UI",
@@ -3054,16 +3044,6 @@
                     "description": "Model name for custom LLM provider",
                     "example": "custom-model"
                   },
-                  "tokenLimit": {
-                    "type": "integer",
-                    "description": "The maximum number of tokens the AI can handle",
-                    "example": 128000
-                  },
-                  "responseTokens": {
-                    "type": "integer",
-                    "description": "The approximate amount of tokens required for the response",
-                    "example": 1000
-                  },
                   "scanInterval": {
                     "type": "number",
                     "description": "Interval in minutes for scanning new documents",
@@ -3078,6 +3058,16 @@
                     "type": "boolean",
                     "description": "Whether to show tags in the UI",
                     "example": true
+                  },
+                  "tokenLimit": {
+                    "type": "integer",
+                    "description": "The maximum number of tokens th AI can handle",
+                    "example": 128000
+                  },
+                  "responseTokens": {
+                    "type": "integer",
+                    "description": "The approx. amount of tokens required for the response",
+                    "example": 1000
                   },
                   "tags": {
                     "type": "string",

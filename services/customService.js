@@ -1,3 +1,9 @@
+const { 
+  calculateTokens, 
+  calculateTotalPromptTokens, 
+  truncateToTokenLimit, 
+  writePromptToFile 
+} = require('./serviceUtils');
 const OpenAI = require('openai');
 const config = require('../config/config');
 const tiktoken = require('tiktoken');
@@ -20,46 +26,6 @@ class CustomOpenAIService {
     }
   }
 
-    // Calculate tokens for a given text
-    async calculateTokens(text) {
-      if (!this.tokenizer) {
-        // Use the appropriate model encoding
-        this.tokenizer = await tiktoken.encoding_for_model(process.env.OPENAI_MODEL || "gpt-4o-mini");
-      }
-      return this.tokenizer.encode(text).length;
-    }
-  
-    // Calculate tokens for a given text
-    async calculateTotalPromptTokens(systemPrompt, additionalPrompts = []) {
-      let totalTokens = 0;
-      
-      // Count tokens for system prompt
-      totalTokens += await this.calculateTokens(systemPrompt);
-      
-      // Count tokens for additional prompts
-      for (const prompt of additionalPrompts) {
-        if (prompt) { // Only count if prompt exists
-          totalTokens += await this.calculateTokens(prompt);
-        }
-      }
-      
-      // Add tokens for message formatting (approximately 4 tokens per message)
-      const messageCount = 1 + additionalPrompts.filter(p => p).length; // Count system + valid additional prompts
-      totalTokens += messageCount * 4;
-      
-      return totalTokens;
-    }
-  
-    // Truncate text to fit within token limit
-    async truncateToTokenLimit(text, maxTokens) {
-      const tokens = await this.calculateTokens(text);
-      if (tokens <= maxTokens) return text;
-  
-      // Simple truncation strategy - could be made more sophisticated
-      const ratio = maxTokens / tokens;
-      return text.slice(0, Math.floor(text.length * ratio));
-    }
-  
   async analyzeDocument(content, existingTags = [], existingCorrespondentList = [], id) {
     const cachePath = path.join('./public/images', `${id}.png`);
     try {
@@ -116,7 +82,7 @@ class CustomOpenAIService {
       }
 
       // Calculate total prompt tokens including all components
-      const totalPromptTokens = await this.calculateTotalPromptTokens(
+      const totalPromptTokens = await calculateTotalPromptTokens(
         systemPrompt,
         process.env.USE_PROMPT_TAGS === 'yes' ? [promptTags] : []
       );
@@ -127,7 +93,7 @@ class CustomOpenAIService {
         const availableTokens = maxTokens - reservedTokens;
         
         // Truncate content if necessary
-        const truncatedContent = await this.truncateToTokenLimit(content, availableTokens);
+        const truncatedContent = await truncateToTokenLimit(content, availableTokens);
       
       // Make API request
       const response = await this.client.chat.completions.create({
@@ -192,27 +158,6 @@ class CustomOpenAIService {
     }
   }
 
-  async writePromptToFile(systemPrompt, truncatedContent) {
-    const filePath = './logs/prompt.txt';
-    const maxSize = 10 * 1024 * 1024;
-  
-    try {
-      const stats = await fs.stat(filePath);
-      if (stats.size > maxSize) {
-        await fs.unlink(filePath); // Delete the file if is biger 10MB
-      }
-    } catch (error) {
-      if (error.code !== 'ENOENT') {
-        console.warn('[WARNING] Error checking file size:', error);
-      }
-    }
-  
-    try {
-      await fs.appendFile(filePath, systemPrompt + truncatedContent + '\n\n');
-    } catch (error) {
-      console.error('[ERROR] Error writing to file:', error);
-    }
-  }
 
   async analyzePlayground(content, prompt) {
     const musthavePrompt = `
@@ -235,7 +180,7 @@ class CustomOpenAIService {
       }
       
       // Calculate total prompt tokens including musthavePrompt
-      const totalPromptTokens = await this.calculateTotalPromptTokens(
+      const totalPromptTokens = await calculateTotalPromptTokens(
         prompt + musthavePrompt // Combined system prompt
       );
       
@@ -245,7 +190,7 @@ class CustomOpenAIService {
       const availableTokens = maxTokens - reservedTokens;
       
       // Truncate content if necessary
-      const truncatedContent = await this.truncateToTokenLimit(content, availableTokens);
+      const truncatedContent = await truncateToTokenLimit(content, availableTokens);
       
       // Make API request
       const response = await this.client.chat.completions.create({

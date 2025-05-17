@@ -1,7 +1,12 @@
+const { 
+  calculateTokens, 
+  calculateTotalPromptTokens, 
+  truncateToTokenLimit, 
+  writePromptToFile 
+} = require('./serviceUtils');
 const OpenAI = require('openai');
 const AzureOpenAI = require('openai').AzureOpenAI;
 const config = require('../config/config');
-const tiktoken = require('tiktoken');
 const paperlessService = require('./paperlessService');
 const fs = require('fs').promises;
 const path = require('path');
@@ -9,27 +14,10 @@ const path = require('path');
 class AzureOpenAIService {
   constructor() {
     this.client = null;
-    this.tokenizer = null;
   }
 
   initialize() {
-    if (!this.client && config.aiProvider === 'ollama') {
-      this.client = new OpenAI({
-        baseURL: config.ollama.apiUrl + '/v1',
-        apiKey: 'ollama'
-      });
-    } else if (!this.client && config.aiProvider === 'custom') {
-      this.client = new OpenAI({
-        baseURL: config.custom.apiUrl,
-        apiKey: config.custom.apiKey
-      });
-    } else if (!this.client && config.aiProvider === 'openai') {
-    if (!this.client && config.openai.apiKey) {
-      this.client = new OpenAI({
-        apiKey: config.openai.apiKey
-      });
-    }
-    } else if (!this.client && config.aiProvider === 'azure') {
+    if (!this.client && config.aiProvider === 'azure') {
       this.client = new AzureOpenAI({
         apiKey: config.azure.apiKey,
         endpoint: config.azure.endpoint,
@@ -37,46 +25,6 @@ class AzureOpenAIService {
         apiVersion: config.azure.apiVersion
       });
     }
-  }
-
-  // Calculate tokens for a given text
-  async calculateTokens(text) {
-    if (!this.tokenizer) {
-      // Use the appropriate model encoding
-      this.tokenizer = await tiktoken.encoding_for_model(process.env.OPENAI_MODEL || "gpt-4o-mini");
-    }
-    return this.tokenizer.encode(text).length;
-  }
-
-  // Calculate tokens for a given text
-  async calculateTotalPromptTokens(systemPrompt, additionalPrompts = []) {
-    let totalTokens = 0;
-    
-    // Count tokens for system prompt
-    totalTokens += await this.calculateTokens(systemPrompt);
-    
-    // Count tokens for additional prompts
-    for (const prompt of additionalPrompts) {
-      if (prompt) { // Only count if prompt exists
-        totalTokens += await this.calculateTokens(prompt);
-      }
-    }
-    
-    // Add tokens for message formatting (approximately 4 tokens per message)
-    const messageCount = 1 + additionalPrompts.filter(p => p).length; // Count system + valid additional prompts
-    totalTokens += messageCount * 4;
-    
-    return totalTokens;
-  }
-
-  // Truncate text to fit within token limit
-  async truncateToTokenLimit(text, maxTokens) {
-    const tokens = await this.calculateTokens(text);
-    if (tokens <= maxTokens) return text;
-
-    // Simple truncation strategy - could be made more sophisticated
-    const ratio = maxTokens / tokens;
-    return text.slice(0, Math.floor(text.length * ratio));
   }
 
   async analyzeDocument(content, existingTags = [], existingCorrespondentList = [], id, customPrompt = null) {
@@ -167,7 +115,7 @@ class AzureOpenAIService {
       }
       
       // Rest of the function remains the same
-      const totalPromptTokens = await this.calculateTotalPromptTokens(
+      const totalPromptTokens = await calculateTotalPromptTokens(
         systemPrompt,
         process.env.USE_PROMPT_TAGS === 'yes' ? [promptTags] : []
       );
@@ -176,9 +124,9 @@ class AzureOpenAIService {
       const reservedTokens = totalPromptTokens + Number(config.responseTokens);
       const availableTokens = maxTokens - reservedTokens;
       
-      const truncatedContent = await this.truncateToTokenLimit(content, availableTokens);
-      
-      await this.writePromptToFile(systemPrompt, truncatedContent);
+      const truncatedContent = await truncateToTokenLimit(content, availableTokens);
+
+      await writePromptToFile(systemPrompt, truncatedContent);
 
       const response = await this.client.chat.completions.create({
         model: model,
@@ -199,7 +147,7 @@ class AzureOpenAIService {
         throw new Error('Invalid API response structure');
       }
       
-      console.log(`[DEBUG] [${timestamp}] Azure request sent`);
+      console.log(`[DEBUG] [${timestamp}] AzureOpenAI request sent`);
       console.log(`[DEBUG] [${timestamp}] Total tokens: ${response.usage.total_tokens}`);
       
       const usage = response.usage;
@@ -245,28 +193,6 @@ class AzureOpenAIService {
     }
 }
 
-  async writePromptToFile(systemPrompt, truncatedContent) {
-    const filePath = './logs/prompt.txt';
-    const maxSize = 10 * 1024 * 1024;
-  
-    try {
-      const stats = await fs.stat(filePath);
-      if (stats.size > maxSize) {
-        await fs.unlink(filePath); // Delete the file if is biger 10MB
-      }
-    } catch (error) {
-      if (error.code !== 'ENOENT') {
-        console.warn('[WARNING] Error checking file size:', error);
-      }
-    }
-  
-    try {
-      await fs.appendFile(filePath, systemPrompt + truncatedContent + '\n\n');
-    } catch (error) {
-      console.error('[ERROR] Error writing to file:', error);
-    }
-  }
-
   async analyzePlayground(content, prompt) {
     const musthavePrompt = `
     Return the result EXCLUSIVELY as a JSON object. The Tags and Title MUST be in the language that is used in the document.:  
@@ -284,11 +210,11 @@ class AzureOpenAIService {
       const timestamp = now.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
       
       if (!this.client) {
-        throw new Error('OpenAI client not initialized - missing API key');
+        throw new Error('AzureOpenAI client not initialized - missing API key');
       }
       
       // Calculate total prompt tokens including musthavePrompt
-      const totalPromptTokens = await this.calculateTotalPromptTokens(
+      const totalPromptTokens = await calculateTotalPromptTokens(
         prompt + musthavePrompt // Combined system prompt
       );
       
@@ -298,11 +224,11 @@ class AzureOpenAIService {
       const availableTokens = maxTokens - reservedTokens;
       
       // Truncate content if necessary
-      const truncatedContent = await this.truncateToTokenLimit(content, availableTokens);
+      const truncatedContent = await truncateToTokenLimit(content, availableTokens);
       
       // Make API request
       const response = await this.client.chat.completions.create({
-        model: process.env.OPENAI_MODEL,
+        model: process.env.AZURE_DEPLOYMENT_NAME,
         messages: [
           {
             role: "system",
@@ -322,7 +248,7 @@ class AzureOpenAIService {
       }
       
       // Log token usage
-      console.log(`[DEBUG] [${timestamp}] OpenAI request sent`);
+      console.log(`[DEBUG] [${timestamp}] AzureOpenAI request sent`);
       console.log(`[DEBUG] [${timestamp}] Total tokens: ${response.usage.total_tokens}`);
       
       const usage = response.usage;

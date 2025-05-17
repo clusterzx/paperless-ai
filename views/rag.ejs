@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paperless-AI RAG</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.0/css/all.min.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="css/chat.css">
+    <link rel="stylesheet" href="css/rag.css">
+</head>
+<body class="h-full">
+    <button id="themeToggle" class="theme-toggle">
+        <i class="fas fa-moon"></i>
+    </button>
+
+    <div class="layout-container">
+        <button id="mobileMenuButton" class="mobile-menu-button">
+            <i class="fas fa-bars"></i>
+        </button>
+        <!-- Sidebar -->
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <img src="/favicon.ico" class="no-invert" alt="Paperless AI Logo" style="height: 60px;">
+                <h1 class="brand-title">Paperless-AI<small style="display: block;"><%= version %></small></h1>
+            </div>
+
+            <nav class="sidebar-nav">
+                <ul>
+                    <li><a href="/dashboard" class="sidebar-link"><i class="fas fa-home"></i><span>Dashboard</span></a></li>
+                    <li><a href="/manual" class="sidebar-link"><i class="fas fa-file-alt"></i><span>Manual</span></a></li>
+                    <li><a href="/chat" class="sidebar-link"><i class="fa-solid fa-comment"></i><span>Chat</span></a></li>
+                    <li><a href="/rag" class="sidebar-link active"><i class="fa-solid fa-robot"></i><span>RAG</span></a></li>
+                    <li><a href="/playground" class="sidebar-link"><i class="fa-solid fa-flask-vial"></i><span>Playground</span></a></li>
+                    <li><a href="/history" class="sidebar-link"><i class="fa-solid fa-clock-rotate-left"></i><span>History</span></a></li>
+                    <li><a href="/settings" class="sidebar-link"><i class="fas fa-cog"></i><span>Settings</span></a></li>
+                    <li><a href="/logout" class="sidebar-link"><i class="fa-solid fa-right-from-bracket"></i><span>Logout</span></a></li>
+                </ul>
+                <a href="https://github.com/clusterzx/paperless-ai" 
+                class="github-button" 
+                style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);">
+                <span class="star-button">
+                    <svg class="star-icon" height="16" width="16" viewBox="0 0 16 16">
+                        <path d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z"></path>
+                    </svg>
+                    Star
+                </span>
+                <span id="starCount" class="star-count">1.2k</span>
+            </a>
+            <p style="position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #555; text-align: center;">
+                Please support us on GitHub
+            </p>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="content-wrapper">
+                <div class="content-header">
+                    <h2 class="content-title">RAG Assistant</h2>
+                </div>
+
+                <div class="chat-container">
+                    <!-- RAG Interface -->
+                    <div class="material-card chat-interface">
+                        <!-- Initial State -->
+                        <div class="initial-state" id="initialState">
+                            <h3>Document-Based Question Answering</h3>
+                            <p>Ask any question about your documents and I'll find relevant information to answer.</p>
+                            <div class="features-list">
+                                <div class="feature-item">
+                                    <i class="fas fa-search"></i>
+                                    <span>Searches your documents in real-time</span>
+                                </div>
+                                <div class="feature-item">
+                                    <i class="fas fa-robot"></i>
+                                    <span>AI generates answers based on document content</span>
+                                </div>
+                                <div class="feature-item">
+                                    <i class="fas fa-file-alt"></i>
+                                    <span>Cites sources from your document library</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Chat History -->
+                        <div id="chatHistory" class="chat-history">
+                            <!-- Messages will be added here dynamically -->
+                        </div>
+
+                        <!-- Filter Options -->
+                        <div id="filterOptions" class="filter-options">
+                            <button id="toggleFilters" class="toggle-filters-btn">
+                                <i class="fas fa-filter"></i> Filters
+                            </button>
+                            <div id="filterPanel" class="filter-panel hidden">
+                                <div class="filter-item">
+                                    <label for="fromDate">From Date:</label>
+                                    <input type="date" id="fromDate" class="filter-input">
+                                </div>
+                                <div class="filter-item">
+                                    <label for="toDate">To Date:</label>
+                                    <input type="date" id="toDate" class="filter-input">
+                                </div>
+                                <div class="filter-item">
+                                    <label for="correspondent">Correspondent:</label>
+                                    <input type="text" id="correspondent" class="filter-input" placeholder="Type correspondent name...">
+                                </div>
+                                <button id="clearFilters" class="clear-filters-btn">
+                                    <i class="fas fa-times"></i> Clear Filters
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Message Input -->
+                        <div id="messageForm" class="message-form">
+                            <textarea 
+                                id="messageInput"
+                                name="message" 
+                                class="message-input"
+                                placeholder="Ask a question about your documents... (Shift + Enter for new line)"
+                                rows="1"
+                                required></textarea>
+                            <button type="submit" id="sendButton" class="send-button">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const mobileMenuButton = document.getElementById('mobileMenuButton');
+            const sidebar = document.querySelector('.sidebar');
+            const sidebarOverlay = document.getElementById('sidebarOverlay');
+            
+            function toggleSidebar(event) {
+                event.stopPropagation(); // Prevent event bubbling
+                sidebar.classList.toggle('active');
+                sidebarOverlay.classList.toggle('active');
+                
+                // Toggle menu icon
+                const icon = mobileMenuButton.querySelector('i');
+                if (sidebar.classList.contains('active')) {
+                    icon.classList.remove('fa-bars');
+                    icon.classList.add('fa-times');
+                } else {
+                    icon.classList.remove('fa-times');
+                    icon.classList.add('fa-bars');
+                }
+            }
+
+            // Toggle sidebar when clicking the menu button
+            mobileMenuButton.addEventListener('click', toggleSidebar);
+
+            // Close sidebar when clicking the overlay
+            sidebarOverlay.addEventListener('click', function(event) {
+                event.stopPropagation(); // Prevent event bubbling
+                if (sidebar.classList.contains('active')) {
+                    toggleSidebar(event);
+                }
+            });
+
+            // Prevent sidebar from closing when clicking inside it
+            sidebar.addEventListener('click', function(event) {
+                event.stopPropagation();
+            });
+
+            // Handle links in sidebar
+            const sidebarLinks = document.querySelectorAll('.sidebar-link');
+            sidebarLinks.forEach(link => {
+                link.addEventListener('click', function(event) {
+                    // Don't prevent default here to allow navigation
+                    event.stopPropagation();
+                });
+            });
+        });
+    </script>
+    <script>
+        // get github stars count from repo
+        async function getStarsCount() {
+            try {
+                const response = await fetch('https://api.github.com/repos/clusterzx/paperless-ai');
+                if (!response.ok) throw new Error('Failed to fetch repo info');
+                
+                const data = await response.json();
+                document.getElementById('starCount').textContent = data.stargazers_count.toLocaleString();
+            } catch (error) {
+                console.error('Failed to fetch stars count:', error);
+            }
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            getStarsCount();
+        });
+    </script>
+    <script src="js/dashboard.js"></script>
+    <script src="js/rag.js"></script>
+</body>
+</html>

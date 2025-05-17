@@ -4264,4 +4264,22 @@ router.get('/api/rag-test', async (req, res) => {
 }
 );
 
+router.get('/dashboard/doc/:id', async (req, res) => {
+  const docId = req.params.id;
+  if (!docId) {
+    return res.status(400).json({ error: 'Document ID is required' });
+  }
+  try {
+    // Redirect to paperless-ngx and show detail page of the document (for example https://paperless.example.com/documents/887/details)
+    const paperlessUrl = process.env.PAPERLESS_API_URL;
+    const paperlessUrlWithoutApi = paperlessUrl.replace('/api', '');
+    const redirectUrl = `${paperlessUrlWithoutApi}/documents/${docId}/details`;
+    console.log('Redirecting to Paperless-ngx URL:', redirectUrl);
+    res.redirect(redirectUrl);
+  } catch (error) {
+    console.error('Error fetching document:', error);
+    res.status(500).json({ error: 'Failed to fetch document' });
+  }
+});
+
 module.exports = router;
