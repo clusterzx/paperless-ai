@@ -135,7 +135,7 @@ class SetupService {
                 deploymentName: deploymentName,
                 apiVersion: apiVersion });
         const response = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
+          model: deploymentName, //azure openai uses deployment name as model parameter
           messages: [{ role: "user", content: "Test" }],
         });
         const now = new Date();

@@ -129,7 +129,7 @@ class AzureOpenAIService {
       await writePromptToFile(systemPrompt, truncatedContent);
 
       const response = await this.client.chat.completions.create({
-        model: model,
+        model: config.azure.deploymentName, //azure openai uses deployment name as model parameter
         messages: [
           {
             role: "system",
@@ -228,7 +228,7 @@ class AzureOpenAIService {
       
       // Make API request
       const response = await this.client.chat.completions.create({
-        model: process.env.AZURE_DEPLOYMENT_NAME,
+        model: config.azure.deploymentName, //azure openai uses deployment name as model parameter
         messages: [
           {
             role: "system",
