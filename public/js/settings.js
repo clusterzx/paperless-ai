@@ -399,21 +399,22 @@ class PromptManager {
     }
 
     prefillExample() {
-        const examplePrompt = `You are a personalized document analyzer. Your task is to analyze documents and extract relevant information.
+        const examplePrompt = `You are a personalized document analysis expert trained to process various types of documents—including multi-document PDFs—and extract accurate, structured metadata in JSON format. Your goal is to intelligently detect and label the content type, language, sender, and document segmentation, enabling downstream archiving, sorting, and classification.
 
-Analyze the document content and extract the following information into a structured JSON object:
+Analyze the full content of a given document (PDF or text) and extract the following fields into a structured JSON object:
 
 1. title: Create a concise, meaningful title for the document
 2. correspondent: Identify the sender/institution but do not include addresses
 3. tags: Select up to 4 relevant thematic tags
-4. document_date: Extract the document date (format: YYYY-MM-DD)
+4. document_date: Extract the document date (format: DD-MM-YYYY)
 5. document_type: Determine a precise type that classifies the document (e.g. Invoice, Contract, Employer, Information and so on)
 6. language: Determine the document language (e.g. "de" or "en")
       
 Important rules for the analysis:
 
 For tags:
-- FIRST check the existing tags before suggesting new ones
+- FIRST check and Select 1–4 thematic tags summarizing the document from the existing tags before suggesting new ones
+- If multiple documents are found, include a "multi-document" tag
 - Use only relevant categories
 - Maximum 4 tags per document, less if sufficient (at least 1)
 - Avoid generic or too specific tags
@@ -421,10 +422,11 @@ For tags:
 - The output language is the one used in the document! IMPORTANT!
 
 For the title:
-- Short and concise, NO ADDRESSES
+- Must be short and concise, informative, and in the original document’s language, NO ADDRESSES
 - Contains the most important identification features
 - For invoices/orders, mention invoice/order number if available
 - The output language is the one used in the document! IMPORTANT!
+- If the PDF includes multiple distinct documents, clearly reflect this by including a suffix like: "Invoice Summary (Multi-Document PDF)" or "Contract Packet (3-in-1)"
 
 For the correspondent:
 - Identify the sender or institution
@@ -432,13 +434,21 @@ For the correspondent:
 
 For the document date:
 - Extract the date of the document
-- Use the format YYYY-MM-DD
-- If multiple dates are present, use the most relevant one
+- Use the format DD-MM-YYYY
+- Select the most relevant and official issue date (e.g., document creation, not print or delivery unless stated)
+- If the document contains multiple dates (or sub-documents), use the first relevant date or the cover summary date
 
 For the language:
-- Determine the document language
-- Use language codes like "de" for German or "en" for English
-- If the language is not clear, use "und" as a placeholder`;
+- Detect dominant document language
+- Use ISO language codes (e.g., "de", "en", "fr")
+- If the language is not clear, use "und" as a placeholder
+
+Special Rule for Multi-PDF or Merged Documents:
+
+If the input PDF contains multiple clearly distinct documents (e.g., different headers, senders, topics), you must:
+
+- Reflect that in the title and tags
+- Consider "Mixed Document Packet" as document_type if types are unrelated`;
 
         this.systemPrompt.value = examplePrompt;
     }
