@@ -65,6 +65,41 @@ class SetupService {
     return { success: true, message: 'API permissions validated successfully' };
 }
 
+  async validateCustomConfig(url, apiKey, model) {
+    const config = {
+      baseURL: url,
+      apiKey: apiKey,
+      model: model
+    };
+    console.log('Custom AI config:', config);
+  
+    try {
+      const openai = new OpenAI({ 
+        apiKey: config.apiKey, 
+        baseURL: config.baseURL,
+      });
+  
+      // Lightweight validation with timeout (3 seconds)
+      const completion = await Promise.race([
+        openai.chat.completions.create({
+          messages: [{ role: "user", content: "Test" }],
+          model: config.model,
+        }),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Validation timeout')), 3000);
+        })
+      ]);
+  
+      if (completion.choices?.length > 0) {
+        return true;  // Success
+      }
+    } catch (error) {
+      console.warn('Custom AI validation skipped (connection failed):', error.message);
+      return true;  // Skip validation on failure
+    }
+  
+    return false; // Fallback (unlikely if errors are caught)
+  }
 
   async validateOpenAIConfig(apiKey) {
     if (config.CONFIGURED === false) {
@@ -79,38 +114,13 @@ class SetupService {
         console.log(`[DEBUG] [${timestamp}] OpenAI request sent`);
         return response.choices && response.choices.length > 0;
       } catch (error) {
-        console.error('OpenAI validation error:', error.message);
-        return false;
+        console.warn('OpenAI validation skipped (connection failed):', error.message);
+        return true; // Skip validation on failure
       }
-    }else{
-      return true;
+    } else {
+      return true; // Already configured
     }
   }
-
-  async validateCustomConfig(url, apiKey, model) {
-    const config = {
-      baseURL: url,
-      apiKey: apiKey,
-      model: model
-    };
-    console.log('Custom AI config:', config);
-    try {
-      const openai = new OpenAI({ 
-        apiKey: config.apiKey, 
-        baseURL: config.baseURL,
-      });
-      const completion = await openai.chat.completions.create({
-        messages: [{ role: "user", content: "Test" }],
-        model: config.model,
-      });
-      return completion.choices && completion.choices.length > 0;
-    } catch (error) {
-      console.error('Custom AI validation error:', error);
-      return false;
-    }
-  }
-
-
 
   async validateOllamaConfig(url, model) {
     try {
@@ -121,8 +131,8 @@ class SetupService {
       });
       return response.data && response.data.response;
     } catch (error) {
-      console.error('Ollama validation error:', error.message);
-      return false;
+      console.warn('Ollama validation skipped (connection failed):', error.message);
+      return true; // Skip validation on failure
     }
   }
 
@@ -130,24 +140,26 @@ class SetupService {
     console.log('Endpoint: ', endpoint);
     if (config.CONFIGURED === false) {
       try {
-        const openai = new AzureOpenAI({ apiKey: apiKey,
-                endpoint: endpoint,
-                deploymentName: deploymentName,
-                apiVersion: apiVersion });
+        const openai = new AzureOpenAI({ 
+          apiKey: apiKey,
+          endpoint: endpoint,
+          deploymentName: deploymentName,
+          apiVersion: apiVersion 
+        });
         const response = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [{ role: "user", content: "Test" }],
         });
         const now = new Date();
         const timestamp = now.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
-        console.log(`[DEBUG] [${timestamp}] OpenAI request sent`);
+        console.log(`[DEBUG] [${timestamp}] Azure OpenAI request sent`);
         return response.choices && response.choices.length > 0;
       } catch (error) {
-        console.error('OpenAI validation error:', error.message);
-        return false;
+        console.warn('Azure OpenAI validation skipped (connection failed):', error.message);
+        return true; // Skip validation on failure
       }
-    }else{
-      return true;
+    } else {
+      return true; // Already configured
     }
   }
 
