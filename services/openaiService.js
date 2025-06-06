@@ -101,8 +101,8 @@ class OpenAIService {
       // Get system prompt and model
       if(config.useExistingData === 'yes') {
         systemPrompt = `
-        Prexisting tags: ${existingTagsList}\n\n
-        Prexisiting correspondent: ${existingCorrespondentList}\n\n
+        Preexisting tags: ${existingTagsList}\n\n
+        Preexisting correspondent: ${existingCorrespondentList}\n\n
         ` + process.env.SYSTEM_PROMPT + '\n\n' + config.mustHavePrompt.replace('%CUSTOMFIELDS%', customFieldsStr);
         promptTags = '';
       } else {
