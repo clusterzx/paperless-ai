@@ -489,7 +489,7 @@ router.get('/sampleData/:id', async (req, res) => {
     const correspondents = await paperlessService.getCorrespondentsFromDocument(document.id);
 
   } catch (error) {
-    console.error('[ERRO] loading sample data:', error);
+    console.error('[ERROR] loading sample data:', error);
     res.status(500).json({ error: 'Error loading sample data' });
   }
 });
@@ -557,7 +557,7 @@ router.get('/playground', protectApiRoute, async (req, res) => {
       version: configFile.PAPERLESS_AI_VERSION || ' '
     });
   } catch (error) {
-    console.error('[ERRO] loading documents view:', error);
+    console.error('[ERROR] loading documents view:', error);
     res.status(500).send('Error loading documents');
   }
 });
@@ -704,7 +704,7 @@ router.get('/chat', async (req, res) => {
       const version = configFile.PAPERLESS_AI_VERSION || ' ';
       res.render('chat', { documents, open, version });
   } catch (error) {
-    console.error('[ERRO] loading documents:', error);
+    console.error('[ERROR] loading documents:', error);
     res.status(500).send('Error loading documents');
   }
 });
@@ -987,7 +987,7 @@ router.get('/chat/init/:documentId', async (req, res) => {
       const result = await ChatService.initializeChat(documentId);
       res.json(result);
   } catch (error) {
-      console.error('[ERRO] initializing chat:', error);
+      console.error('[ERROR] initializing chat:', error);
       res.status(500).json({ error: 'Failed to initialize chat' });
   }
 });

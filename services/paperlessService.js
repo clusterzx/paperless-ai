@@ -373,7 +373,7 @@ class PaperlessService {
         await new Promise(resolve => setTimeout(resolve, 100));
 
       } catch (error) {
-        console.error(`[ERRRO] fetching tags page ${page}:`, error.message);
+        console.error(`[ERROR] fetching tags page ${page}:`, error.message);
         if (error.response) {
           console.error('[DEBUG] Response status:', error.response.status);
           console.error('[DEBUG] Response data:', error.response.data);
@@ -863,7 +863,7 @@ class PaperlessService {
       };
 
   } catch (error) {
-      console.error('[ERROR] while seraching for existing correspondent:', error.message);
+      console.error('[ERROR] while searching for existing correspondent:', error.message);
       throw error;
   }
 }
@@ -1119,7 +1119,7 @@ async getOrCreateDocumentType(name) {
     }
   }
 
-  // Checks if the document is accessable by the current user
+  // Checks if the document is accessible by the current user
   async getPermissionOfDocument(documentId) {
     this.initialize();
     try {
