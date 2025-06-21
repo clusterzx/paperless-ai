@@ -1,8 +1,8 @@
-const { 
-    calculateTokens, 
-    calculateTotalPromptTokens, 
-    truncateToTokenLimit, 
-    writePromptToFile 
+const {
+  calculateTokens,
+  calculateTotalPromptTokens,
+  truncateToTokenLimit,
+  writePromptToFile
 } = require('./serviceUtils');
 const OpenAI = require('openai');
 const config = require('../config/config');
@@ -10,6 +10,7 @@ const paperlessService = require('./paperlessService');
 const fs = require('fs').promises;
 const path = require('path');
 const { model } = require('./ollamaService');
+const RestrictionPromptService = require('./restrictionPromptService');
 
 class OpenAIService {
   constructor() {
@@ -42,7 +43,7 @@ class OpenAIService {
       this.initialize();
       const now = new Date();
       const timestamp = now.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
-      
+
       if (!this.client) {
         throw new Error('OpenAI client not initialized');
       }
@@ -53,17 +54,17 @@ class OpenAIService {
         console.log('[DEBUG] Thumbnail already cached');
       } catch (err) {
         console.log('Thumbnail not cached, fetching from Paperless');
-        
+
         const thumbnailData = await paperlessService.getThumbnailImage(id);
-        
+
         if (!thumbnailData) {
           console.warn('Thumbnail nicht gefunden');
         }
-  
+
         await fs.mkdir(path.dirname(cachePath), { recursive: true });
         await fs.writeFile(cachePath, thumbnailData);
       }
-      
+
       // Format existing tags
       let existingTagsList = existingTags.join(', ');
 
@@ -84,7 +85,7 @@ class OpenAIService {
       let systemPrompt = '';
       let promptTags = '';
       const model = process.env.OPENAI_MODEL;
-      
+
       // Parse CUSTOM_FIELDS from environment variable
       let customFieldsObj;
       try {
@@ -111,7 +112,7 @@ class OpenAIService {
         .join('\n');
 
       // Get system prompt and model
-      if(config.useExistingData === 'yes' && config.restrictToExistingTags === 'no' && config.restrictToExistingCorrespondents === 'no') {
+      if (config.useExistingData === 'yes' && config.restrictToExistingTags === 'no' && config.restrictToExistingCorrespondents === 'no') {
         systemPrompt = `
         Prexisting tags: ${existingTagsList}\n\n
         Prexisiting correspondent: ${existingCorrespondentList}\n\n
@@ -122,16 +123,15 @@ class OpenAIService {
         systemPrompt = process.env.SYSTEM_PROMPT + '\n\n' + config.mustHavePrompt;
         promptTags = '';
       }
-      
-      // Build restriction prompts with validation
-        const restrictionPrompts = this._buildRestrictionPrompts(
-          existingTags, 
-          existingCorrespondentList, 
-          config, 
-          options
-        );
-        systemPrompt += restrictionPrompts;
-      
+
+      // Process placeholder replacements in system prompt
+      systemPrompt = RestrictionPromptService.processRestrictionsInPrompt(
+        systemPrompt,
+        existingTags,
+        existingCorrespondentList,
+        config
+      );
+
       // Include validated external API data if available
       if (validatedExternalApiData) {
         systemPrompt += `\n\nAdditional context from external API:\n${validatedExternalApiData}`;
@@ -148,30 +148,30 @@ class OpenAIService {
         console.log('[DEBUG] Replace system prompt with custom prompt via WebHook');
         systemPrompt = customPrompt + '\n\n' + config.mustHavePrompt;
       }
-      
+
       // Calculate tokens AFTER all prompt modifications are complete
       const totalPromptTokens = await calculateTotalPromptTokens(
         systemPrompt,
         process.env.USE_PROMPT_TAGS === 'yes' ? [promptTags] : [],
         model
       );
-      
+
       const maxTokens = Number(config.tokenLimit);
       const reservedTokens = totalPromptTokens + Number(config.responseTokens);
       const availableTokens = maxTokens - reservedTokens;
-      
+
       // Validate that we have positive available tokens
       if (availableTokens <= 0) {
         console.warn(`[WARNING] No available tokens for content. Reserved: ${reservedTokens}, Max: ${maxTokens}`);
         throw new Error('Token limit exceeded: prompt too large for available token limit');
       }
-      
+
       console.log(`[DEBUG] Token calculation - Prompt: ${totalPromptTokens}, Reserved: ${reservedTokens}, Available: ${availableTokens}`);
       console.log(`[DEBUG] Use existing data: ${config.useExistingData}, Restrictions applied based on useExistingData setting`);
       console.log(`[DEBUG] External API data: ${validatedExternalApiData ? 'included' : 'none'}`);
-      
+
       const truncatedContent = await truncateToTokenLimit(content, availableTokens, model);
-      
+
       await writePromptToFile(systemPrompt, truncatedContent);
 
       const response = await this.client.chat.completions.create({
@@ -188,14 +188,14 @@ class OpenAIService {
         ],
         ...(model !== 'o3-mini' && { temperature: 0.3 }),
       });
-      
+
       if (!response?.choices?.[0]?.message?.content) {
         throw new Error('Invalid API response structure');
       }
-      
+
       console.log(`[DEBUG] [${timestamp}] OpenAI request sent`);
       console.log(`[DEBUG] [${timestamp}] Total tokens: ${response.usage.total_tokens}`);
-      
+
       const usage = response.usage;
       const mappedUsage = {
         promptTokens: usage.prompt_tokens,
@@ -222,64 +222,19 @@ class OpenAIService {
         throw new Error('Invalid response structure: missing tags array or correspondent string');
       }
 
-      return { 
-        document: parsedResponse, 
+      return {
+        document: parsedResponse,
         metrics: mappedUsage,
         truncated: truncatedContent.length < content.length
       };
     } catch (error) {
       console.error('Failed to analyze document:', error);
-      return { 
+      return {
         document: { tags: [], correspondent: null },
         metrics: null,
-        error: error.message 
+        error: error.message
       };
     }
-  }
-
-  /**
-   * Build restriction prompts with validation for tags and correspondents
-   * @param {Array} existingTags - Array of existing tags
-   * @param {Array|string} existingCorrespondentList - List of existing correspondents
-   * @param {Object} config - Configuration object
-   * @param {Object} options - Options object
-   * @returns {string} - Built restriction prompts
-   */
-  _buildRestrictionPrompts(existingTags, existingCorrespondentList, config, options) {
-    let restrictions = '';
-    
-    // Use existing data setting controls both injection and restriction behavior
-    const useExistingData = config.useExistingData === 'yes';
-    
-    // Handle tag restrictions - only apply if useExistingData is enabled
-    if (useExistingData && config.restrictToExistingTags === 'yes') {
-      const existingTagsList = existingTags
-        .map(tag => tag.name)
-        .join(', ');
-        
-      if (existingTagsList && existingTagsList.trim() !== '') {
-        restrictions += `\n\nIMPORTANT: You MUST ONLY use tags from this list: ${existingTagsList}. Do not suggest any tags that are not in this list.`;
-      } else {
-        console.warn('[WARNING] Tag restriction enabled but no existing tags provided');
-        restrictions += `\n\nIMPORTANT: No existing tags available for restriction. Please provide minimal, relevant tags.`;
-      }
-    }
-    
-    // Handle correspondent restrictions - only apply if useExistingData is enabled
-    if (useExistingData && config.restrictToExistingCorrespondents === 'yes') {
-      const correspondentListStr = Array.isArray(existingCorrespondentList) 
-        ? existingCorrespondentList.join(', ')
-        : existingCorrespondentList;
-        
-      if (correspondentListStr && correspondentListStr.trim() !== '') {
-        restrictions += `\n\nIMPORTANT: You MUST ONLY use correspondents from this list: ${correspondentListStr}. Do not suggest any correspondent that is not in this list.`;
-      } else {
-        console.warn('[WARNING] Correspondent restriction enabled but no existing correspondents provided');
-        restrictions += `\n\nIMPORTANT: No existing correspondents available for restriction. Leave correspondent empty or use a generic value.`;
-      }
-    }
-    
-    return restrictions;
   }
 
   /**
@@ -293,18 +248,18 @@ class OpenAIService {
       return null;
     }
 
-    const dataString = typeof apiData === 'object' 
-      ? JSON.stringify(apiData, null, 2) 
+    const dataString = typeof apiData === 'object'
+      ? JSON.stringify(apiData, null, 2)
       : String(apiData);
 
     // Calculate tokens for the data
     const dataTokens = await calculateTokens(dataString, process.env.OPENAI_MODEL);
-    
+
     if (dataTokens > maxTokens) {
       console.warn(`[WARNING] External API data (${dataTokens} tokens) exceeds limit (${maxTokens}), truncating`);
       return await truncateToTokenLimit(dataString, maxTokens, process.env.OPENAI_MODEL);
     }
-    
+
     console.log(`[DEBUG] External API data validated: ${dataTokens} tokens`);
     return dataString;
   }
@@ -324,21 +279,21 @@ class OpenAIService {
       this.initialize();
       const now = new Date();
       const timestamp = now.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
-      
+
       if (!this.client) {
         throw new Error('OpenAI client not initialized - missing API key');
       }
-      
+
       // Calculate total prompt tokens including musthavePrompt
       const totalPromptTokens = await calculateTotalPromptTokens(
         prompt + musthavePrompt // Combined system prompt
       );
-      
+
       // Calculate available tokens
       const maxTokens = Number(config.tokenLimit);
       const reservedTokens = totalPromptTokens + Number(config.responseTokens); // Reserve for response
       const availableTokens = maxTokens - reservedTokens;
-      
+
       // Truncate content if necessary
       const truncatedContent = await truncateToTokenLimit(content, availableTokens);
       const model = process.env.OPENAI_MODEL;
@@ -357,16 +312,16 @@ class OpenAIService {
         ],
         ...(model !== 'o3-mini' && { temperature: 0.3 }),
       });
-      
+
       // Handle response
       if (!response?.choices?.[0]?.message?.content) {
         throw new Error('Invalid API response structure');
       }
-      
+
       // Log token usage
       console.log(`[DEBUG] [${timestamp}] OpenAI request sent`);
       console.log(`[DEBUG] [${timestamp}] Total tokens: ${response.usage.total_tokens}`);
-      
+
       const usage = response.usage;
       const mappedUsage = {
         promptTokens: usage.prompt_tokens,
@@ -390,17 +345,17 @@ class OpenAIService {
         throw new Error('Invalid response structure: missing tags array or correspondent string');
       }
 
-      return { 
-        document: parsedResponse, 
+      return {
+        document: parsedResponse,
         metrics: mappedUsage,
         truncated: truncatedContent.length < content.length
       };
     } catch (error) {
       console.error('Failed to analyze document:', error);
-      return { 
+      return {
         document: { tags: [], correspondent: null },
         metrics: null,
-        error: error.message 
+        error: error.message
       };
     }
   }
@@ -413,13 +368,13 @@ class OpenAIService {
   async generateText(prompt) {
     try {
       this.initialize();
-      
+
       if (!this.client) {
         throw new Error('OpenAI client not initialized - missing API key');
       }
-      
+
       const model = process.env.OPENAI_MODEL || config.openai.model;
-      
+
       const response = await this.client.chat.completions.create({
         model: model,
         messages: [
@@ -430,11 +385,11 @@ class OpenAIService {
         ],
         temperature: 0.7
       });
-      
+
       if (!response?.choices?.[0]?.message?.content) {
         throw new Error('Invalid API response structure');
       }
-      
+
       return response.choices[0].message.content;
     } catch (error) {
       console.error('Error generating text with OpenAI:', error);
@@ -446,7 +401,7 @@ class OpenAIService {
     // send test request to OpenAI API and respond with 'ok' or 'error'
     try {
       this.initialize();
-      
+
       if (!this.client) {
         throw new Error('OpenAI client not initialized - missing API key');
       }
