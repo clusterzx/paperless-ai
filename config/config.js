@@ -65,7 +65,8 @@ module.exports = {
   externalApiConfig: externalApiConfig,
   paperless: {
     apiUrl: process.env.PAPERLESS_API_URL,
-    apiToken: process.env.PAPERLESS_API_TOKEN
+    apiToken: process.env.PAPERLESS_API_TOKEN,
+    setObjectOwner: process.env.PAPERLESS_SET_OBJECT_OWNER === 'yes'
   },
   openai: {
     apiKey: process.env.OPENAI_API_KEY

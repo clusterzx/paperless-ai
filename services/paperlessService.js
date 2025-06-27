@@ -222,7 +222,10 @@ class PaperlessService {
     
     try {
       // Versuche zuerst, den Tag zu erstellen
-      const response = await this.client.post('/tags/', { name: tagName });
+      const response = await this.client.post('/tags/', { 
+        name: tagName,
+        ...(config.paperless.setObjectOwner ? { owner: null } : {})
+      });
       const newTag = response.data;
       console.log(`[DEBUG] Successfully created tag "${tagName}" with ID ${newTag.id}`);
       this.tagCache.set(normalizedName, newTag);
@@ -945,7 +948,8 @@ async searchForExistingCorrespondent(correspondent) {
         // Create new correspondent only if restrictions are not enabled
         try {
             const createResponse = await this.client.post('/correspondents/', { 
-                name: name 
+                name: name ,
+                ...(config.paperless.setObjectOwner ? { owner: null } : {})
             });
             console.log(`[DEBUG] Created new correspondent "${name}" with ID ${createResponse.data.id}`);
             return createResponse.data;
