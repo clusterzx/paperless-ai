@@ -1495,19 +1495,20 @@ try {
     }
     
       try {
-        let [existingTags, documents, ownUserId, existingCorrespondentList] = await Promise.all([
-          paperlessService.getTags(),
+        let [existingTagsList, documents, ownUserId, existingCorrespondentList] = await Promise.all([
+          paperlessService.listTagNames(),
           paperlessService.getAllDocuments(),
           paperlessService.getOwnUserID(),
           paperlessService.listCorrespondentsNames()
         ]);
-    
+        
+        existingTagsList = existingTagsList.map(tag => tag.name);
         //get existing correspondent list
         existingCorrespondentList = existingCorrespondentList.map(correspondent => correspondent.name);
     
         for (const doc of documents) {
           try {
-            const result = await processDocument(doc, existingTags, existingCorrespondentList, ownUserId);
+            const result = await processDocument(doc, existingTagsList, existingCorrespondentList, ownUserId);
             if (!result) continue;
     
             const { analysis, originalData } = result;
@@ -1529,7 +1530,7 @@ try {
   }
 });
 
-async function processDocument(doc, existingTags, existingCorrespondentList, ownUserId, customPrompt = null) {
+async function processDocument(doc, existingTagsList, existingCorrespondentList, ownUserId, customPrompt = null) {
   const isProcessed = await documentModel.isDocumentProcessed(doc.id);
   if (isProcessed) return null;
   await documentModel.setProcessingStatus(doc.id, doc.title, 'processing');
@@ -1581,9 +1582,9 @@ async function processDocument(doc, existingTags, existingCorrespondentList, own
   let analysis;
   if(customPrompt) {
     console.log('[DEBUG] Starting document analysis with custom prompt');
-    analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, doc.id, customPrompt, options);
+    analysis = await aiService.analyzeDocument(content, existingTagsList, existingCorrespondentList, doc.id, customPrompt, options);
   }else{
-    analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, doc.id, null, options);
+    analysis = await aiService.analyzeDocument(content, existingTagsList, existingCorrespondentList, doc.id, null, options);
   }
   console.log('Repsonse from AI service:', analysis);
   if (analysis.error) {
