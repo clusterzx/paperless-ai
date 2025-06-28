@@ -256,10 +256,14 @@ class FormManager {
 
 // Tags Management
 class TagsManager {
-    constructor() {
-        this.tagInput = document.getElementById('tagInput');
-        this.tagsContainer = document.getElementById('tagsContainer');
-        this.tagsHiddenInput = document.getElementById('tags');
+    constructor(
+        tagInputId,
+        tagsContainerId,
+        tagsHiddenInputId
+    ) {
+        this.tagInput = document.getElementById(tagInputId); //'tagInput'
+        this.tagsContainer = document.getElementById(tagsContainerId); // tagsContainer
+        this.tagsHiddenInput = document.getElementById(tagsHiddenInputId); // tagsHiddenInput
         this.addTagButton = this.tagInput?.closest('.space-y-2')?.querySelector('button');
         
         if (this.tagInput && this.tagsContainer && this.addTagButton) {
@@ -380,26 +384,6 @@ class TagsManager {
     }
 }
 
-// Prompt Tags Management
-class PromptTagsManager extends TagsManager {
-    constructor() {
-        super();
-        this.tagInput = document.getElementById('promptTagInput');
-        this.tagsContainer = document.getElementById('promptTagsContainer');
-        this.tagsHiddenInput = document.getElementById('promptTags');
-        this.addTagButton = this.tagInput?.closest('.space-y-2')?.querySelector('button');
-        
-        if (this.tagInput && this.tagsContainer && this.addTagButton) {
-            this.initialize();
-            
-            // Initialisiere existierende Prompt-Tags
-            document.querySelectorAll('#promptTagsContainer .bg-blue-100 button').forEach(button => {
-                this.initializeTagRemoval(button);
-            });
-        }
-    }
-}
-
 // Prompt Management
 class PromptManager {
     constructor() {
@@ -462,8 +446,8 @@ For the language:
 document.addEventListener('DOMContentLoaded', () => {
     const themeManager = new ThemeManager();
     const formManager = new FormManager();
-    const tagsManager = new TagsManager();
-    const promptTagsManager = new PromptTagsManager();
+    const tagsManager = new TagsManager('tagInput','tagsContainer','tags');
+    const promptTagsManager = new TagsManager('promptTagInput','promptTagsContainer','promptTags');
     const promptManager = new PromptManager();
 
     // Initialize textarea newlines
