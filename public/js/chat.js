@@ -218,6 +218,10 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 });
 
+document.getElementById('messageForm').querySelector('.send-button').addEventListener('click', async (e) => {
+    await submitForm();
+})
+
 document.getElementById('messageInput').addEventListener('keydown', async (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
