@@ -186,7 +186,7 @@ class OpenAIService {
             content: truncatedContent
           }
         ],
-        ...(model !== 'o3-mini' && { temperature: 0.3 }),
+        ...(model !== 'o3-mini' && model !== 'o3' && { temperature: 0.3 }),
       });
 
       if (!response?.choices?.[0]?.message?.content) {
@@ -310,7 +310,7 @@ class OpenAIService {
             content: truncatedContent
           }
         ],
-        ...(model !== 'o3-mini' && { temperature: 0.3 }),
+        ...(model !== 'o3-mini' && model !== 'o3' && { temperature: 0.3 }),
       });
 
       // Handle response
