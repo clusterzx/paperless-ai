@@ -3974,6 +3974,7 @@ router.post('/settings', express.json(), async (req, res) => {
     const { 
       paperlessUrl, 
       paperlessToken,
+      paperlessSetObjectOwner,
       aiProvider,
       openaiKey,
       openaiModel,
@@ -4017,6 +4018,7 @@ router.post('/settings', express.json(), async (req, res) => {
       PAPERLESS_API_URL: process.env.PAPERLESS_API_URL || '',
       PAPERLESS_API_TOKEN: process.env.PAPERLESS_API_TOKEN || '',
       PAPERLESS_USERNAME: process.env.PAPERLESS_USERNAME || '',
+      PAPERLESS_SET_OBJECT_OWNER: process.env.PAPERLESS_SET_OBJECT_OWNER || 'no',
       AI_PROVIDER: process.env.AI_PROVIDER || '',
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
       OPENAI_MODEL: process.env.OPENAI_MODEL || '',
@@ -4121,6 +4123,7 @@ router.post('/settings', express.json(), async (req, res) => {
     if (paperlessUrl) updatedConfig.PAPERLESS_API_URL = paperlessUrl + '/api';
     if (paperlessToken) updatedConfig.PAPERLESS_API_TOKEN = paperlessToken;
     if (paperlessUsername) updatedConfig.PAPERLESS_USERNAME = paperlessUsername;
+    updatedConfig.PAPERLESS_SET_OBJECT_OWNER = paperlessSetObjectOwner? 'yes':'no';
 
     // Handle AI provider configuration
     if (aiProvider) {
