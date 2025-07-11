@@ -25,6 +25,10 @@ rag_config.conf
 indexed.conf
 indexing_complete.flag
 RAGZ_README.md
+
+# Local development files
+.local/
+*.local.*
 /chromadb
 /chromadb/*
 rag_config.conf

@@ -1495,22 +1495,26 @@ try {
     }
     
       try {
-        let [existingTags, documents, ownUserId, existingCorrespondentList] = await Promise.all([
+        let [existingTags, documents, ownUserId, existingCorrespondentList, existingDocumentTypes] = await Promise.all([
           paperlessService.getTags(),
           paperlessService.getAllDocuments(),
           paperlessService.getOwnUserID(),
-          paperlessService.listCorrespondentsNames()
+          paperlessService.listCorrespondentsNames(),
+          paperlessService.listDocumentTypesNames()
         ]);
     
         //get existing correspondent list
         existingCorrespondentList = existingCorrespondentList.map(correspondent => correspondent.name);
+        
+        //get existing document types list
+        let existingDocumentTypesList = existingDocumentTypes.map(docType => docType.name);
         
         // Extract tag names from tag objects
         const existingTagNames = existingTags.map(tag => tag.name);
     
         for (const doc of documents) {
           try {
-            const result = await processDocument(doc, existingTagNames, existingCorrespondentList, ownUserId);
+            const result = await processDocument(doc, existingTagNames, existingCorrespondentList, existingDocumentTypesList, ownUserId);
             if (!result) continue;
     
             const { analysis, originalData } = result;
@@ -1532,7 +1536,7 @@ try {
   }
 });
 
-async function processDocument(doc, existingTags, existingCorrespondentList, ownUserId, customPrompt = null) {
+async function processDocument(doc, existingTags, existingCorrespondentList, existingDocumentTypesList, ownUserId, customPrompt = null) {
   const isProcessed = await documentModel.isDocumentProcessed(doc.id);
   if (isProcessed) return null;
   await documentModel.setProcessingStatus(doc.id, doc.title, 'processing');
@@ -1584,9 +1588,9 @@ async function processDocument(doc, existingTags, existingCorrespondentList, own
   let analysis;
   if(customPrompt) {
     console.log('[DEBUG] Starting document analysis with custom prompt');
-    analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, doc.id, customPrompt, options);
+    analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, existingDocumentTypesList, doc.id, customPrompt, options);
   }else{
-    analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, doc.id, null, options);
+    analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, existingDocumentTypesList, doc.id, null, options);
   }
   console.log('Repsonse from AI service:', analysis);
   if (analysis.error) {
@@ -2351,17 +2355,20 @@ async function processQueue(customPrompt) {
       return;
     }
 
-    const [existingTags, existingCorrespondentList, ownUserId] = await Promise.all([
+    const [existingTags, existingCorrespondentList, existingDocumentTypes, ownUserId] = await Promise.all([
       paperlessService.getTags(),
       paperlessService.listCorrespondentsNames(),
+      paperlessService.listDocumentTypesNames(),
       paperlessService.getOwnUserID()
     ]);
+
+    const existingDocumentTypesList = existingDocumentTypes.map(docType => docType.name);
 
     while (documentQueue.length > 0) {
       const doc = documentQueue.shift();
       
       try {
-        const result = await processDocument(doc, existingTags, existingCorrespondentList, ownUserId, customPrompt);
+        const result = await processDocument(doc, existingTags, existingCorrespondentList, existingDocumentTypesList, ownUserId, customPrompt);
         if (!result) continue;
 
         const { analysis, originalData } = result;
@@ -2689,6 +2696,7 @@ router.get('/settings', async (req, res) => {
     AZURE_API_VERSION: process.env.AZURE_API_VERSION || '',
     RESTRICT_TO_EXISTING_TAGS: process.env.RESTRICT_TO_EXISTING_TAGS || 'no',
     RESTRICT_TO_EXISTING_CORRESPONDENTS: process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS || 'no',
+    RESTRICT_TO_EXISTING_DOCUMENT_TYPES: process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES || 'no',
     EXTERNAL_API_ENABLED: process.env.EXTERNAL_API_ENABLED || 'no',
     EXTERNAL_API_URL: process.env.EXTERNAL_API_URL || '',
     EXTERNAL_API_METHOD: process.env.EXTERNAL_API_METHOD || 'GET',
@@ -3011,14 +3019,17 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
     let existingCorrespondentList = await paperlessService.listCorrespondentsNames();
     existingCorrespondentList = existingCorrespondentList.map(correspondent => correspondent.name);
     let existingTagsList = await paperlessService.listTagNames();
-    existingTagsList = existingTagsList.map(tags => tags.name)
+    existingTagsList = existingTagsList.map(tags => tags.name);
+    let existingDocumentTypes = await paperlessService.listDocumentTypesNames();
+    let existingDocumentTypesList = existingDocumentTypes.map(docType => docType.name);
+    
     if (!content || typeof content !== 'string') {
       console.log('Invalid content received:', content);
       return res.status(400).json({ error: 'Valid content string is required' });
     }
 
     if (process.env.AI_PROVIDER === 'openai') {
-      const analyzeDocument = await openaiService.analyzeDocument(content, existingTagsList, existingCorrespondentList, id || []);
+      const analyzeDocument = await openaiService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
       await documentModel.addOpenAIMetrics(
             id, 
             analyzeDocument.metrics.promptTokens,
@@ -3027,13 +3038,13 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
           )
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'ollama') {
-      const analyzeDocument = await ollamaService.analyzeDocument(content, existingTagsList, existingCorrespondentList, id || []);
+      const analyzeDocument = await ollamaService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'custom') {
-      const analyzeDocument = await customService.analyzeDocument(content, existingTagsList, existingCorrespondentList, id || []);
+      const analyzeDocument = await customService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'azure') {
-      const analyzeDocument = await azureService.analyzeDocument(content, existingTagsList, existingCorrespondentList, id || []);
+      const analyzeDocument = await azureService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
       return res.json(analyzeDocument);
     } else {
       return res.status(500).json({ error: 'AI provider not configured' });
@@ -4050,6 +4061,7 @@ router.post('/settings', express.json(), async (req, res) => {
       AZURE_API_VERSION: process.env.AZURE_API_VERSION || '',
       RESTRICT_TO_EXISTING_TAGS: process.env.RESTRICT_TO_EXISTING_TAGS || 'no',
       RESTRICT_TO_EXISTING_CORRESPONDENTS: process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS || 'no',
+      RESTRICT_TO_EXISTING_DOCUMENT_TYPES: process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES || 'no',
       EXTERNAL_API_ENABLED: process.env.EXTERNAL_API_ENABLED || 'no',
       EXTERNAL_API_URL: process.env.EXTERNAL_API_URL || '',
       EXTERNAL_API_METHOD: process.env.EXTERNAL_API_METHOD || 'GET',
@@ -4096,6 +4108,7 @@ router.post('/settings', express.json(), async (req, res) => {
     // Extract tag and correspondent restriction settings with defaults
     const restrictToExistingTags = req.body.restrictToExistingTags === 'on' || req.body.restrictToExistingTags === 'yes';
     const restrictToExistingCorrespondents = req.body.restrictToExistingCorrespondents === 'on' || req.body.restrictToExistingCorrespondents === 'yes';
+    const restrictToExistingDocumentTypes = req.body.restrictToExistingDocumentTypes === 'on' || req.body.restrictToExistingDocumentTypes === 'yes';
     
     // Extract external API settings with defaults
     const externalApiEnabled = req.body.externalApiEnabled === 'on' || req.body.externalApiEnabled === 'yes';
@@ -4196,6 +4209,7 @@ router.post('/settings', express.json(), async (req, res) => {
       // Handle tag and correspondent restrictions
       updatedConfig.RESTRICT_TO_EXISTING_TAGS = restrictToExistingTags ? 'yes' : 'no';
       updatedConfig.RESTRICT_TO_EXISTING_CORRESPONDENTS = restrictToExistingCorrespondents ? 'yes' : 'no';
+      updatedConfig.RESTRICT_TO_EXISTING_DOCUMENT_TYPES = restrictToExistingDocumentTypes ? 'yes' : 'no';
       
       // Handle external API integration
       updatedConfig.EXTERNAL_API_ENABLED = externalApiEnabled ? 'yes' : 'no';

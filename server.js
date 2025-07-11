@@ -181,7 +181,7 @@ async function saveOpenApiSpec() {
 }
 
 // Document processing functions
-async function processDocument(doc, existingTags, existingCorrespondentList, ownUserId) {
+async function processDocument(doc, existingTags, existingCorrespondentList, existingDocumentTypesList, ownUserId) {
   const isProcessed = await documentModel.isDocumentProcessed(doc.id);
   if (isProcessed) return null;
   await documentModel.setProcessingStatus(doc.id, doc.title, 'processing');
@@ -211,7 +211,7 @@ async function processDocument(doc, existingTags, existingCorrespondentList, own
   }
 
   const aiService = AIServiceFactory.getService();
-  const analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, doc.id);
+  const analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, existingDocumentTypesList, doc.id);
   console.log('Repsonse from AI service:', analysis);
   if (analysis.error) {
     throw new Error(`[ERROR] Document analysis failed: ${analysis.error}`);
@@ -354,21 +354,23 @@ async function scanInitial() {
       return;
     }
 
-    let [existingTags, documents, ownUserId, existingCorrespondentList] = await Promise.all([
+    let [existingTags, documents, ownUserId, existingCorrespondentList, existingDocumentTypes] = await Promise.all([
       paperlessService.getTags(),
       paperlessService.getAllDocuments(),
       paperlessService.getOwnUserID(),
-      paperlessService.listCorrespondentsNames()
+      paperlessService.listCorrespondentsNames(),
+      paperlessService.listDocumentTypesNames()
     ]);
     //get existing correspondent list
     existingCorrespondentList = existingCorrespondentList.map(correspondent => correspondent.name);
+    let existingDocumentTypesList = existingDocumentTypes.map(docType => docType.name);
     
     // Extract tag names from tag objects
     const existingTagNames = existingTags.map(tag => tag.name);
 
     for (const doc of documents) {
       try {
-        const result = await processDocument(doc, existingTagNames, existingCorrespondentList, ownUserId);
+        const result = await processDocument(doc, existingTagNames, existingCorrespondentList, existingDocumentTypesList, ownUserId);
         if (!result) continue;
 
         const { analysis, originalData } = result;
@@ -391,22 +393,26 @@ async function scanDocuments() {
 
   runningTask = true;
   try {
-    let [existingTags, documents, ownUserId, existingCorrespondentList] = await Promise.all([
+    let [existingTags, documents, ownUserId, existingCorrespondentList, existingDocumentTypes] = await Promise.all([
       paperlessService.getTags(),
       paperlessService.getAllDocuments(),
       paperlessService.getOwnUserID(),
-      paperlessService.listCorrespondentsNames()
+      paperlessService.listCorrespondentsNames(),
+      paperlessService.listDocumentTypesNames()
     ]);
 
     //get existing correspondent list
     existingCorrespondentList = existingCorrespondentList.map(correspondent => correspondent.name);
+    
+    //get existing document types list
+    let existingDocumentTypesList = existingDocumentTypes.map(docType => docType.name);
     
     // Extract tag names from tag objects
     const existingTagNames = existingTags.map(tag => tag.name);
 
     for (const doc of documents) {
       try {
-        const result = await processDocument(doc, existingTagNames, existingCorrespondentList, ownUserId);
+        const result = await processDocument(doc, existingTagNames, existingCorrespondentList, existingDocumentTypesList, ownUserId);
         if (!result) continue;
 
         const { analysis, originalData } = result;

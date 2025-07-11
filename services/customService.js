@@ -27,7 +27,7 @@ class CustomOpenAIService {
     }
   }
 
-  async analyzeDocument(content, existingTags = [], existingCorrespondentList = [], id, customPrompt = null, options = {}) {
+  async analyzeDocument(content, existingTags = [], existingCorrespondentList = [], existingDocumentTypesList = [], id, customPrompt = null, options = {}) {
     const cachePath = path.join('./public/images', `${id}.png`);
     try {
       this.initialize();
@@ -106,6 +106,7 @@ class CustomOpenAIService {
         systemPrompt = `
         Pre-existing tags: ${existingTagsList}\n\n
         Pre-existing correspondents: ${existingCorrespondentList}\n\n
+        Pre-existing document types: ${existingDocumentTypesList.join(', ')}\n\n
         ` + process.env.SYSTEM_PROMPT + '\n\n' + config.mustHavePrompt.replace('%CUSTOMFIELDS%', customFieldsStr);
         promptTags = '';
       } else {
@@ -119,6 +120,7 @@ class CustomOpenAIService {
         systemPrompt,
         existingTags,
         existingCorrespondentList,
+        existingDocumentTypesList,
         config
       );
 

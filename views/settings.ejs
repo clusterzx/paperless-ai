@@ -546,6 +546,25 @@
                                                 </label>
                                             </div>
                                         </div>
+                                        
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                            <div class="border border-gray-200 shadow-sm rounded-lg hover:border-blue-500 transition-colors duration-200">
+                                                <label for="restrictToExistingDocumentTypes" class="flex items-center p-4 cursor-pointer w-full">
+                                                    <input type="checkbox" 
+                                                        id="restrictToExistingDocumentTypes" 
+                                                        name="restrictToExistingDocumentTypes" 
+                                                        class="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                                        <%= config.RESTRICT_TO_EXISTING_DOCUMENT_TYPES === 'yes' ? 'checked' : '' %>>
+                                                    <div class="ml-3">
+                                                        <div class="flex items-center text-gray-900 font-medium">
+                                                            <i class="fas fa-file-alt mr-2 text-blue-500"></i>
+                                                            Restrict to Existing Document Types
+                                                        </div>
+                                                        <p class="text-sm text-gray-500 mt-1">AI will only use document types that already exist in Paperless-ngx</p>
+                                                    </div>
+                                                </label>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                                 

@@ -22,12 +22,14 @@ const limitFunctions = {
 // Initialize AI restrictions with defaults
 const aiRestrictions = {
   restrictToExistingTags: parseEnvBoolean(process.env.RESTRICT_TO_EXISTING_TAGS, 'no'),
-  restrictToExistingCorrespondents: parseEnvBoolean(process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS, 'no')
+  restrictToExistingCorrespondents: parseEnvBoolean(process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS, 'no'),
+  restrictToExistingDocumentTypes: parseEnvBoolean(process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES, 'no')
 };
 
 console.log('Loaded restriction settings:', {
   RESTRICT_TO_EXISTING_TAGS: aiRestrictions.restrictToExistingTags,
-  RESTRICT_TO_EXISTING_CORRESPONDENTS: aiRestrictions.restrictToExistingCorrespondents
+  RESTRICT_TO_EXISTING_CORRESPONDENTS: aiRestrictions.restrictToExistingCorrespondents,
+  RESTRICT_TO_EXISTING_DOCUMENT_TYPES: aiRestrictions.restrictToExistingDocumentTypes
 });
 
 // Initialize external API configuration
@@ -61,6 +63,7 @@ module.exports = {
   // AI restrictions config
   restrictToExistingTags: aiRestrictions.restrictToExistingTags,
   restrictToExistingCorrespondents: aiRestrictions.restrictToExistingCorrespondents,
+  restrictToExistingDocumentTypes: aiRestrictions.restrictToExistingDocumentTypes,
   // External API config
   externalApiConfig: externalApiConfig,
   paperless: {

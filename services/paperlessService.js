@@ -481,6 +481,47 @@ class PaperlessService {
     }
   }
 
+  async listDocumentTypesNames() {
+    this.initialize();
+    let allDocumentTypes = [];
+    let page = 1;
+    let hasNextPage = true;
+  
+    try {
+      while (hasNextPage) {
+        const response = await this.client.get('/document_types/', {
+          params: {
+            fields: 'id,name',
+            count: true,
+            page: page
+          }
+        });
+  
+        const { results, next } = response.data;
+        
+        allDocumentTypes = allDocumentTypes.concat(
+          results.map(docType => ({
+            name: docType.name,
+            id: docType.id
+          }))
+        );
+  
+        hasNextPage = next !== null;
+        page++;
+  
+        if (hasNextPage) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+  
+      return allDocumentTypes;
+  
+    } catch (error) {
+      console.error('[ERROR] fetching document type names:', error.message);
+      return [];
+    }
+  }
+
   async listTagNames() {
     this.initialize();
     let allTags = [];

@@ -75,7 +75,7 @@ class OllamaService {
      * @param {string} customPrompt - Custom prompt (optional)
      * @returns {Object} Analysis results
      */
-    async analyzeDocument(content, existingTags = [], existingCorrespondentList = [], id, customPrompt = null, options = {}) {
+    async analyzeDocument(content, existingTags = [], existingCorrespondentList = [], existingDocumentTypesList = [], id, customPrompt = null, options = {}) {
         try {
             // Truncate content if needed
             content = this._truncateContent(content);
@@ -100,7 +100,7 @@ class OllamaService {
             // Build prompt
             let prompt;
             if (!customPrompt) {
-                prompt = this._buildPrompt(content, existingTags, existingCorrespondentList, options);
+                prompt = this._buildPrompt(content, existingTags, existingCorrespondentList, existingDocumentTypesList, options);
             } else {
                 // Parse CUSTOM_FIELDS for custom prompt
                 let customFieldsObj;
@@ -248,9 +248,10 @@ class OllamaService {
      * @param {string} content - Document content
      * @param {Array} existingTags - List of existing tags
      * @param {Array} existingCorrespondent - List of existing correspondents
+     * @param {Array} existingDocumentTypes - List of existing document types
      * @returns {string} Formatted prompt
      */
-    _buildPrompt(content, existingTags = [], existingCorrespondent = [], options = {}) {
+    _buildPrompt(content, existingTags = [], existingCorrespondent = [], existingDocumentTypes = [], options = {}) {
         let systemPrompt;
         let promptTags = '';
 
@@ -299,9 +300,20 @@ class OllamaService {
                 .filter(name => name.length > 0)  // Remove empty strings
                 .join(', ');
 
+            // Format existing document types - handle both array of objects and array of strings
+            const existingDocumentTypesList = existingDocumentTypes
+                .filter(Boolean)  // Remove any null/undefined entries
+                .map(docType => {
+                    if (typeof docType === 'string') return docType;
+                    return docType?.name || '';
+                })
+                .filter(name => name.length > 0)  // Remove empty strings
+                .join(', ');
+
             systemPrompt = `
             Pre-existing tags: ${existingTagsList}\n\n
             Pre-existing correspondents: ${existingCorrespondentList}\n\n
+            Pre-existing document types: ${existingDocumentTypesList}\n\n
             ` + process.env.SYSTEM_PROMPT + '\n\n' + config.mustHavePrompt.replace('%CUSTOMFIELDS%', customFieldsStr);
             promptTags = '';
         } else {
@@ -327,6 +339,7 @@ class OllamaService {
             systemPrompt,
             existingTags,
             correspondentList,
+            existingDocumentTypes,
             config
         );
 
