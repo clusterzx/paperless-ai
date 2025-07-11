@@ -1228,6 +1228,8 @@ router.get('/api/history', async (req, res) => {
       const resolvedTags = tagIds.map(id => tagMap.get(parseInt(id))).filter(Boolean);
       const baseURL = process.env.PAPERLESS_API_URL.replace(/\/api$/, '');
 
+      resolvedTags.sort((a, b) => a.name.localeCompare(b.name));
+
       return {
         document_id: doc.document_id,
         title: doc.title || 'Modified: Invalid Date',
@@ -1262,6 +1264,14 @@ router.get('/api/history', async (req, res) => {
         }
         if (column === 'document_id') {
           return dir * (a[column] - b[column]);
+        }
+        if (column === 'tags') {
+          let min_len = (a[column].length < b[column].length)? a[column].length : b[column].length;
+          for(let i=0; i < min_len; i+=1) {
+            let cmp = a[column][i].name.localeCompare(b[column][i].name)
+            if(cmp !== 0) return dir * cmp;
+          }
+          return dir * (a[column].length - b[column].length);
         }
         return dir * a[column].localeCompare(b[column]);
       });
