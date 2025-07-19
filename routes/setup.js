@@ -21,6 +21,7 @@ const { authenticateJWT, isAuthenticated } = require('./auth.js');
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const customService = require('../services/customService.js');
 const config = require('../config/config.js');
+const { normalizeUrl } = require('../utils/urlUtils.js');
 require('dotenv').config({ path: '../data/.env' });
 
 /**
@@ -1877,7 +1878,7 @@ const normalizeArray = (value) => {
 router.get('/setup', async (req, res) => {
   try {
     // Base configuration object - load this FIRST, before any checks
-    let config = {
+    let pageConfig = {
       PAPERLESS_API_URL: (process.env.PAPERLESS_API_URL || 'http://localhost:8000').replace(/\/api$/, ''),
       PAPERLESS_API_TOKEN: process.env.PAPERLESS_API_TOKEN || '',
       PAPERLESS_USERNAME: process.env.PAPERLESS_USERNAME || '',
@@ -1919,15 +1920,15 @@ router.get('/setup', async (req, res) => {
         savedConfig.PAPERLESS_API_URL = savedConfig.PAPERLESS_API_URL.replace(/\/api$/, '');
       }
 
-      savedConfig.TAGS = normalizeArray(savedConfig.TAGS);
-      savedConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
+      pageConfig.TAGS = normalizeArray(savedConfig.TAGS);
+      pageConfig.PROMPT_TAGS = normalizeArray(savedConfig.PROMPT_TAGS);
 
-      config = { ...config, ...savedConfig };
+      pageConfig = { ...pageConfig, ...savedConfig };
     }
 
     // Debug output
-    console.log('Current config TAGS:', config.TAGS);
-    console.log('Current config PROMPT_TAGS:', config.PROMPT_TAGS);
+    console.log('Current config TAGS:', pageConfig.TAGS);
+    console.log('Current config PROMPT_TAGS:', pageConfig.PROMPT_TAGS);
 
     // Check if system is fully configured
     const hasUsers = Array.isArray(users) && users.length > 0;
@@ -1949,7 +1950,7 @@ router.get('/setup', async (req, res) => {
 
     // Render setup page with config and appropriate message
     res.render('setup', {
-      config,
+      config: pageConfig,
       success: successMessage
     });
   } catch (error) {
@@ -3633,7 +3634,7 @@ router.post('/setup', express.json(), async (req, res) => {
 
 
     // Normalize URL by removing trailing slash, then initialize paperlessService
-    const normalizedUrl = paperlessUrl.replace(/\/$/, '');
+    const normalizedUrl = normalizeUrl(paperlessUrl);
     const paperlessApiUrl = normalizedUrl + '/api';
     const initSuccess = await paperlessService.initializeWithCredentials(paperlessApiUrl, paperlessToken);
     
@@ -4142,8 +4143,8 @@ router.post('/settings', express.json(), async (req, res) => {
 
     const updatedConfig = {};
 
-    if (paperlessUrl) {
-      const normalizedUrl = paperlessUrl.replace(/\/$/, '');
+    if (paperlessUrl) { 
+      const normalizedUrl = normalizeUrl(paperlessUrl);
       updatedConfig.PAPERLESS_API_URL = normalizedUrl + '/api';
     }
     if (paperlessToken) updatedConfig.PAPERLESS_API_TOKEN = paperlessToken;
