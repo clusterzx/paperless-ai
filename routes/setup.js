@@ -3632,8 +3632,9 @@ router.post('/setup', express.json(), async (req, res) => {
     console.log('Setup request received:', redactedBody);
 
 
-    // Initialize paperlessService with the new credentials
-    const paperlessApiUrl = paperlessUrl + '/api';
+    // Normalize URL by removing trailing slash, then initialize paperlessService
+    const normalizedUrl = paperlessUrl.replace(/\/$/, '');
+    const paperlessApiUrl = normalizedUrl + '/api';
     const initSuccess = await paperlessService.initializeWithCredentials(paperlessApiUrl, paperlessToken);
     
     if (!initSuccess) {
@@ -4141,7 +4142,10 @@ router.post('/settings', express.json(), async (req, res) => {
 
     const updatedConfig = {};
 
-    if (paperlessUrl) updatedConfig.PAPERLESS_API_URL = paperlessUrl + '/api';
+    if (paperlessUrl) {
+      const normalizedUrl = paperlessUrl.replace(/\/$/, '');
+      updatedConfig.PAPERLESS_API_URL = normalizedUrl + '/api';
+    }
     if (paperlessToken) updatedConfig.PAPERLESS_API_TOKEN = paperlessToken;
     if (paperlessUsername) updatedConfig.PAPERLESS_USERNAME = paperlessUsername;
 
