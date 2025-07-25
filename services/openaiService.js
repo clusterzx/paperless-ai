@@ -1,3 +1,8 @@
+function modelSupportsTemperature(model) {
+  const blocked = ['o3-', 'gpt-4o', 'claude', 'gemini'];
+  return !blocked.some(block => model?.toLowerCase().includes(block));
+}
+
 const {
   calculateTokens,
   calculateTotalPromptTokens,
@@ -187,7 +192,7 @@ class OpenAIService {
             content: truncatedContent
           }
         ],
-        ...(model !== 'o3-mini' && { temperature: 0.3 }),
+        ...(model !== 'o3-mini' && { ...(modelSupportsTemperature(model) ? { temperature: 0.7 } : {}) }),
       });
 
       if (!response?.choices?.[0]?.message?.content) {
@@ -311,7 +316,7 @@ class OpenAIService {
             content: truncatedContent
           }
         ],
-        ...(model !== 'o3-mini' && { temperature: 0.3 }),
+        ...(model !== 'o3-mini' && { ...(modelSupportsTemperature(model) ? { temperature: 0.7 } : {}) }),
       });
 
       // Handle response
@@ -384,7 +389,7 @@ class OpenAIService {
             content: prompt
           }
         ],
-        temperature: 0.7
+        ...(modelSupportsTemperature(model) ? { temperature: 0.7 } : {})
       });
 
       if (!response?.choices?.[0]?.message?.content) {
@@ -414,7 +419,7 @@ class OpenAIService {
             content: "Test"
           }
         ],
-        temperature: 0.7
+        ...(modelSupportsTemperature(model) ? { temperature: 0.7 } : {})
       });
       if (!response?.choices?.[0]?.message?.content) {
         throw new Error('Invalid API response structure');
