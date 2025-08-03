@@ -2511,9 +2511,9 @@ router.post('/api/webhook/document', async (req, res) => {
       if (prompt) {
         usePrompt = true;
         console.log('[DEBUG] Using custom prompt:', prompt);
-        await processQueue(prompt);
+        processQueue(prompt).then();
       } else {
-        await processQueue();
+        processQueue().then();
       }
       
       
