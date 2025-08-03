@@ -2379,7 +2379,10 @@ async function processQueue(customPrompt) {
       
       try {
         const result = await processDocument(doc, existingTags, existingCorrespondentList, existingDocumentTypesList, ownUserId, customPrompt);
-        if (!result) continue;
+        if (!result) {
+          console.log('Skipping document ${doc.id}: Was already processed.');
+          continue;
+        }
 
         const { analysis, originalData } = result;
         const updateData = await buildUpdateData(analysis, doc);
