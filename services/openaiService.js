@@ -187,7 +187,7 @@ class OpenAIService {
             content: truncatedContent
           }
         ],
-        ...(model !== 'o3-mini' && { temperature: 0.3 }),
+        ...(model && model.toLowerCase().includes('gpt-5') ? { temperature: 1 } : (model !== 'o3-mini' ? { temperature: 0.3 } : {})),
       });
 
       if (!response?.choices?.[0]?.message?.content) {
@@ -311,7 +311,7 @@ class OpenAIService {
             content: truncatedContent
           }
         ],
-        ...(model !== 'o3-mini' && { temperature: 0.3 }),
+        ...(model && model.toLowerCase().includes('gpt-5') ? { temperature: 1 } : (model !== 'o3-mini' ? { temperature: 0.3 } : {})),
       });
 
       // Handle response
