@@ -298,10 +298,12 @@
                                         <select id="openaiModel" 
                                                 name="openaiModel"
                                                 class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                            <option value="gpt-3.5-turbo-0125" <%= config.OPENAI_MODEL === 'gpt-3.5-turbo-0125' ? 'selected' : '' %>>GPT-3.5 Turbo</option>
-                                            <option value="gpt-4o" <%= config.OPENAI_MODEL === 'gpt-4o' ? 'selected' : '' %>>GPT-4o</option>
-                                            <option value="o3-mini" <%= config.OPENAI_MODEL === 'o3-mini' ? 'selected' : '' %>>o3-mini</option>
-                                            <option value="gpt-4o-mini" <%= config.OPENAI_MODEL === 'gpt-4o-mini' ? 'selected' : '' %>>GPT-4o-mini (Best value)</option>
+                                                <option value="gpt-5-mini" <%= config.OPENAI_MODEL === 'gpt-5-mini' ? 'selected' : '' %>>GPT-5-mini</option>
+                                                <option value="gpt-5-nano" <%= config.OPENAI_MODEL === 'gpt-5-nano' ? 'selected' : '' %>>GPT-5-nano</option>
+                                                <option value="gpt-5" <%= config.OPENAI_MODEL === 'gpt-5' ? 'selected' : '' %>>GPT-5</option>
+                                                <option value="gpt-4o" <%= config.OPENAI_MODEL === 'gpt-4o' ? 'selected' : '' %>>GPT-4o</option>
+                                                <option value="o3-mini" <%= config.OPENAI_MODEL === 'o3-mini' ? 'selected' : '' %>>o3-mini</option>
+                                                <option value="gpt-4o-mini" <%= config.OPENAI_MODEL === 'gpt-4o-mini' ? 'selected' : '' %>>GPT-4o-mini (Best value)</option>
                                         </select>
                                     </div>
                                 </div>
