@@ -313,6 +313,7 @@ class OpenAIService {
           }
         ],
         ...(model && model.toLowerCase().includes('gpt-5') ? { temperature: 1 } : (model !== 'o3-mini' ? { temperature: 0.3 } : {})),
+        ...(model && model.toLowerCase().includes('gpt-5-nano') ? {reasoning_effort: "minimal" }: {})
       });
 
       // Handle response
@@ -385,7 +386,8 @@ class OpenAIService {
             content: prompt
           }
         ],
-        temperature: 0.7
+        ...(model && model.toLowerCase().includes('gpt-5') ? { temperature: 1 } : (model !== 'o3-mini' ? { temperature: 0.3 } : {})),
+        ...(model && model.toLowerCase().includes('gpt-5-nano') ? {reasoning_effort: "minimal" }: {})
       });
 
       if (!response?.choices?.[0]?.message?.content) {
@@ -407,15 +409,19 @@ class OpenAIService {
       if (!this.client) {
         throw new Error('OpenAI client not initialized - missing API key');
       }
+
+      const model = process.env.OPENAI_MODEL || config.openai.model;
+
       const response = await this.client.chat.completions.create({
-        model: process.env.OPENAI_MODEL,
+        model: model,
         messages: [
           {
             role: "user",
             content: "Test"
           }
         ],
-        temperature: 0.7
+        ...(model && model.toLowerCase().includes('gpt-5') ? { temperature: 1 } : (model !== 'o3-mini' ? { temperature: 0.3 } : {})),
+        ...(model && model.toLowerCase().includes('gpt-5-nano') ? {reasoning_effort: "minimal" }: {})
       });
       if (!response?.choices?.[0]?.message?.content) {
         throw new Error('Invalid API response structure');
