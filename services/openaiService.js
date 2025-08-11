@@ -188,6 +188,7 @@ class OpenAIService {
           }
         ],
         ...(model && model.toLowerCase().includes('gpt-5') ? { temperature: 1 } : (model !== 'o3-mini' ? { temperature: 0.3 } : {})),
+        ...(model && model.toLowerCase().includes('gpt-5-nano') ? {reasoning_effort: "minimal" }: {})
       });
 
       if (!response?.choices?.[0]?.message?.content) {
