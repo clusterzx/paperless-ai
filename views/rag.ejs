@@ -912,7 +912,7 @@
 
         function updateStatus(statusData) {
             // Update AI model info
-            if (statusData.ai_status === 'ok') {
+            if (statusData.ai_status === 'ok' && statusData.ai_model) {
                 const modelName = statusData.ai_model.toUpperCase();
                 aiModelName.textContent = `AI MODEL: ${modelName}`;
             } else {
