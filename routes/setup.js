@@ -1491,58 +1491,48 @@ router.post('/api/reset-documents', async (req, res) => {
  *                   example: "Error during document scan"
  */
 router.post('/api/scan/now', async (req, res) => {
-try {
+  try {
     const isConfigured = await setupService.isConfigured();
     if (!isConfigured) {
       console.log(`Setup not completed. Visit http://your-machine-ip:${process.env.PAPERLESS_AI_PORT || 3000}/setup to complete setup.`);
-      return;
+      return res.status(400).json({ error: 'Setup not completed' });
     }
 
     const userId = await paperlessService.getOwnUserID();
     if (!userId) {
       console.error('Failed to get own user ID. Abort scanning.');
-      return;
+      return res.status(400).json({ error: 'Missing or invalid Paperless user' });
     }
-    
-      try {
-        let [existingTags, documents, ownUserId, existingCorrespondentList, existingDocumentTypes] = await Promise.all([
-          paperlessService.getTags(),
-          paperlessService.getAllDocuments(),
-          paperlessService.getOwnUserID(),
-          paperlessService.listCorrespondentsNames(),
-          paperlessService.listDocumentTypesNames()
-        ]);
-    
-        //get existing correspondent list
-        existingCorrespondentList = existingCorrespondentList.map(correspondent => correspondent.name);
-        
-        //get existing document types list
-        let existingDocumentTypesList = existingDocumentTypes.map(docType => docType.name);
-        
-        // Extract tag names from tag objects
-        const existingTagNames = existingTags.map(tag => tag.name);
-    
-        for (const doc of documents) {
-          try {
-            const result = await processDocument(doc, existingTagNames, existingCorrespondentList, existingDocumentTypesList, ownUserId);
-            if (!result) continue;
-    
-            const { analysis, originalData } = result;
-            const updateData = await buildUpdateData(analysis, doc);
-            await saveDocumentChanges(doc.id, updateData, analysis, originalData);
-          } catch (error) {
-            console.error(`[ERROR] processing document ${doc.id}:`, error);
-          }
-        }
-      } catch (error) {
-        console.error('[ERROR]  during document scan:', error);
-      } finally {
-        runningTask = false;
-        console.log('[INFO] Task completed');
-        res.send('Task completed');
-      }
+
+    // Preload refs and fetch document list, but do not block response on processing
+    let [existingTags, documents, ownUserId, existingCorrespondentList, existingDocumentTypes] = await Promise.all([
+      paperlessService.getTags(),
+      paperlessService.getAllDocuments(),
+      paperlessService.getOwnUserID(),
+      paperlessService.listCorrespondentsNames(),
+      paperlessService.listDocumentTypesNames()
+    ]);
+
+    existingCorrespondentList = existingCorrespondentList.map(correspondent => correspondent.name);
+    let existingDocumentTypesList = existingDocumentTypes.map(docType => docType.name);
+    const existingTagNames = existingTags.map(tag => tag.name);
+
+    // Enqueue all documents for background processing; processing logic will skip already-processed
+    for (const doc of documents) {
+      documentQueue.push(doc);
+    }
+
+    // Kick off the queue processor without awaiting
+    processQueue();
+
+    return res.status(202).json({
+      accepted: true,
+      message: 'Scan started in background',
+      queueLength: documentQueue.length
+    });
   } catch (error) {
-    console.error('[ERROR] in startScanning:', error);
+    console.error('[ERROR] starting scan:', error);
+    return res.status(500).json({ error: 'Failed to start scan' });
   }
 });
 
@@ -4345,7 +4335,18 @@ router.post('/settings', express.json(), async (req, res) => {
 router.get('/api/processing-status', async (req, res) => {
   try {
       const status = await documentModel.getCurrentProcessingStatus();
-      res.json(status);
+      // Augment with queue information and align with OpenAPI naming
+      const queueLength = documentQueue.length;
+      const currentDocument = status.currentlyProcessing ? {
+        id: status.currentlyProcessing.documentId,
+        title: status.currentlyProcessing.title,
+        status: status.currentlyProcessing.status
+      } : null;
+      res.json({
+        ...status,
+        queueLength,
+        currentDocument
+      });
   } catch (error) {
       res.status(500).json({ error: 'Failed to fetch processing status' });
   }

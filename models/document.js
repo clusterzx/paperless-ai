@@ -144,9 +144,9 @@ const clearProcessingStatus = db.prepare(`
   DELETE FROM processing_status WHERE document_id = ?
 `);
 
+// Consider any row in processing_status as active; rows are cleared on 'complete'
 const getActiveProcessing = db.prepare(`
   SELECT * FROM processing_status 
-  WHERE start_time >= datetime('now', '-30 seconds')
   ORDER BY start_time DESC LIMIT 1
 `);
 
