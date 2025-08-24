@@ -1491,76 +1491,81 @@ router.post('/api/reset-documents', async (req, res) => {
  *                   example: "Error during document scan"
  */
 router.post('/api/scan/now', async (req, res) => {
+  console.log('[SCAN] Starting immediate scan request');
   try {
+    console.log('[SCAN] Checking if setup is configured');
     const isConfigured = await setupService.isConfigured();
     if (!isConfigured) {
-      console.log(`Setup not completed. Visit http://your-machine-ip:${process.env.PAPERLESS_AI_PORT || 3000}/setup to complete setup.`);
+      console.log(`[SCAN] Setup not completed. Visit http://your-machine-ip:${process.env.PAPERLESS_AI_PORT || 3000}/setup to complete setup.`);
       return res.status(400).json({ error: 'Setup not completed' });
     }
+    console.log('[SCAN] Setup is configured');
 
+    console.log('[SCAN] Getting user ID');
     const userId = await paperlessService.getOwnUserID();
     if (!userId) {
-      console.error('Failed to get own user ID. Abort scanning.');
+      console.error('[SCAN] Failed to get own user ID. Abort scanning.');
       return res.status(400).json({ error: 'Missing or invalid Paperless user' });
     }
+    console.log(`[SCAN] Got user ID: ${userId}`);
 
-    // Preload refs and fetch document list, but do not block response on processing
-    let [existingTags, documents, ownUserId, existingCorrespondentList, existingDocumentTypes] = await Promise.all([
-      paperlessService.getTags(),
-      paperlessService.getAllDocuments(),
-      paperlessService.getOwnUserID(),
-      paperlessService.listCorrespondentsNames(),
-      paperlessService.listDocumentTypesNames()
-    ]);
+    console.log('[SCAN] Skipping heavy data fetching - will be done in background processing');
+    
+    // Don't fetch documents here - let processQueue handle all the heavy lifting
+    // This allows the API to return immediately with a 202 response
 
-    existingCorrespondentList = existingCorrespondentList.map(correspondent => correspondent.name);
-    let existingDocumentTypesList = existingDocumentTypes.map(docType => docType.name);
-    const existingTagNames = existingTags.map(tag => tag.name);
-
-    // Enqueue all documents for background processing; processing logic will skip already-processed
-    for (const doc of documents) {
-      documentQueue.push(doc);
-    }
-
-    // Kick off the queue processor without awaiting
+    console.log('[SCAN] Starting background queue processor');
+    // Kick off the queue processor without awaiting - it will fetch documents and process them
     processQueue();
 
+    console.log('[SCAN] Returning 202 response immediately - scan running in background');
     return res.status(202).json({
       accepted: true,
       message: 'Scan started in background',
-      queueLength: documentQueue.length
+      queueLength: 'unknown - will be determined in background'
     });
   } catch (error) {
-    console.error('[ERROR] starting scan:', error);
+    console.error('[SCAN] [ERROR] Failed to start scan:', error);
     return res.status(500).json({ error: 'Failed to start scan' });
   }
 });
 
 async function processDocument(doc, existingTags, existingCorrespondentList, existingDocumentTypesList, ownUserId, customPrompt = null) {
+  console.log(`[DOC] Starting processing for document ${doc.id} ("${doc.title}")`);
+  
+  console.log(`[DOC] Checking if document ${doc.id} is already processed`);
   const isProcessed = await documentModel.isDocumentProcessed(doc.id);
-  if (isProcessed) return null;
+  if (isProcessed) {
+    console.log(`[DOC] Document ${doc.id} already processed, skipping`);
+    return null;
+  }
+  
+  console.log(`[DOC] Setting processing status for document ${doc.id}`);
   await documentModel.setProcessingStatus(doc.id, doc.title, 'processing');
 
+  console.log(`[DOC] Checking permissions for document ${doc.id}`);
   const documentEditable = await paperlessService.getPermissionOfDocument(doc.id);
   if (!documentEditable) {
-    console.log(`[DEBUG] Document belongs to: ${documentEditable}, skipping analysis`);
-    console.log(`[DEBUG] Document ${doc.id} Not Editable by Paper-Ai User, skipping analysis`);
+    console.log(`[DOC] Document ${doc.id} is not editable by AI user, skipping analysis`);
     return null;
-  }else {
-    console.log(`[DEBUG] Document ${doc.id} rights for AI User - processed`);
+  } else {
+    console.log(`[DOC] Document ${doc.id} permissions OK - proceeding with processing`);
   }
 
+  console.log(`[DOC] Fetching content and metadata for document ${doc.id}`);
   let [content, originalData] = await Promise.all([
     paperlessService.getDocumentContent(doc.id),
     paperlessService.getDocument(doc.id)
   ]);
 
   if (!content || !content.length >= 10) {
-    console.log(`[DEBUG] Document ${doc.id} has no content, skipping analysis`);
+    console.log(`[DOC] Document ${doc.id} has no content (length: ${content?.length || 0}), skipping analysis`);
     return null;
   }
 
+  console.log(`[DOC] Document ${doc.id} content retrieved (length: ${content.length} characters)`);
   if (content.length > 50000) {
+    console.log(`[DOC] Document ${doc.id} content too long, truncating to 50000 characters`);
     content = content.substring(0, 50000);
   }
 
@@ -1572,35 +1577,46 @@ async function processDocument(doc, existingTags, existingCorrespondentList, exi
 
   // Get external API data if enabled
   if (config.externalApiConfig.enabled === 'yes') {
+    console.log(`[DOC] External API enabled for document ${doc.id}, fetching data`);
     try {
       const externalApiService = require('../services/externalApiService');
       const externalData = await externalApiService.fetchData();
       if (externalData) {
         options.externalApiData = externalData;
-        console.log('[DEBUG] Retrieved external API data for prompt enrichment');
+        console.log(`[DOC] Retrieved external API data for document ${doc.id} prompt enrichment`);
+      } else {
+        console.log(`[DOC] External API returned no data for document ${doc.id}`);
       }
     } catch (error) {
-      console.error('[ERROR] Failed to fetch external API data:', error.message);
+      console.error(`[DOC] [ERROR] Failed to fetch external API data for document ${doc.id}:`, error.message);
     }
   }
 
+  console.log(`[DOC] Starting AI analysis for document ${doc.id}`);
   const aiService = AIServiceFactory.getService();
   let analysis;
   if(customPrompt) {
-    console.log('[DEBUG] Starting document analysis with custom prompt');
+    console.log(`[DOC] Using custom prompt for document ${doc.id} analysis`);
     analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, existingDocumentTypesList, doc.id, customPrompt, options);
-  }else{
+  } else {
+    console.log(`[DOC] Using default prompt for document ${doc.id} analysis`);
     analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, existingDocumentTypesList, doc.id, null, options);
   }
-  console.log('Repsonse from AI service:', analysis);
+  
+  console.log(`[DOC] AI analysis completed for document ${doc.id}:`, analysis);
   if (analysis.error) {
-    throw new Error(`[ERROR] Document analysis failed: ${analysis.error}`);
+    throw new Error(`[ERROR] Document ${doc.id} analysis failed: ${analysis.error}`);
   }
+  
+  console.log(`[DOC] Setting document ${doc.id} status to complete`);
   await documentModel.setProcessingStatus(doc.id, doc.title, 'complete');
+  
+  console.log(`[DOC] Successfully processed document ${doc.id}`);
   return { analysis, originalData };
 }
 
 async function buildUpdateData(analysis, doc) {
+  console.log(`[UPDATE] Building update data for document ${doc.id}`);
   const updateData = {};
 
   // Create options object with restriction settings
@@ -1609,46 +1625,60 @@ async function buildUpdateData(analysis, doc) {
     restrictToExistingCorrespondents: config.restrictToExistingCorrespondents === 'yes' ? true : false
   };
 
-  console.log(`[DEBUG] Building update data with restrictions: tags=${options.restrictToExistingTags}, correspondents=${options.restrictToExistingCorrespondents}`);
+  console.log(`[UPDATE] Building update data for document ${doc.id} with restrictions: tags=${options.restrictToExistingTags}, correspondents=${options.restrictToExistingCorrespondents}`);
 
   // Only process tags if tagging is activated
   if (config.limitFunctions?.activateTagging !== 'no') {
+    console.log(`[UPDATE] Processing tags for document ${doc.id}: ${analysis.document.tags?.join(', ') || 'none'}`);
     const { tagIds, errors } = await paperlessService.processTags(analysis.document.tags, options);
     if (errors.length > 0) {
-      console.warn('[ERROR] Some tags could not be processed:', errors);
+      console.warn(`[UPDATE] [ERROR] Some tags could not be processed for document ${doc.id}:`, errors);
     }
     updateData.tags = tagIds;
+    console.log(`[UPDATE] Processed ${tagIds?.length || 0} tags for document ${doc.id}`);
   } else if (config.limitFunctions?.activateTagging === 'no' && config.addAIProcessedTag === 'yes') {
-    // Add AI processed tags to the document (processTags function awaits a tags array)
-    // get tags from .env file and split them by comma and make an array
-    console.log('[DEBUG] Tagging is deactivated but AI processed tag will be added');
+    console.log(`[UPDATE] Tagging is deactivated but AI processed tag will be added for document ${doc.id}`);
     const tags = config.addAIProcessedTags.split(',');
     const { tagIds, errors } = await paperlessService.processTags(tags, options);
     if (errors.length > 0) {
-      console.warn('[ERROR] Some tags could not be processed:', errors);
+      console.warn(`[UPDATE] [ERROR] Some AI processed tags could not be processed for document ${doc.id}:`, errors);
     }
     updateData.tags = tagIds;
-    console.log('[DEBUG] Tagging is deactivated');
+    console.log(`[UPDATE] Added AI processed tags to document ${doc.id}`);
+  } else {
+    console.log(`[UPDATE] Tagging is deactivated for document ${doc.id}`);
   }
 
   // Only process title if title generation is activated
   if (config.limitFunctions?.activateTitle !== 'no') {
-    updateData.title = analysis.document.title || doc.title;
+    const newTitle = analysis.document.title || doc.title;
+    console.log(`[UPDATE] Setting title for document ${doc.id}: "${newTitle}"`);
+    updateData.title = newTitle;
+  } else {
+    console.log(`[UPDATE] Title generation is deactivated for document ${doc.id}`);
   }
 
   // Add created date regardless of settings as it's a core field
-  updateData.created = analysis.document.document_date || doc.created;
+  const newDate = analysis.document.document_date || doc.created;
+  console.log(`[UPDATE] Setting created date for document ${doc.id}: ${newDate}`);
+  updateData.created = newDate;
 
   // Only process document type if document type classification is activated
   if (config.limitFunctions?.activateDocumentType !== 'no' && analysis.document.document_type) {
+    console.log(`[UPDATE] Processing document type for document ${doc.id}: "${analysis.document.document_type}"`);
     try {
       const documentType = await paperlessService.getOrCreateDocumentType(analysis.document.document_type);
       if (documentType) {
+        console.log(`[UPDATE] Set document type for document ${doc.id}: ID ${documentType.id}`);
         updateData.document_type = documentType.id;
+      } else {
+        console.log(`[UPDATE] Could not get/create document type for document ${doc.id}`);
       }
     } catch (error) {
-      console.error(`[ERROR] Error processing document type:`, error);
+      console.error(`[UPDATE] [ERROR] Error processing document type for document ${doc.id}:`, error);
     }
+  } else {
+    console.log(`[UPDATE] Document type classification is deactivated or no type provided for document ${doc.id}`);
   }
 
   // Only process custom fields if custom fields detection is activated
@@ -1715,8 +1745,17 @@ async function buildUpdateData(analysis, doc) {
 }
 
 async function saveDocumentChanges(docId, updateData, analysis, originalData) {
+  console.log(`[SAVE] Starting to save changes for document ${docId}`);
   const { tags: originalTags, correspondent: originalCorrespondent, title: originalTitle } = originalData;
   
+  console.log(`[SAVE] Saving document ${docId} with updates:`, {
+    title: updateData.title,
+    tags: updateData.tags?.length || 0,
+    document_type: updateData.document_type,
+    created: updateData.created
+  });
+  
+  console.log(`[SAVE] Performing parallel operations for document ${docId}: saving original data, updating document, adding to processed list, saving metrics, and adding to history`);
   await Promise.all([
     documentModel.saveOriginalData(docId, originalTags, originalCorrespondent, originalTitle),
     paperlessService.updateDocument(docId, updateData),
@@ -1729,6 +1768,8 @@ async function saveDocumentChanges(docId, updateData, analysis, originalData) {
     ),
     documentModel.addToHistory(docId, updateData.tags, updateData.title, analysis.document.correspondent)
   ]);
+  
+  console.log(`[SAVE] Successfully saved all changes for document ${docId}`);
 }
 
 /**
@@ -2334,27 +2375,53 @@ function extractDocumentId(url) {
 }
 
 async function processQueue(customPrompt) {
+  console.log(`[QUEUE] Starting queue processing. Queue length: ${documentQueue.length}, Currently processing: ${isProcessing}`);
+  
   if (customPrompt) {
-    console.log('Using custom prompt:', customPrompt);
+    console.log('[QUEUE] Using custom prompt:', customPrompt);
   }
 
-  if (isProcessing || documentQueue.length === 0) return;
+  if (isProcessing) {
+    console.log('[QUEUE] Already processing, skipping');
+    return;
+  }
+  
+  // If queue is empty, we need to fetch documents first (for /api/scan/now calls)
+  if (documentQueue.length === 0) {
+    console.log('[QUEUE] Queue is empty, will fetch documents first');
+  }
   
   isProcessing = true;
+  console.log('[QUEUE] Set processing flag to true');
   
   try {
+    console.log('[QUEUE] Checking if setup is configured');
     const isConfigured = await setupService.isConfigured();
     if (!isConfigured) {
-      console.log(`Setup not completed. Visit http://your-machine-ip:${process.env.PAPERLESS_AI_PORT || 3000}/setup to complete setup.`);
+      console.log(`[QUEUE] Setup not completed. Visit http://your-machine-ip:${process.env.PAPERLESS_AI_PORT || 3000}/setup to complete setup.`);
       return;
     }
 
+    console.log('[QUEUE] Getting user ID');
     const userId = await paperlessService.getOwnUserID();
     if (!userId) {
-      console.error('Failed to get own user ID. Abort scanning.');
+      console.error('[QUEUE] Failed to get own user ID. Abort scanning.');
       return;
     }
+    console.log(`[QUEUE] Got user ID: ${userId}`);
 
+    // If queue is empty, fetch all documents first (this happens when called from /api/scan/now)
+    if (documentQueue.length === 0) {
+      console.log('[QUEUE] Fetching all documents to populate queue');
+      const documents = await paperlessService.getAllDocuments();
+      console.log(`[QUEUE] Retrieved ${documents.length} documents, adding to queue`);
+      for (const doc of documents) {
+        documentQueue.push(doc);
+      }
+      console.log(`[QUEUE] Queue now has ${documentQueue.length} documents`);
+    }
+
+    console.log('[QUEUE] Fetching processing data (tags, correspondents, document types)');
     const [existingTags, existingCorrespondentList, existingDocumentTypes, ownUserId] = await Promise.all([
       paperlessService.getTags(),
       paperlessService.listCorrespondentsNames(),
@@ -2363,28 +2430,51 @@ async function processQueue(customPrompt) {
     ]);
 
     const existingDocumentTypesList = existingDocumentTypes.map(docType => docType.name);
+    console.log(`[QUEUE] Processing data ready: ${existingTags.length} tags, ${existingCorrespondentList.length} correspondents, ${existingDocumentTypesList.length} document types`);
 
+    console.log(`[QUEUE] Starting document processing loop with ${documentQueue.length} documents`);
+    let processedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+    
     while (documentQueue.length > 0) {
       const doc = documentQueue.shift();
+      console.log(`[QUEUE] Processing document ${doc.id} ("${doc.title}"). ${documentQueue.length} documents remaining`);
       
       try {
         const result = await processDocument(doc, existingTags, existingCorrespondentList, existingDocumentTypesList, ownUserId, customPrompt);
-        if (!result) continue;
+        if (!result) {
+          skippedCount++;
+          console.log(`[QUEUE] Document ${doc.id} was skipped (already processed or no permissions)`);
+          continue;
+        }
 
+        console.log(`[QUEUE] Building update data for document ${doc.id}`);
         const { analysis, originalData } = result;
         const updateData = await buildUpdateData(analysis, doc);
+        
+        console.log(`[QUEUE] Saving changes for document ${doc.id}`);
         await saveDocumentChanges(doc.id, updateData, analysis, originalData);
+        processedCount++;
+        console.log(`[QUEUE] Successfully processed document ${doc.id}`);
       } catch (error) {
-        console.error(`[ERROR] Failed to process document ${doc.id}:`, error);
+        errorCount++;
+        console.error(`[QUEUE] [ERROR] Failed to process document ${doc.id}:`, error);
       }
     }
+    
+    console.log(`[QUEUE] Completed processing loop. Processed: ${processedCount}, Skipped: ${skippedCount}, Errors: ${errorCount}`);
   } catch (error) {
-    console.error('[ERROR] Error during queue processing:', error);
+    console.error('[QUEUE] [ERROR] Error during queue processing:', error);
   } finally {
+    console.log('[QUEUE] Setting processing flag to false');
     isProcessing = false;
     
     if (documentQueue.length > 0) {
+      console.log(`[QUEUE] Queue still has ${documentQueue.length} documents, restarting processor`);
       processQueue();
+    } else {
+      console.log('[QUEUE] Queue processing completed - no more documents to process');
     }
   }
 }
