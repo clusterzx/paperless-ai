@@ -64,5 +64,8 @@
       "@scarf/scarf",
       "better-sqlite3"
     ]
+  },
+  "bin": {
+    "paperless-ai": "./server.js"
   }
 }

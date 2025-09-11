@@ -12,7 +12,10 @@ in {
 
     package = mkOption {
       type = types.package;
-      description = "The Helios package to use.";
+    };
+
+    rag-package = mkOption {
+      type = types.package;
     };
 
     user = mkOption {
@@ -129,7 +132,7 @@ in {
         User = cfg.user;
         Group = cfg.group;
         WorkingDirectory = stateDir;
-        ExecStart = "${cfg.package}/bin/paperless-ai-rag";
+        ExecStart = "${cfg.rag-package}/bin/paperless-ai-rag";
         Restart = "always";
         RestartSec = "10";
 
