@@ -105,14 +105,14 @@ in {
       environment =
         {
           NODE_ENV = "production";
-          PORT = toString cfg.webPort;
+          PAPERLESS_AI_PORT = toString cfg.webPort;
           RAG_SERVICE_URL = "http://localhost:${toString cfg.ragPort}";
           RAG_SERVICE_ENABLED = "true";
           XDG_DATA_HOME = stateDir;
         }
         // cfg.extraEnvironment;
 
-      serviceConfig.EnvironmentFile = mkIf (cfg.environmentFile != null) cfg.environmentFile;
+      # serviceConfig.EnvironmentFile = mkIf (cfg.environmentFile != null) cfg.environmentFile;
 
       preStart = ''
         # Ensure proper permissions

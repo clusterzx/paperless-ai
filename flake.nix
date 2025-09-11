@@ -68,21 +68,28 @@
         };
       };
 
-      paperless-ai-rag =
-        pkgs.writeShellScriptBin "paperless-ai-rag" ''
-          export PATH="${pythonEnv}/bin:$PATH"
-          exec ${pythonEnv}/bin/python main.py "$@"
-        ''
-        // {
-          meta = with pkgs.lib; {
-            description = "RAG (Retrieval-Augmented Generation) service for Paperless-AI - semantic search and document Q&A";
-            homepage = "https://github.com/clusterzx/paperless-ai";
-            license = licenses.mit;
-            maintainers = [];
-            platforms = platforms.linux ++ platforms.darwin;
-            mainProgram = "paperless-ai-rag";
-          };
+      paperless-ai-rag = pkgs.writeShellApplication {
+        name = "paperless-ai-rag";
+        runtimeInputs = [pythonEnv];
+        text = ''
+          WORK_DIR="$HOME/.local/share/paperless-ai-rag"
+          mkdir -p "$WORK_DIR/data"
+
+          if [ ! -f "$WORK_DIR/main.py" ]; then
+            echo "Setting up Paperless-AI RAG service in $WORK_DIR..."
+            cp ${./main.py} "$WORK_DIR/main.py"
+            chmod u+w "$WORK_DIR/main.py"
+          fi
+
+          cd "$WORK_DIR"
+          exec python main.py "$@"
+        '';
+        meta = with pkgs.lib; {
+          description = "RAG service for Paperless-AI - semantic search and document Q&A";
+          license = licenses.mit;
+          platforms = platforms.linux ++ platforms.darwin;
         };
+      };
     in {
       # Package outputs
       packages = {
