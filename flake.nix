@@ -1,5 +1,5 @@
 {
-  description = "Paperless-AI - AI-powered extension for Paperless-ngx";
+  description = "Paperless-AI - AI-powered extension for Paperless-ngx with automatic document classification, smart tagging, and semantic search";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -14,35 +14,33 @@
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = nixpkgs.legacyPackages.${system};
 
-      # Python dependencies
+      # Python environment with all required packages for RAG service
       pythonEnv = pkgs.python313.withPackages (ps:
         with ps; [
-          fastapi
-          uvicorn
-          python-dotenv
-          requests
-          numpy
-          pytorch
-          sentence-transformers
-          chromadb
-          rank-bm25
-          nltk
-          tqdm
-          pydantic
+          fastapi # Web framework for RAG API
+          uvicorn # ASGI server
+          python-dotenv # Environment file loading
+          requests # HTTP client
+          numpy # Numerical computing
+          pytorch # Machine learning framework
+          sentence-transformers # Text embeddings
+          chromadb # Vector database
+          rank-bm25 # BM25 ranking algorithm
+          nltk # Natural language processing
+          tqdm # Progress bars
+          pydantic # Data validation
         ]);
 
-      # Node.js dependencies are handled by npm/package.json
+      # Node.js runtime (dependencies managed via npm)
       nodejs = pkgs.nodejs;
 
-      # Build the package
+      # Main Paperless-AI package built with buildNpmPackage for proper npm dependency management
       paperless-ai = pkgs.buildNpmPackage {
         pname = "paperless-ai";
         version = "1.0.0";
 
         src = ./.;
 
-        # The hash of the npm dependencies
-        # Run `nix build` and it will tell you the correct hash to use
         npmDepsHash = "sha256-nAcI3L0fvVI/CdUxWYg8ZiPRDjF7dW+dcIKC3KlHjNQ=";
 
         nativeBuildInputs = with pkgs; [
@@ -59,26 +57,28 @@
         dontNpmBuild = true;
 
         postInstall = ''
-          # Create wrapper scripts
+          # Create wrapper scripts that handle the read-only Nix store limitation
+          # by copying the application to a writable directory on first run
           mkdir -p $out/bin
 
+          # Web service wrapper (Node.js + Express)
           cat > $out/bin/paperless-ai << EOF
           #!${pkgs.bash}/bin/bash
           export PATH="${nodejs}/bin:${pythonEnv}/bin:\$PATH"
           export NODE_ENV=production
 
-          # Create a writable working directory
+          # Create a writable working directory using XDG Base Directory specification
           WORK_DIR="\''${XDG_DATA_HOME:-\$HOME/.local/share}/paperless-ai"
           mkdir -p "\$WORK_DIR"
 
-          # Copy application files if they don't exist
+          # Copy application files if they don't exist (first run setup)
           if [ ! -f "\$WORK_DIR/server.js" ]; then
             echo "Setting up Paperless-AI in \$WORK_DIR..."
             cp -r $out/lib/node_modules/paperless-ai/* "\$WORK_DIR/"
             chmod -R u+w "\$WORK_DIR"
           fi
 
-          # Ensure data directory exists
+          # Ensure data directory exists for SQLite database and config files
           mkdir -p "\$WORK_DIR/data"
 
           cd "\$WORK_DIR"
@@ -86,22 +86,23 @@
           EOF
           chmod +x $out/bin/paperless-ai
 
+          # RAG service wrapper (Python + FastAPI)
           cat > $out/bin/paperless-ai-rag << EOF
           #!${pkgs.bash}/bin/bash
           export PATH="${pythonEnv}/bin:\$PATH"
 
-          # Create a writable working directory
+          # Create a writable working directory using XDG Base Directory specification
           WORK_DIR="\''${XDG_DATA_HOME:-\$HOME/.local/share}/paperless-ai"
           mkdir -p "\$WORK_DIR"
 
-          # Copy application files if they don't exist
+          # Copy application files if they don't exist (first run setup)
           if [ ! -f "\$WORK_DIR/main.py" ]; then
             echo "Setting up Paperless-AI RAG service in \$WORK_DIR..."
             cp -r $out/lib/node_modules/paperless-ai/* "\$WORK_DIR/"
             chmod -R u+w "\$WORK_DIR"
           fi
 
-          # Ensure data directory exists
+          # Ensure data directory exists for vector database and embeddings
           mkdir -p "\$WORK_DIR/data"
 
           cd "\$WORK_DIR"
@@ -118,122 +119,209 @@
           platforms = platforms.linux ++ platforms.darwin;
         };
       };
+      # NixOS service module for production deployment
+      # Creates systemd services for both web interface and RAG API
+      paperless-ai-service = {
+        config,
+        lib,
+        pkgs,
+        ...
+      }:
+        with lib; let
+          cfg = config.services.paperless-ai;
+          stateDir = "/var/lib/paperless-ai";
+        in {
+          options.services.paperless-ai = {
+            enable = mkEnableOption "Paperless-AI service";
+
+            user = mkOption {
+              type = types.str;
+              default = "paperless-ai";
+              description = "User account under which Paperless-AI runs.";
+            };
+
+            group = mkOption {
+              type = types.str;
+              default = "paperless-ai";
+              description = "Group account under which Paperless-AI runs.";
+            };
+
+            webPort = mkOption {
+              type = types.port;
+              default = 3000;
+              description = "Port for the web service.";
+            };
+
+            ragPort = mkOption {
+              type = types.port;
+              default = 8000;
+              description = "Port for the RAG service.";
+            };
+
+            openFirewall = mkOption {
+              type = types.bool;
+              default = false;
+              description = "Whether to open the firewall for Paperless-AI ports.";
+            };
+
+            environmentFile = mkOption {
+              type = types.nullOr types.path;
+              default = null;
+              description = "Environment file containing secrets like API keys.";
+            };
+
+            extraEnvironment = mkOption {
+              type = types.attrsOf types.str;
+              default = {};
+              description = "Extra environment variables for Paperless-AI.";
+            };
+          };
+
+          config = mkIf cfg.enable {
+            users.users.${cfg.user} = {
+              isSystemUser = true;
+              group = cfg.group;
+              home = stateDir;
+              createHome = true;
+            };
+
+            users.groups.${cfg.group} = {};
+
+            networking.firewall.allowedTCPPorts = mkIf cfg.openFirewall [
+              cfg.webPort
+              cfg.ragPort
+            ];
+
+            systemd.services.paperless-ai-web = {
+              description = "Paperless-AI Web Service";
+              wantedBy = ["multi-user.target"];
+              after = ["network.target"];
+
+              serviceConfig = {
+                Type = "simple";
+                User = cfg.user;
+                Group = cfg.group;
+                WorkingDirectory = stateDir;
+                ExecStart = "${paperless-ai}/bin/paperless-ai";
+                Restart = "always";
+                RestartSec = "10";
+
+                # Security settings
+                NoNewPrivileges = true;
+                PrivateTmp = true;
+                ProtectSystem = "strict";
+                ProtectHome = true;
+                ReadWritePaths = [stateDir];
+                PrivateDevices = true;
+                ProtectKernelTunables = true;
+                ProtectKernelModules = true;
+                ProtectControlGroups = true;
+              };
+
+              environment =
+                {
+                  NODE_ENV = "production";
+                  PORT = toString cfg.webPort;
+                  RAG_SERVICE_URL = "http://localhost:${toString cfg.ragPort}";
+                  RAG_SERVICE_ENABLED = "true";
+                  XDG_DATA_HOME = stateDir;
+                }
+                // cfg.extraEnvironment;
+
+              serviceConfig.EnvironmentFile = mkIf (cfg.environmentFile != null) cfg.environmentFile;
+
+              preStart = ''
+                # Ensure proper permissions
+                chmod 755 ${stateDir}
+                mkdir -p ${stateDir}/data
+                chmod 755 ${stateDir}/data
+              '';
+            };
+
+            systemd.services.paperless-ai-rag = {
+              description = "Paperless-AI RAG Service";
+              wantedBy = ["multi-user.target"];
+              after = ["network.target"];
+
+              serviceConfig = {
+                Type = "simple";
+                User = cfg.user;
+                Group = cfg.group;
+                WorkingDirectory = stateDir;
+                ExecStart = "${paperless-ai}/bin/paperless-ai-rag";
+                Restart = "always";
+                RestartSec = "10";
+
+                # Security settings
+                NoNewPrivileges = true;
+                PrivateTmp = true;
+                ProtectSystem = "strict";
+                ProtectHome = true;
+                ReadWritePaths = [stateDir];
+                PrivateDevices = true;
+                ProtectKernelTunables = true;
+                ProtectKernelModules = true;
+                ProtectControlGroups = true;
+              };
+
+              environment =
+                {
+                  PORT = toString cfg.ragPort;
+                  XDG_DATA_HOME = stateDir;
+                }
+                // cfg.extraEnvironment;
+
+              serviceConfig.EnvironmentFile = mkIf (cfg.environmentFile != null) cfg.environmentFile;
+
+              preStart = ''
+                # Ensure proper permissions
+                chmod 755 ${stateDir}
+                mkdir -p ${stateDir}/data
+                chmod 755 ${stateDir}/data
+              '';
+            };
+          };
+        };
     in {
+      # Package outputs
       packages = {
         default = paperless-ai;
+        paperless-ai = paperless-ai;
       };
 
+      # NixOS service modules for production deployment
+      nixosModules = {
+        default = paperless-ai-service;
+        paperless-ai = paperless-ai-service;
+      };
+
+      # Development environments
       devShells.default = pkgs.mkShell {
         buildInputs = with pkgs; [
-          # Node.js development
+          # Node.js development stack
           nodejs
           nodePackages.npm
           nodePackages.nodemon
           nodePackages.eslint
           nodePackages.prettier
 
-          # Python development
+          # Python development stack
           pythonEnv
           python313Packages.pip
           python313Packages.black
           python313Packages.flake8
           python313Packages.mypy
 
-          # Database
+          # Database tools
           sqlite
 
-          # Development tools
+          # Development utilities
           git
           curl
           jq
-
-          # Docker (if available)
-          docker
-          docker-compose
         ];
-
-        shellHook = ''
-                      echo "🚀 Paperless-AI Development Environment"
-                      echo "Node.js version: $(node --version)"
-                      echo "Python version: $(python --version)"
-                      echo "SQLite version: $(sqlite3 --version)"
-                      echo ""
-                      echo "Available commands:"
-                      echo "  npm install    - Install Node.js dependencies"
-                      echo "  npm test       - Start development server with nodemon"
-                      echo "  python main.py - Start RAG service"
-                      echo "  docker-compose up - Start with Docker"
-                      echo ""
-                      echo "Environment variables to consider setting:"
-                      echo "  PAPERLESS_URL - URL to your Paperless-ngx instance"
-                      echo "  OPENAI_API_KEY - OpenAI API key (optional)"
-                      echo "  RAG_SERVICE_URL - RAG service URL (default: http://localhost:8000)"
-                      echo ""
-
-                      # Ensure node_modules exists for development
-                      if [ ! -d "node_modules" ]; then
-                        echo "Installing Node.js dependencies..."
-                        npm install
-                      fi
-
-                      # Download NLTK data if needed
-                      python -c "
-          import nltk
-          try:
-              nltk.data.find('tokenizers/punkt')
-              nltk.data.find('corpora/stopwords')
-          except LookupError:
-              print('Downloading required NLTK data...')
-              nltk.download('punkt')
-              nltk.download('stopwords')
-              print('NLTK data downloaded successfully!')
-          "
-        '';
-
-        # Set environment variables
-        NODE_ENV = "development";
-        RAG_SERVICE_URL = "http://localhost:8000";
-        RAG_SERVICE_ENABLED = "true";
       };
 
-      # Additional development shells for specific purposes
-      devShells.python-only = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          pythonEnv
-          python313Packages.pip
-          python313Packages.black
-          python313Packages.flake8
-          python313Packages.mypy
-          sqlite
-        ];
-
-        shellHook = ''
-          echo "🐍 Python-only development environment for RAG service"
-          echo "Python version: $(python --version)"
-          echo ""
-          echo "Run: python main.py"
-        '';
-      };
-
-      devShells.nodejs-only = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          nodejs
-          nodePackages.npm
-          nodePackages.nodemon
-          nodePackages.eslint
-          nodePackages.prettier
-          sqlite
-        ];
-
-        shellHook = ''
-          echo "📦 Node.js-only development environment for web service"
-          echo "Node.js version: $(node --version)"
-          echo ""
-          echo "Run: npm test (or nodemon server.js)"
-        '';
-      };
-
-      # Apps for easy running
       apps = {
         default = {
           type = "app";
