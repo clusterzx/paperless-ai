@@ -1602,7 +1602,7 @@ async function processDocument(doc, existingTags, existingCorrespondentList, exi
   }else{
     analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, existingDocumentTypesList, doc.id, null, options);
   }
-  console.log('Repsonse from AI service:', analysis);
+  console.log('Response from AI service:', analysis);
   if (analysis.error) {
     throw new Error(`[ERROR] Document analysis failed: ${analysis.error}`);
   }
@@ -4384,3 +4384,4 @@ router.get('/dashboard/doc/:id', async (req, res) => {
 });
 
 module.exports = router;
+
