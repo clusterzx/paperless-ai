@@ -33,6 +33,7 @@ class HistoryManager {
         this.confirmModalAll = document.getElementById('confirmModalAll');
         this.selectAll = document.getElementById('selectAll');
         this.table = null; // Will be initialized in initializeDataTable
+        this.validateModal = null;
         this.initialize();
     }
 
@@ -172,6 +173,30 @@ class HistoryManager {
                 this.hideModal(this.confirmModalAll);
             }
         });
+
+        // Validation modal handlers
+        this.validateModal = document.getElementById('validateModal');
+        document.getElementById('validateHistoryBtn')?.addEventListener('click', async () => {
+            await this.validateHistory();
+        });
+
+        document.getElementById('confirmRemoveMissing')?.addEventListener('click', async () => {
+            const missingIds = Array.from(document.querySelectorAll('#validateResults input[type="checkbox"]:checked'))
+                .map(cb => cb.value);
+            if (missingIds.length === 0) {
+                alert('No missing documents selected for removal.');
+                return;
+            }
+
+            const success = await this.resetDocuments(missingIds);
+            if (success) {
+                this.hideModal(this.validateModal);
+            }
+        });
+
+        document.getElementById('cancelValidate')?.addEventListener('click', () => {
+            this.hideModal(this.validateModal);
+        });
     }
 
     initializeResetButtons() {
@@ -298,6 +323,55 @@ class HistoryManager {
             alert('Failed to reset all documents. Please try again.');
             return false;
         }
+    }
+
+    async validateHistory() {
+        try {
+            // Show a loading state in the modal while we validate
+            this.showModal(this.validateModal);
+            const container = document.getElementById('validateResults');
+            container.innerHTML = '<div>Checking history entries...</div>';
+
+            const response = await fetch('/api/history/validate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to validate history');
+            }
+
+            const data = await response.json();
+            this.renderValidateResults(data.missing || []);
+        } catch (error) {
+            console.error('Error validating history:', error);
+            alert('Failed to validate history. Please try again.');
+            this.hideModal(this.validateModal);
+        }
+    }
+
+    renderValidateResults(missing) {
+        const container = document.getElementById('validateResults');
+        if (!container) return;
+
+        if (!missing || missing.length === 0) {
+            container.innerHTML = '<div class="text-green-600">No missing documents found.</div>';
+            return;
+        }
+
+        const list = missing.map(item => {
+            return `
+                <div class="flex items-center justify-between p-2 border-b">
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" value="${item.document_id}" />
+                        <span class="font-medium">${item.title || ('Document ' + item.document_id)}</span>
+                    </label>
+                    <span class="text-sm text-gray-500">ID: ${item.document_id}</span>
+                </div>
+            `;
+        }).join('');
+
+        container.innerHTML = list;
     }
 }
 

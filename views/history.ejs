@@ -95,6 +95,9 @@
                         <button id="resetAllBtn" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">
                             Reset All
                         </button>
+                        <button id="validateHistoryBtn" class="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors">
+                            Validate History
+                        </button>
                     </div>
                 </div>
 
@@ -171,6 +174,25 @@
                 <div class="flex justify-end gap-4">
                     <button id="cancelResetAll" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100">Cancel</button>
                     <button id="confirmResetAll" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">Confirm Reset</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Validation Modal for Missing Documents -->
+    <div id="validateModal" class="modal hidden">
+        <div class="modal-overlay"></div>
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 class="modal-title">Validate History</h3>
+                <button class="modal-close"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-content">
+                <p class="mb-4">This will check whether each history entry still exists in Paperless-ngx. Missing entries can be removed from the history.</p>
+                <div id="validateResults" style="max-height:300px; overflow:auto; margin-bottom:1rem;"></div>
+                <div class="flex justify-end gap-4">
+                    <button id="cancelValidate" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100">Cancel</button>
+                    <button id="confirmRemoveMissing" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600">Remove Missing</button>
                 </div>
             </div>
         </div>

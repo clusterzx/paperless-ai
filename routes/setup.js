@@ -1441,6 +1441,83 @@ router.post('/api/reset-documents', async (req, res) => {
 
 /**
  * @swagger
+ * /api/history/validate:
+ *   post:
+ *     summary: Validate history entries against Paperless-ngx
+ *     description: |
+ *       Checks each history entry stored locally and verifies the corresponding document still exists in Paperless-ngx.
+ *       Returns a list of entries that no longer exist and can be removed from the local history.
+ *     tags:
+ *       - Documents
+ *       - API
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: Validation completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 missing:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       document_id:
+ *                         type: integer
+ *                       title:
+ *                         type: string
+ *       401:
+ *         description: Unauthorized - authentication required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Authentication required"
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Error validating history"
+ */
+router.post('/api/history/validate', async (req, res) => {
+  try {
+    // Get all history entries from local DB
+    const allHistory = await documentModel.getAllHistory();
+
+    // For each history entry, try to fetch the document from Paperless
+    const missing = [];
+
+    for (const h of allHistory) {
+      try {
+        // paperlessService.getDocument will throw on non-2xx (including 404)
+        await paperlessService.getDocument(h.document_id);
+      } catch (error) {
+        // Treat any error fetching the document as missing
+        missing.push({ document_id: h.document_id, title: h.title || null });
+      }
+    }
+
+    res.json({ missing });
+  } catch (error) {
+    console.error('[ERROR] validating history:', error);
+    res.status(500).json({ error: 'Error validating history' });
+  }
+});
+
+/**
+ * @swagger
  * /api/scan/now:
  *   post:
  *     summary: Trigger immediate document scan
