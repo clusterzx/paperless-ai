@@ -1213,17 +1213,19 @@ async getOrCreateDocumentType(name) {
         console.log(`[DEBUG] Combined tags:`, combinedTags);
       }
 
-      // Always include correspondent in the PATCH payload to satisfy required field validation
-      if (currentDoc.correspondent && updates.correspondent) {
-        console.log('[DEBUG] Document already has a correspondent, keeping existing one:', currentDoc.correspondent);
-        updates.correspondent = currentDoc.correspondent;
-      } else if (currentDoc.correspondent && !updates.correspondent) {
-        console.log('[DEBUG] Preserving existing correspondent in PATCH payload:', currentDoc.correspondent);
+      // Always preserve existing correspondent to satisfy required field validation
+      // This maintains backward compatibility where existing correspondents are not overwritten
+      if (currentDoc.correspondent) {
+        if (updates.correspondent) {
+          console.log('[DEBUG] Document already has a correspondent, keeping existing one:', currentDoc.correspondent);
+        } else {
+          console.log('[DEBUG] Preserving existing correspondent in PATCH payload:', currentDoc.correspondent);
+        }
         updates.correspondent = currentDoc.correspondent;
       }
 
       // Always include storage_path in the PATCH payload to satisfy required field validation
-      if (currentDoc.storage_path !== undefined && currentDoc.storage_path !== null && !updates.storage_path) {
+      if (currentDoc.storage_path && !updates.storage_path) {
         console.log('[DEBUG] Preserving existing storage_path in PATCH payload:', currentDoc.storage_path);
         updates.storage_path = currentDoc.storage_path;
       }
