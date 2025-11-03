@@ -1213,9 +1213,19 @@ async getOrCreateDocumentType(name) {
         console.log(`[DEBUG] Combined tags:`, combinedTags);
       }
 
+      // Always include correspondent in the PATCH payload to satisfy required field validation
       if (currentDoc.correspondent && updates.correspondent) {
         console.log('[DEBUG] Document already has a correspondent, keeping existing one:', currentDoc.correspondent);
-        delete updates.correspondent;
+        updates.correspondent = currentDoc.correspondent;
+      } else if (currentDoc.correspondent && !updates.correspondent) {
+        console.log('[DEBUG] Preserving existing correspondent in PATCH payload:', currentDoc.correspondent);
+        updates.correspondent = currentDoc.correspondent;
+      }
+
+      // Always include storage_path in the PATCH payload to satisfy required field validation
+      if (currentDoc.storage_path !== undefined && currentDoc.storage_path !== null && !updates.storage_path) {
+        console.log('[DEBUG] Preserving existing storage_path in PATCH payload:', currentDoc.storage_path);
+        updates.storage_path = currentDoc.storage_path;
       }
 
       let updateData;
@@ -1253,19 +1263,17 @@ async getOrCreateDocumentType(name) {
         };
       }
 
-      // // Handle custom fields update
-      // if (updateData.custom_fields) {
-      //   console.log('[DEBUG] Custom fields update detected');
-      //   try {
-      //     // First, delete existing custom fields
-      //     console.log(`[DEBUG] Deleting existing custom fields for document ${documentId}`);
-      //     await this.client.delete(`/documents/${documentId}/custom_fields/`);
-      //   } catch (error) {
-      //     // If deletion fails, try updating with empty array first
-      //     console.warn('[WARN] Could not delete custom fields, trying to clear them:', error.message);
-      //     await this.client.patch(`/documents/${documentId}/`, { custom_fields: [] });
-      //   }
-      // }
+      // Truncate custom field STRING values to 128 characters max
+      if (updateData.custom_fields && Array.isArray(updateData.custom_fields)) {
+        console.log('[DEBUG] Validating custom fields length');
+        for (const customField of updateData.custom_fields) {
+          if (customField.value && typeof customField.value === 'string' && customField.value.length > 128) {
+            const originalLength = customField.value.length;
+            customField.value = customField.value.substring(0, 128);
+            console.warn(`[WARN] Custom field value truncated from ${originalLength} to 128 characters for document ${documentId}`);
+          }
+        }
+      }
       
       // Validate title length before sending to API
       if (updateData.title && updateData.title.length > 128) {
