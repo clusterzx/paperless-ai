@@ -864,7 +864,17 @@ class OCRManager {
             
             this.updatePreviewContent();
             this.textPreviewModal.classList.remove('hidden');
-            console.log('Modal should now be visible');
+            console.log('Modal should now be visible - cached data');
+            
+            // Check if modal is actually visible
+            setTimeout(() => {
+                const isVisible = !this.textPreviewModal.classList.contains('hidden');
+                console.log('Modal visibility check (cached):', isVisible);
+                if (!isVisible) {
+                    console.error('Modal failed to show with cached data');
+                }
+            }, 100);
+            
             return;
         }
         
@@ -894,7 +904,16 @@ class OCRManager {
                 
                 this.updatePreviewContent();
                 this.textPreviewModal.classList.remove('hidden');
-                console.log('Modal should now be visible');
+                console.log('Modal should now be visible - API data');
+                
+                // Check if modal is actually visible
+                setTimeout(() => {
+                    const isVisible = !this.textPreviewModal.classList.contains('hidden');
+                    console.log('Modal visibility check (API):', isVisible);
+                    if (!isVisible) {
+                        console.error('Modal failed to show with API data');
+                    }
+                }, 100);
             } else {
                 console.error('API response error:', data);
                 this.showError('Failed to load text preview: ' + (data.error || 'No processing data found'));
@@ -908,6 +927,28 @@ class OCRManager {
     hideTextPreview() {
         this.textPreviewModal.classList.add('hidden');
         this.currentPreviewData = null;
+        console.log('Text preview modal hidden');
+    }
+    
+    // Debug function to test modal visibility
+    testModalVisibility() {
+        console.log('Testing modal visibility...');
+        console.log('Modal element:', this.textPreviewModal);
+        console.log('Modal classes:', this.textPreviewModal.className);
+        console.log('Modal computed style display:', window.getComputedStyle(this.textPreviewModal).display);
+        console.log('Modal computed style visibility:', window.getComputedStyle(this.textPreviewModal).visibility);
+        console.log('Modal computed style zIndex:', window.getComputedStyle(this.textPreviewModal).zIndex);
+    }
+    
+    // Force show modal for debugging
+    forceShowModal() {
+        console.log('Force showing modal...');
+        this.testModalVisibility();
+        this.textPreviewModal.classList.remove('hidden');
+        this.textPreviewModal.style.display = 'flex';
+        this.textPreviewModal.style.visibility = 'visible';
+        console.log('Modal forced to show');
+        this.testModalVisibility();
     }
     
     toggleMarkdownView() {
@@ -1021,13 +1062,26 @@ class OCRManager {
     }
     
     loadPdfPreview(documentId) {
-        // Use Paperless-NGX's document preview endpoint
-        const pdfUrl = `/api/documents/${documentId}/preview/`;
+        // Use Paperless-NGX's document preview endpoint (with correct path)
+        const pdfUrl = `/api/documents/${documentId}/preview`;
+        console.log('Loading PDF preview from:', pdfUrl);
+        
+        // Add error handling for PDF frame
+        this.pdfFrame.onload = () => {
+            console.log('PDF preview loaded successfully');
+        };
+        
+        this.pdfFrame.onerror = (error) => {
+            console.error('PDF preview failed to load:', error);
+            this.showError('Failed to load PDF preview. Check if document exists.');
+        };
+        
         this.pdfFrame.src = pdfUrl;
         
         // Update download button
         this.downloadPdf.onclick = () => {
-            const downloadUrl = `/api/documents/${documentId}/download/`;
+            const downloadUrl = `/api/documents/${documentId}/download`;
+            console.log('Downloading document from:', downloadUrl);
             window.open(downloadUrl, '_blank');
         };
     }
@@ -1035,7 +1089,8 @@ class OCRManager {
     downloadDocument() {
         if (!this.currentPreviewData) return;
         
-        const downloadUrl = `/api/documents/${this.currentPreviewData.documentId}/download/`;
+        const downloadUrl = `/api/documents/${this.currentPreviewData.documentId}/download`;
+        console.log('Downloading document from:', downloadUrl);
         window.open(downloadUrl, '_blank');
     }
     
@@ -1098,5 +1153,7 @@ class ThemeManager {
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     new ThemeManager();
-    new OCRManager();
+    // Make OCRManager globally accessible for debugging
+    window.ocrManager = new OCRManager();
+    console.log('OCR Manager initialized and available as window.ocrManager');
 });

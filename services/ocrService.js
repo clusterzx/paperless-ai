@@ -15,7 +15,8 @@ const logger = new Logger({
 class OCRService extends EventEmitter {
   constructor() {
     super();
-    this.ocrBaseUrl = 'http://ocr-container:8123';
+    // Support both development (localhost:8123) and production (ocr-container:8123) environments
+    this.ocrBaseUrl = process.env.OCR_SERVICE_URL || 'http://localhost:8123';
     this.processingQueue = new Map();
     this.currentProcessing = null;
     this.isProcessing = false;
@@ -26,6 +27,19 @@ class OCRService extends EventEmitter {
     this.startTime = null;
     this.shouldStop = false;
     this.currentRequest = null; // Track current axios request for cancellation
+    
+    // OCR Configuration (can be overridden via environment variables)
+    this.ocrConfig = {
+      cleanText: process.env.OCR_CLEAN_TEXT === 'false' ? 'false' : 'true',
+      minConfidence: process.env.OCR_MIN_CONFIDENCE || '0.4',
+      preserveLayout: process.env.OCR_PRESERVE_LAYOUT === 'false' ? 'false' : 'true',
+      includeConfidence: 'true',
+      includeBboxes: 'true',
+      forceOcr: 'false'
+    };
+    
+    console.log(`OCR Service initialized with URL: ${this.ocrBaseUrl}`);
+    console.log('OCR Configuration:', this.ocrConfig);
   }
 
   /**
@@ -61,8 +75,16 @@ class OCRService extends EventEmitter {
         filename: filename,
         contentType: this.getContentType(documentDetails.file_type)
       });
+      
+      // Add OCR service parameters using configuration
+      formData.append('clean_text', this.ocrConfig.cleanText);
+      formData.append('min_confidence', this.ocrConfig.minConfidence);
+      formData.append('preserve_layout', this.ocrConfig.preserveLayout);
+      formData.append('include_confidence', this.ocrConfig.includeConfidence);
+      formData.append('include_bboxes', this.ocrConfig.includeBboxes);
+      formData.append('force_ocr', this.ocrConfig.forceOcr);
 
-      // 5. Send to OCR service
+      // 5. Send to OCR service (using correct v2.0.0 endpoint)
       console.log(`Sending document ${documentId} to OCR service`);
       
       // Create cancellation token
@@ -159,7 +181,34 @@ class OCRService extends EventEmitter {
         };
       }
       
-      console.error(`Error processing document ${documentId}: ${error.message}`);
+      // Enhanced error handling for v2.0.0 API responses
+      let errorMessage = error.message;
+      if (error.response && error.response.data) {
+        const responseData = error.response.data;
+        
+        // Handle v2.0.0 API error responses
+        if (responseData.detail) {
+          errorMessage = responseData.detail;
+        } else if (responseData.error) {
+          errorMessage = responseData.error;
+        }
+        
+        // Log specific HTTP status code errors
+        switch (error.response.status) {
+          case 400:
+            console.error(`Bad request for document ${documentId}: ${errorMessage}`);
+            errorMessage = `Unsupported file format or invalid request: ${errorMessage}`;
+            break;
+          case 500:
+            console.error(`OCR server error for document ${documentId}: ${errorMessage}`);
+            errorMessage = `OCR processing failed: ${errorMessage}`;
+            break;
+          default:
+            console.error(`HTTP ${error.response.status} error for document ${documentId}: ${errorMessage}`);
+        }
+      }
+      
+      console.error(`Error processing document ${documentId}: ${errorMessage}`);
       
       // Get document title for error recording
       let documentTitle = `Document ${documentId}`;
@@ -174,15 +223,16 @@ class OCRService extends EventEmitter {
       ocrProcessingModel.recordProcessingFailure(
         documentId,
         documentTitle,
-        error.message,
+        errorMessage,
         processingTime
       );
       
       const errorDetails = {
         documentId,
-        error: error.message,
+        error: errorMessage,
         timestamp: new Date(),
-        stack: error.stack
+        stack: error.stack,
+        httpStatus: error.response?.status
       };
       
       this.errors.push(errorDetails);
@@ -191,7 +241,7 @@ class OCRService extends EventEmitter {
         success: false,
         documentId,
         documentTitle,
-        error: error.message,
+        error: errorMessage,
         timestamp: new Date(),
         processingTime
       };
@@ -441,7 +491,7 @@ class OCRService extends EventEmitter {
   }
 
   /**
-   * Test OCR service availability
+   * Test OCR service availability (Updated for v2.0.0 API)
    * @returns {Promise<boolean>} True if service is available
    */
   async testOCRService() {
@@ -449,7 +499,22 @@ class OCRService extends EventEmitter {
       const response = await axios.get(`${this.ocrBaseUrl}/health`, {
         timeout: 5000
       });
-      return response.status === 200;
+      
+      if (response.status === 200 && response.data) {
+        // Check v2.0.0 API health response format
+        const healthData = response.data;
+        console.log('OCR service health check:', {
+          status: healthData.status,
+          predictors_loaded: healthData.predictors_loaded,
+          supported_formats: healthData.supported_formats,
+          surya_version: healthData.surya_version
+        });
+        
+        // Service is available if status is healthy and predictors are loaded
+        return healthData.status === 'healthy';
+      }
+      
+      return false;
     } catch (error) {
       console.error(`OCR service health check failed: ${error.message}`);
       return false;
@@ -457,7 +522,7 @@ class OCRService extends EventEmitter {
   }
 
   /**
-   * Extract text from OCR response
+   * Extract text from OCR response (Updated for v2.0.0 API)
    * @param {Object} ocrResponse - OCR service response
    * @returns {Object} Object containing text, markdown, and hasMarkdown properties
    */
@@ -466,43 +531,67 @@ class OCRService extends EventEmitter {
       throw new Error('Invalid OCR response - no response data');
     }
     
+    // Validate response structure according to v2.0.0 API
+    if (!ocrResponse.success) {
+      throw new Error('OCR service returned failure response');
+    }
+    
     let extractedText = '';
     let markdownText = '';
+    let hasMarkdown = false;
     
-    // Handle Python server response format (primary)
+    // Handle v2.0.0 API response format with clean text support
     if (ocrResponse.full_text) {
       extractedText = ocrResponse.full_text;
-      markdownText = ocrResponse.full_text; // Python server doesn't provide markdown
+      
+      // Check if we have clean_text (formatted) output
+      if (ocrResponse.clean_text) {
+        extractedText = ocrResponse.clean_text;
+        markdownText = ocrResponse.clean_text; // Clean text is already formatted
+        hasMarkdown = true; // Clean text has better formatting
+        console.log('Using clean formatted text from OCR response');
+      } else {
+        markdownText = ocrResponse.full_text;
+      }
+      
+      // Check if we have additional page-level data
+      if (ocrResponse.pages && Array.isArray(ocrResponse.pages)) {
+        // Log extraction method and quality info for debugging
+        console.log(`OCR extraction method: ${ocrResponse.extraction_method || 'unknown'}`);
+        console.log(`Total pages processed: ${ocrResponse.total_pages || ocrResponse.pages.length}`);
+        
+        if (ocrResponse.processing_info) {
+          console.log('OCR processing info:', {
+            confidence_threshold: ocrResponse.processing_info.confidence_threshold,
+            layout_preserved: ocrResponse.processing_info.layout_preserved,
+            clean_text_enabled: ocrResponse.processing_info.clean_text_enabled
+          });
+        }
+      }
     }
-    // Handle pages array if full_text is not available
+    // Handle pages array if full_text is not available (fallback)
     else if (ocrResponse.pages && Array.isArray(ocrResponse.pages)) {
       extractedText = ocrResponse.pages
         .map(page => page.text)
         .filter(text => text && text.trim())
         .join('\n\n');
       markdownText = extractedText;
+      
+      console.log(`Extracted text from ${ocrResponse.pages.length} pages using pages array`);
     }
-    // Handle new structured response format (legacy)
+    // Legacy format support (keep for backward compatibility)
     else if (ocrResponse.structured_text) {
       extractedText = ocrResponse.structured_text;
       markdownText = ocrResponse.markdown_text || ocrResponse.structured_text;
+      hasMarkdown = !!ocrResponse.markdown_text;
     }
-    // Handle PDF response format (legacy)
+    // Additional legacy support
     else if (ocrResponse.full_document_text) {
       extractedText = ocrResponse.full_document_text;
       markdownText = extractedText;
     }
-    // Handle legacy rec_texts format (fallback)
-    else if (ocrResponse.rec_texts && Array.isArray(ocrResponse.rec_texts)) {
-      extractedText = ocrResponse.rec_texts
-        .filter(text => text && typeof text === 'string')
-        .map(text => text.trim())
-        .filter(text => text.length > 0)
-        .join('\n');
-      markdownText = extractedText;
-    }
     else {
-      throw new Error('Invalid OCR response format - missing text content');
+      throw new Error('Invalid OCR response format - missing text content. Expected v2.0.0 API format with success=true and full_text or pages array.');
     }
     
     if (!extractedText || extractedText.trim().length === 0) {
@@ -512,7 +601,7 @@ class OCRService extends EventEmitter {
     return {
       text: extractedText.trim(),
       markdown: markdownText.trim(),
-      hasMarkdown: false // Python server doesn't provide markdown yet
+      hasMarkdown: hasMarkdown
     };
   }
 
