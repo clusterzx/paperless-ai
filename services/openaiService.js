@@ -216,6 +216,26 @@ class OpenAIService {
         });
       } catch (error) {
         console.error('Failed to parse JSON response:', error);
+        // Check if the response indicates the content is too minimal or API can't process it
+        if (jsonContent && (jsonContent.toLowerCase().includes("i'm sorry") ||
+            jsonContent.toLowerCase().includes("i cannot") ||
+            jsonContent.toLowerCase().includes("insufficient"))) {
+          console.warn(`Document ${id} has insufficient content for analysis`);
+          // Return a default structure instead of throwing to prevent retry loops
+          return {
+            document: {
+              tags: [],
+              correspondent: "Unknown",
+              title: `Document ${id}`,
+              document_date: new Date().toISOString().split('T')[0],
+              document_type: "Document",
+              language: "und"
+            },
+            metrics: mappedUsage,
+            truncated: false,
+            error: 'Insufficient content for AI analysis'
+          };
+        }
         throw new Error('Invalid JSON response from API');
       }
 
@@ -338,6 +358,26 @@ class OpenAIService {
         parsedResponse = JSON.parse(jsonContent);
       } catch (error) {
         console.error('Failed to parse JSON response:', error);
+        // Check if the response indicates the content is too minimal or API can't process it
+        if (jsonContent && (jsonContent.toLowerCase().includes("i'm sorry") ||
+            jsonContent.toLowerCase().includes("i cannot") ||
+            jsonContent.toLowerCase().includes("insufficient"))) {
+          console.warn('Document has insufficient content for analysis');
+          // Return a default structure instead of throwing to prevent retry loops
+          return {
+            document: {
+              tags: [],
+              correspondent: "Unknown",
+              title: "Document",
+              document_date: new Date().toISOString().split('T')[0],
+              document_type: "Document",
+              language: "und"
+            },
+            metrics: mappedUsage,
+            truncated: false,
+            error: 'Insufficient content for AI analysis'
+          };
+        }
         throw new Error('Invalid JSON response from API');
       }
 

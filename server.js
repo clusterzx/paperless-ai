@@ -36,6 +36,12 @@ const txtLogger = new Logger({
 const app = express();
 let runningTask = false;
 
+// Retry tracking to prevent infinite retry loops
+const retryTracker = new Map();
+
+// Configurable minimum content length (default: 10 characters)
+const MIN_CONTENT_LENGTH = parseInt(process.env.MIN_CONTENT_LENGTH || '10', 10);
+
 
 const corsOptions = {
   origin: true,
@@ -201,8 +207,16 @@ async function processDocument(doc, existingTags, existingCorrespondentList, exi
     paperlessService.getDocument(doc.id)
   ]);
 
-  if (!content || !content.length >= 10) {
-    console.log(`[DEBUG] Document ${doc.id} has no content, skipping analysis`);
+  if (!content || content.length < MIN_CONTENT_LENGTH) {
+    console.log(`[DEBUG] Document ${doc.id} has insufficient content (${content?.length || 0} chars, minimum: ${MIN_CONTENT_LENGTH}), skipping analysis`);
+    return null;
+  }
+
+  // Check retry limit to prevent infinite retry loops
+  const docRetries = retryTracker.get(doc.id) || 0;
+  if (docRetries >= 3) {
+    console.log(`[WARN] Document ${doc.id} has failed ${docRetries} times, skipping to prevent infinite retry loop`);
+    await documentModel.setProcessingStatus(doc.id, doc.title, 'failed');
     return null;
   }
 
@@ -214,8 +228,13 @@ async function processDocument(doc, existingTags, existingCorrespondentList, exi
   const analysis = await aiService.analyzeDocument(content, existingTags, existingCorrespondentList, existingDocumentTypesList, doc.id);
   console.log('Repsonse from AI service:', analysis);
   if (analysis.error) {
+    // Increment retry count on error
+    retryTracker.set(doc.id, docRetries + 1);
     throw new Error(`[ERROR] Document analysis failed: ${analysis.error}`);
   }
+
+  // Clear retry count on success
+  retryTracker.delete(doc.id);
   await documentModel.setProcessingStatus(doc.id, doc.title, 'complete');
   return { analysis, originalData };
 }
