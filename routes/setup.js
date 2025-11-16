@@ -5,6 +5,7 @@ const paperlessService = require('../services/paperlessService.js');
 const openaiService = require('../services/openaiService.js');
 const ollamaService = require('../services/ollamaService.js');
 const azureService = require('../services/azureService.js');
+const ionosService = require('../services/ionosService.js');
 const documentModel = require('../models/document.js');
 const AIServiceFactory = require('../services/aiServiceFactory');
 const debugService = require('../services/debugService.js');
@@ -1903,7 +1904,9 @@ router.get('/setup', async (req, res) => {
       AZURE_ENDPOINT: process.env.AZURE_ENDPOINT|| '',
       AZURE_API_KEY: process.env.AZURE_API_KEY || '',
       AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
-      AZURE_API_VERSION: process.env.AZURE_API_VERSION || ''
+      AZURE_API_VERSION: process.env.AZURE_API_VERSION || '',
+      IONOS_API_KEY: process.env.IONOS_API_KEY || '',
+      IONOS_MODEL: process.env.IONOS_MODEL || 'meta-llama/Meta-Llama-3.1-8B-Instruct'
     };
 
     // Check both configuration and users
@@ -2704,6 +2707,8 @@ router.get('/settings', async (req, res) => {
     AZURE_API_KEY: process.env.AZURE_API_KEY || '',
     AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
     AZURE_API_VERSION: process.env.AZURE_API_VERSION || '',
+    IONOS_API_KEY: process.env.IONOS_API_KEY || '',
+    IONOS_MODEL: process.env.IONOS_MODEL || 'meta-llama/Meta-Llama-3.1-8B-Instruct',
     RESTRICT_TO_EXISTING_TAGS: process.env.RESTRICT_TO_EXISTING_TAGS || 'no',
     RESTRICT_TO_EXISTING_CORRESPONDENTS: process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS || 'no',
     RESTRICT_TO_EXISTING_DOCUMENT_TYPES: process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES || 'no',
@@ -3055,6 +3060,9 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'azure') {
       const analyzeDocument = await azureService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
+      return res.json(analyzeDocument);
+    } else if (process.env.AI_PROVIDER === 'ionos') {
+      const analyzeDocument = await ionosService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
       return res.json(analyzeDocument);
     } else {
       return res.status(500).json({ error: 'AI provider not configured' });
@@ -3618,7 +3626,9 @@ router.post('/setup', express.json(), async (req, res) => {
       azureEndpoint,
       azureApiKey,
       azureDeploymentName,
-      azureApiVersion
+      azureApiVersion,
+      ionosApiKey,
+      ionosModel
     } = req.body;
 
     // Log setup request with sensitive data redacted
@@ -3740,7 +3750,9 @@ router.post('/setup', express.json(), async (req, res) => {
       AZURE_ENDPOINT: azureEndpoint || '',
       AZURE_API_KEY: azureApiKey || '',
       AZURE_DEPLOYMENT_NAME: azureDeploymentName || '',
-      AZURE_API_VERSION: azureApiVersion || ''
+      AZURE_API_VERSION: azureApiVersion || '',
+      IONOS_API_KEY: ionosApiKey || '',
+      IONOS_MODEL: ionosModel || 'meta-llama/Meta-Llama-3.1-8B-Instruct'
     };
     
     // Validate AI provider config
@@ -3777,6 +3789,13 @@ router.post('/setup', express.json(), async (req, res) => {
       if (!isAzureValid) {
         return res.status(400).json({
           error: 'Azure connection failed. Please check URL, API Key, Deployment Name and API Version.'
+        });
+      }
+    } else if (aiProvider === 'ionos') {
+      const isIONOSValid = await setupService.validateIONOSConfig(ionosApiKey, ionosModel);
+      if (!isIONOSValid) {
+        return res.status(400).json({
+          error: 'IONOS connection failed. Please check API Key and Model.'
         });
       }
     }
@@ -4025,7 +4044,9 @@ router.post('/settings', express.json(), async (req, res) => {
       azureEndpoint,
       azureApiKey,
       azureDeploymentName,
-      azureApiVersion
+      azureApiVersion,
+      ionosApiKey,
+      ionosModel
     } = req.body;
 
     //replace equal char in system prompt
@@ -4069,6 +4090,8 @@ router.post('/settings', express.json(), async (req, res) => {
       AZURE_API_KEY: process.env.AZURE_API_KEY || '',
       AZURE_DEPLOYMENT_NAME: process.env.AZURE_DEPLOYMENT_NAME || '',
       AZURE_API_VERSION: process.env.AZURE_API_VERSION || '',
+      IONOS_API_KEY: process.env.IONOS_API_KEY || '',
+      IONOS_MODEL: process.env.IONOS_MODEL || 'meta-llama/Meta-Llama-3.1-8B-Instruct',
       RESTRICT_TO_EXISTING_TAGS: process.env.RESTRICT_TO_EXISTING_TAGS || 'no',
       RESTRICT_TO_EXISTING_CORRESPONDENTS: process.env.RESTRICT_TO_EXISTING_CORRESPONDENTS || 'no',
       RESTRICT_TO_EXISTING_DOCUMENT_TYPES: process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES || 'no',
@@ -4182,6 +4205,18 @@ router.post('/settings', express.json(), async (req, res) => {
         if(azureApiKey) updatedConfig.AZURE_API_KEY = azureApiKey;
         if(azureDeploymentName) updatedConfig.AZURE_DEPLOYMENT_NAME = azureDeploymentName;
         if(azureApiVersion) updatedConfig.AZURE_API_VERSION = azureApiVersion;
+      } else if (aiProvider === 'ionos' && (ionosApiKey || ionosModel)) {
+        const isIONOSValid = await setupService.validateIONOSConfig(
+          ionosApiKey || currentConfig.IONOS_API_KEY,
+          ionosModel || currentConfig.IONOS_MODEL
+        );
+        if (!isIONOSValid) {
+          return res.status(400).json({
+            error: 'IONOS connection failed. Please check API Key and Model.'
+          });
+        }
+        if(ionosApiKey) updatedConfig.IONOS_API_KEY = ionosApiKey;
+        if(ionosModel) updatedConfig.IONOS_MODEL = ionosModel;
       }
     }
 

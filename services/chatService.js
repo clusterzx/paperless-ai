@@ -202,6 +202,26 @@ class ChatService {
             res.write(`data: ${JSON.stringify({ content })}\n\n`);
           }
         }
+      } else if (aiProvider === 'ionos') {
+        // Use OpenAI SDK for IONOS with OpenAI API compatibility
+        const ionosOpenAI = new OpenAI({
+          baseURL: 'https://openai.inference.de-txl.ionos.com/v1',
+          apiKey: process.env.IONOS_API_KEY,
+        });
+
+        const stream = await ionosOpenAI.chat.completions.create({
+          model: process.env.IONOS_MODEL || 'meta-llama/Meta-Llama-3.1-8B-Instruct',
+          messages: chatData.messages,
+          stream: true,
+        });
+        
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content || '';
+          if (content) {
+            fullResponse += content;
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+          }
+        }
       } else {
         throw new Error('AI Provider not configured');
       }

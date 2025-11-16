@@ -2116,7 +2116,8 @@
                       "openai",
                       "ollama",
                       "custom",
-                      "azure"
+                      "azure",
+                      "ionos"
                     ],
                     "example": "openai"
                   },
@@ -2139,6 +2140,16 @@
                     "type": "string",
                     "description": "Ollama model to use for analysis",
                     "example": "llama2"
+                  },
+                  "ionosKey": {
+                    "type": "string",
+                    "description": "API key for Ionos LLM (required when aiProvider is 'ionos')",
+                    "example": "eyJ0eXAiOiJKV1QiLCJ ..."
+                  },
+                  "ionosModel": {
+                    "type": "string",
+                    "description": "Ionos model to use for analysis",
+                    "example": "meta-llama/Meta-Llama-3.1-8B-Instruct"
                   },
                   "customApiKey": {
                     "type": "string",
@@ -3005,7 +3016,8 @@
                       "openai",
                       "ollama",
                       "custom",
-                      "azure"
+                      "azure",
+                      "ionos"
                     ],
                     "example": "openai"
                   },
@@ -3028,6 +3040,16 @@
                     "type": "string",
                     "description": "Ollama model to use for analysis",
                     "example": "llama2"
+                  },
+                  "ionosKey": {
+                    "type": "string",
+                    "description": "API key for Ionos LLM (required when aiProvider is 'ionos')",
+                    "example": "eyJ0eXAiOiJKV1QiLCJ ..."
+                  },
+                  "ionosModel": {
+                    "type": "string",
+                    "description": "Ionos model to use for analysis",
+                    "example": "meta-llama/Meta-Llama-3.1-8B-Instruct"
                   },
                   "customApiKey": {
                     "type": "string",

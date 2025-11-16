@@ -84,6 +84,7 @@ class FormManager {
         const ollamaSettings = document.getElementById('ollamaSettings');
         const customSettings = document.getElementById('customSettings');
         const azureSettings = document.getElementById('azureSettings');
+        const ionosSettings = document.getElementById('ionosSettings');
         
         // Get all required fields
         const openaiKey = document.getElementById('openaiKey');
@@ -96,12 +97,15 @@ class FormManager {
         const azureEndpoint = document.getElementById('azureEndpoint');
         const azureModel = document.getElementById('azureApiVersion');
         const azureDeployment = document.getElementById('azureDeploymentName');
+        const ionosApiKey = document.getElementById('ionosApiKey');
+        const ionosModel = document.getElementById('ionosModel');
         
         // Hide all settings first
         openaiSettings.style.display = 'none';
         ollamaSettings.style.display = 'none';
         customSettings.style.display = 'none';
         azureSettings.style.display = 'none';
+        ionosSettings.style.display = 'none';
         
         // Reset all required attributes
         openaiKey.required = false;
@@ -114,6 +118,8 @@ class FormManager {
         azureEndpoint.required = false;
         azureModel.required = false;
         azureDeployment.required = false;
+        ionosApiKey.required = false;
+        ionosModel.required = false;
         
         // Show and set required fields based on selected provider
         switch (provider) {
@@ -138,6 +144,11 @@ class FormManager {
                 azureEndpoint.required = true;
                 azureModel.required = true;
                 azureDeployment.required = true;
+                break;
+            case 'ionos':
+                ionosSettings.style.display = 'block';
+                ionosApiKey.required = true;
+                ionosModel.required = true;
                 break;
         }
     }
