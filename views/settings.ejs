@@ -274,6 +274,7 @@
                                         <option value="ollama" <%= config.AI_PROVIDER === 'ollama' ? 'selected' : '' %>>Ollama (Local LLM)</option>
                                         <option value="custom" <%= config.AI_PROVIDER === 'custom' ? 'selected' : '' %>>Custom</option>
                                         <option value="azure" <%= config.AI_PROVIDER === 'azure' ? 'selected' : '' %>>Azure</option>
+                                        <option value="ionos" <%= config.AI_PROVIDER === 'ionos' ? 'selected' : '' %>>IONOS Cloud AI</option>
                                     </select>
                                 </div>
 
@@ -408,6 +409,38 @@
                                                value="<%= config.AZURE_API_VERSION %>"
                                                class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                                placeholder="Enter API version">
+                                    </div>
+                                </div>
+
+                                <!-- IONOS Settings -->
+                                <div id="ionosSettings" class="space-y-4">
+                                    <div class="space-y-2">
+                                        <label for="ionosApiKey">API Key</label>
+                                        <div class="relative">
+                                            <input type="password" 
+                                                   id="ionosApiKey" 
+                                                   name="ionosApiKey"
+                                                   value="<%= config.IONOS_API_KEY %>"
+                                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <button type="button" class="password-toggle" data-input="ionosApiKey">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="space-y-2">
+                                        <label for="ionosModel">Model</label>
+                                        <select id="ionosModel" 
+                                                name="ionosModel"
+                                                class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="meta-llama/Meta-Llama-3.1-8B-Instruct" <%= config.IONOS_MODEL === 'meta-llama/Meta-Llama-3.1-8B-Instruct' ? 'selected' : '' %>>Meta-Llama-3.1-8B-Instruct</option>
+                                            <option value="meta-llama/Meta-Llama-3.1-70B-Instruct" <%= config.IONOS_MODEL === 'meta-llama/Meta-Llama-3.1-70B-Instruct' ? 'selected' : '' %>>Meta-Llama-3.1-70B-Instruct</option>
+                                            <option value="meta-llama/Meta-Llama-3.1-405B-Instruct" <%= config.IONOS_MODEL === 'meta-llama/Meta-Llama-3.1-405B-Instruct' ? 'selected' : '' %>>Meta-Llama-3.1-405B-Instruct</option>
+                                            <option value="mistralai/Mistral-Nemo-Instruct-2407" <%= config.IONOS_MODEL === 'mistralai/Mistral-Nemo-Instruct-2407' ? 'selected' : '' %>>Mistral-Nemo-Instruct-2407</option>
+                                            <option value="mistralai/Mixtral-8x7B-Instruct-v0.1" <%= config.IONOS_MODEL === 'mistralai/Mixtral-8x7B-Instruct-v0.1' ? 'selected' : '' %>>Mixtral-8x7B-Instruct-v0.1</option>
+                                            <option value="Teuken-7B-instruct-commercial-v0.4" <%= config.IONOS_MODEL === 'Teuken-7B-instruct-commercial-v0.4' ? 'selected' : '' %>>Teuken-7B-instruct-commercial-v0.4</option>
+                                            <option value="GPT-OSS-120B" <%= config.IONOS_MODEL === 'GPT-OSS-120B' ? 'selected' : '' %>>GPT-OSS-120B</option>
+                                        </select>
                                     </div>
                                 </div>
 

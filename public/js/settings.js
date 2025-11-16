@@ -105,6 +105,7 @@ class FormManager {
         const ollamaSettings = document.getElementById('ollamaSettings');
         const customSettings = document.getElementById('customSettings');
         const azureSettings = document.getElementById('azureSettings');
+        const ionosSettings = document.getElementById('ionosSettings');
 
         // Get all provider-specific fields
         const openaiKey = document.getElementById('openaiKey');
@@ -117,6 +118,8 @@ class FormManager {
         const azureEndpoint = document.getElementById('azureEndpoint');
         const azureDeploymentName = document.getElementById('azureDeploymentName');
         const azureApiVersion = document.getElementById('azureApiVersion');
+        const ionosApiKey = document.getElementById('ionosApiKey');
+        const ionosModel = document.getElementById('ionosModel');
 
         // Restriction settings
         const restrictToExistingTags = document.getElementById('restrictToExistingTags');
@@ -138,6 +141,7 @@ class FormManager {
         ollamaSettings.classList.add('hidden');
         customSettings.classList.add('hidden');
         azureSettings.classList.add('hidden');
+        ionosSettings.classList.add('hidden');
         
         // Reset all required fields
         openaiKey.required = false;
@@ -150,6 +154,8 @@ class FormManager {
         azureEndpoint.required = false;
         azureDeploymentName.required = false;
         azureApiVersion.required = false;
+        ionosApiKey.required = false;
+        ionosModel.required = false;
         
         // Show and set required fields based on selected provider
         switch (provider) {
@@ -174,6 +180,11 @@ class FormManager {
                 azureEndpoint.required = true;
                 azureDeploymentName.required = true;
                 azureApiVersion.required = true;
+                break;
+            case 'ionos':
+                ionosSettings.classList.remove('hidden');
+                ionosApiKey.required = true;
+                ionosModel.required = true;
                 break;
         }
     }

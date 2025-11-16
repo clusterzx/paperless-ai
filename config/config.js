@@ -88,6 +88,10 @@ module.exports = {
     deploymentName: process.env.AZURE_DEPLOYMENT_NAME || '',
     apiVersion: process.env.AZURE_API_VERSION || '2023-05-15'
   },
+  ionos: {
+    apiKey: process.env.IONOS_API_KEY || '',
+    model: process.env.IONOS_MODEL || 'meta-llama/Meta-Llama-3.1-8B-Instruct'
+  },
   customFields: process.env.CUSTOM_FIELDS || '',
   aiProvider: process.env.AI_PROVIDER || 'openai',
   scanInterval: process.env.SCAN_INTERVAL || '*/30 * * * *',

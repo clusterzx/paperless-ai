@@ -29,6 +29,7 @@ Powered by **Retrieval-Augmented Generation (RAG)**, you can now search semantic
 - Built-in support for:
   - Ollama (Mistral, Llama, Phi-3, Gemma-2)
   - OpenAI
+  - IONOS Cloud AI (GDPR compliant)
   - DeepSeek.ai
   - OpenRouter.ai
   - Perplexity.ai

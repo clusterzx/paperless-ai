@@ -209,6 +209,9 @@
                                             <option value="azure" <%= config.AI_PROVIDER === 'azure' ? 'selected' : '' %>>
                                                 Azure
                                             </option>
+                                            <option value="ionos" <%= config.AI_PROVIDER === 'ionos' ? 'selected' : '' %>>
+                                                IONOS
+                                            </option>
                                         </select>
                                     </div>
 
@@ -262,6 +265,36 @@
                                         </div>
                                     </div>
 
+                                    <!-- IONOS Settings -->
+                                    <div id="ionosSettings" class="provider-settings">
+                                        <div class="form-group">
+                                            <label for="ionosApiKey">IONOS API Key</label>
+                                            <div class="password-input">
+                                                <input type="password" 
+                                                       id="ionosApiKey" 
+                                                       name="ionosApiKey"
+                                                       value="<%= config.IONOS_API_KEY %>"
+                                                       class="modern-input">
+                                                <button type="button" class="password-toggle" data-input="ionosApiKey">
+                                                    <i class="fas fa-eye"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="ionosModel">IONOS Model</label>
+                                            <select id="ionosModel" 
+                                                    name="ionosModel"
+                                                    class="modern-input">   
+                                                <option value="openGPT-X/Teuken-7B-instruct-commercial" <%= config.IONOS_MODEL === 'openGPT-X/Teuken-7B-instruct-commercial' ? 'selected' : '' %>>Teuken-7B (Commercial)</option>
+                                                <option value="meta-llama/Meta-Llama-3.1-8B-Instruct" <%= config.IONOS_MODEL === 'meta-llama/Meta-Llama-3.1-8B-Instruct' ? 'selected' : '' %>>Llama 3.1 8B</option>
+                                                <option value="mistralai/Mistral-Nemo-Instruct-2407" <%= config.IONOS_MODEL === 'mistralai/Mistral-Nemo-Instruct-2407' ? 'selected' : '' %>>Mistral Nemo</option>
+                                                <option value="mistralai/Mistral-Small-24B-Instruct" <%= config.IONOS_MODEL === 'mistralai/Mistral-Small-24B-Instruct' ? 'selected' : '' %>>Mistral Small 24B</option>
+                                                <option value="meta-llama/Llama-3.3-70B-Instruct" <%= config.IONOS_MODEL === 'meta-llama/Llama-3.3-70B-Instruct' ? 'selected' : '' %>>Llama 3.3 70B</option>
+                                                <option value="openai/gpt-oss-120b" <%= config.IONOS_MODEL === 'openai/gpt-oss-120b' ? 'selected' : '' %>>GPT OSS 120B</option>
+                                                <option value="meta-llama/Meta-Llama-3.1-405B-Instruct-FP8" <%= config.IONOS_MODEL === 'meta-llama/Meta-Llama-3.1-405B-Instruct-FP8' ? 'selected' : '' %>>Llama 3.1 405B (FP8)</option>
+                                            </select>
+                                        </div>
                                     <!-- Custom Provider Settings -->
                                     <div id="customSettings" class="provider-settings">
                                         <div class="form-group">

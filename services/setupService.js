@@ -151,6 +151,31 @@ class SetupService {
     }
   }
 
+  async validateIONOSConfig(apiKey, model) {
+    console.log('Validating IONOS config...');
+    if (config.CONFIGURED === false) {
+      try {
+        const openai = new OpenAI({ 
+          apiKey: apiKey,
+          baseURL: 'https://openai.inference.de-txl.ionos.com/v1'
+        });
+        const response = await openai.chat.completions.create({
+          model: model || 'meta-llama/Meta-Llama-3.1-8B-Instruct',
+          messages: [{ role: "user", content: "Test" }],
+        });
+        const now = new Date();
+        const timestamp = now.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+        console.log(`[DEBUG] [${timestamp}] IONOS request sent`);
+        return response.choices && response.choices.length > 0;
+      } catch (error) {
+        console.error('IONOS validation error:', error.message);
+        return false;
+      }
+    }else{
+      return true;
+    }
+  }
+
   async validateConfig(config) {
     // Validate Paperless config
     const paperlessApiUrl = config.PAPERLESS_API_URL.replace(/\/api/g, '');
@@ -199,6 +224,14 @@ class SetupService {
       );
       if (!azureValid) {
         throw new Error('Invalid Azure configuration');
+      }
+    } else if (aiProvider === 'ionos') {
+      const ionosValid = await this.validateIONOSConfig(
+        config.IONOS_API_KEY,
+        config.IONOS_MODEL
+      );
+      if (!ionosValid) {
+        throw new Error('Invalid IONOS configuration');
       }
     }
 
