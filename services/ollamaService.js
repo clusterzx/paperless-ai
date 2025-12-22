@@ -552,7 +552,7 @@ class OllamaService {
                 repeat_penalty: 1.1,
                 top_k: 7,
                 num_predict: 256,
-                num_ctx: numCtx
+                ...(numCtx > 0 && { num_ctx: numCtx })
             }
         });
 
@@ -700,7 +700,7 @@ class OllamaService {
                     temperature: 0.7,
                     top_p: 0.9,
                     num_predict: 1024,
-                    num_ctx: numCtx
+                    ...(numCtx > 0 && { num_ctx: numCtx })
                 }
             });
 
