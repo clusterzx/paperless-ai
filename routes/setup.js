@@ -1899,6 +1899,7 @@ router.get('/setup', async (req, res) => {
       PAPERLESS_AI_VERSION: configFile.PAPERLESS_AI_VERSION || ' ',
       PROCESS_ONLY_NEW_DOCUMENTS: process.env.PROCESS_ONLY_NEW_DOCUMENTS || 'yes',
       USE_EXISTING_DATA: process.env.USE_EXISTING_DATA || 'no',
+      KEEP_EXISTING_CORRESPONDENT: process.env.KEEP_EXISTING_CORRESPONDENT || 'no',
       DISABLE_AUTOMATIC_PROCESSING: process.env.DISABLE_AUTOMATIC_PROCESSING || 'no',
       AZURE_ENDPOINT: process.env.AZURE_ENDPOINT|| '',
       AZURE_API_KEY: process.env.AZURE_API_KEY || '',
@@ -2697,6 +2698,7 @@ router.get('/settings', async (req, res) => {
     PAPERLESS_AI_VERSION: configFile.PAPERLESS_AI_VERSION || ' ',
     PROCESS_ONLY_NEW_DOCUMENTS: process.env.PROCESS_ONLY_NEW_DOCUMENTS || ' ',
     USE_EXISTING_DATA: process.env.USE_EXISTING_DATA || 'no',
+    KEEP_EXISTING_CORRESPONDENT: process.env.KEEP_EXISTING_CORRESPONDENT || 'no',
     CUSTOM_API_KEY: process.env.CUSTOM_API_KEY || '',
     CUSTOM_BASE_URL: process.env.CUSTOM_BASE_URL || '',
     CUSTOM_MODEL: process.env.CUSTOM_MODEL || '',
@@ -3605,6 +3607,7 @@ router.post('/setup', express.json(), async (req, res) => {
       username,
       password,
       useExistingData,
+      keepExistingCorrespondent,
       customApiKey,
       customBaseUrl,
       customModel,
@@ -3722,6 +3725,7 @@ router.post('/setup', express.json(), async (req, res) => {
       USE_PROMPT_TAGS: usePromptTags || 'no',
       PROMPT_TAGS: normalizeArray(promptTags),
       USE_EXISTING_DATA: useExistingData || 'no',
+      KEEP_EXISTING_CORRESPONDENT: keepExistingCorrespondent || 'no',
       API_KEY: apiToken,
       JWT_SECRET: jwtToken,
       CUSTOM_API_KEY: customApiKey || '',
@@ -4012,6 +4016,7 @@ router.post('/settings', express.json(), async (req, res) => {
       promptTags,
       paperlessUsername,
       useExistingData,
+      keepExistingCorrespondent,
       customApiKey,
       customBaseUrl,
       customModel,
@@ -4054,6 +4059,7 @@ router.post('/settings', express.json(), async (req, res) => {
       USE_PROMPT_TAGS: process.env.USE_PROMPT_TAGS || 'no',
       PROMPT_TAGS: process.env.PROMPT_TAGS || '',
       USE_EXISTING_DATA: process.env.USE_EXISTING_DATA || 'no',
+      KEEP_EXISTING_CORRESPONDENT: process.env.KEEP_EXISTING_CORRESPONDENT || 'no',
       API_KEY: process.env.API_KEY || '',
       CUSTOM_API_KEY: process.env.CUSTOM_API_KEY || '',
       CUSTOM_BASE_URL: process.env.CUSTOM_BASE_URL || '',
@@ -4197,6 +4203,7 @@ router.post('/settings', express.json(), async (req, res) => {
     if (usePromptTags) updatedConfig.USE_PROMPT_TAGS = usePromptTags;
     if (promptTags) updatedConfig.PROMPT_TAGS = normalizeArray(promptTags);
     if (useExistingData) updatedConfig.USE_EXISTING_DATA = useExistingData;
+    if (keepExistingCorrespondent) updatedConfig.KEEP_EXISTING_CORRESPONDENT = keepExistingCorrespondent;
     if (customApiKey) updatedConfig.CUSTOM_API_KEY = customApiKey;
     if (customBaseUrl) updatedConfig.CUSTOM_BASE_URL = customBaseUrl;
     if (customModel) updatedConfig.CUSTOM_MODEL = customModel;

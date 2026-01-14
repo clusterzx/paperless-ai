@@ -92,6 +92,7 @@ module.exports = {
   aiProvider: process.env.AI_PROVIDER || 'openai',
   scanInterval: process.env.SCAN_INTERVAL || '*/30 * * * *',
   useExistingData: process.env.USE_EXISTING_DATA || 'no',
+  keepExistingCorrespondent: process.env.KEEP_EXISTING_CORRESPONDENT || 'no',
   // Add limit functions to config
   limitFunctions: {
     activateTagging: limitFunctions.activateTagging,

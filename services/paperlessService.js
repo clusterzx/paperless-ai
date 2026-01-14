@@ -5,6 +5,26 @@ const fs = require('fs');
 const path = require('path');
 const { parse, isValid, parseISO, format } = require('date-fns');
 
+/**
+ * Calculate Levenshtein distance between two strings
+ * Used for fuzzy matching of correspondent names
+ */
+function levenshteinDistance(str1, str2) {
+  const m = str1.length;
+  const n = str2.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = str1[i - 1] === str2[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
 class PaperlessService {
   constructor() {
     this.client = null;
@@ -995,13 +1015,20 @@ async searchForExistingCorrespondent(correspondent) {
           }
       });
 
-      const results = response.data.results;
-      
+      let results = response.data.results;
+
+      // If no results from direct search, fetch all correspondents for fuzzy matching
       if (results.length === 0) {
-          console.log(`[DEBUG] No correspondent with name "${correspondent}" found`);
+          console.log(`[DEBUG] No direct match for "${correspondent}", fetching all correspondents for fuzzy matching`);
+          const allCorrespondents = await this.listCorrespondentsNames();
+          results = allCorrespondents;
+      }
+
+      if (results.length === 0) {
+          console.log(`[DEBUG] No correspondents exist in the system`);
           return null;
       }
-      
+
       // Check for exact match in the results - thanks to @skius for the hint!
       const exactMatch = results.find(c => c.name.toLowerCase() === correspondent.toLowerCase());
       if (exactMatch) {
@@ -1012,8 +1039,48 @@ async searchForExistingCorrespondent(correspondent) {
           };
       }
 
-      // No exact match found, return null
-      console.log(`[DEBUG] No exact match found for "${correspondent}"`);
+      // Fuzzy matching: try substring containment first
+      const normalizedSearch = correspondent.toLowerCase().trim();
+      const containsMatch = results.find(c => {
+          const existingName = c.name.toLowerCase();
+          return existingName.includes(normalizedSearch) ||
+                 normalizedSearch.includes(existingName);
+      });
+
+      if (containsMatch) {
+          console.log(`[DEBUG] Fuzzy match (substring): "${correspondent}" -> "${containsMatch.name}" (ID ${containsMatch.id})`);
+          return {
+              id: containsMatch.id,
+              name: containsMatch.name
+          };
+      }
+
+      // Fuzzy matching: Levenshtein similarity as fallback (threshold: 80%)
+      let bestMatch = null;
+      let bestSimilarity = 0;
+
+      for (const c of results) {
+          const existingName = c.name.toLowerCase();
+          const distance = levenshteinDistance(normalizedSearch, existingName);
+          const maxLen = Math.max(normalizedSearch.length, existingName.length);
+          const similarity = 1 - (distance / maxLen);
+
+          if (similarity >= 0.8 && similarity > bestSimilarity) {
+              bestSimilarity = similarity;
+              bestMatch = c;
+          }
+      }
+
+      if (bestMatch) {
+          console.log(`[DEBUG] Fuzzy match (Levenshtein ${(bestSimilarity * 100).toFixed(0)}%): "${correspondent}" -> "${bestMatch.name}" (ID ${bestMatch.id})`);
+          return {
+              id: bestMatch.id,
+              name: bestMatch.name
+          };
+      }
+
+      // No match found
+      console.log(`[DEBUG] No match found for "${correspondent}"`);
       return null;
 
   } catch (error) {
@@ -1280,8 +1347,13 @@ async getOrCreateDocumentType(name) {
       }
 
       if (currentDoc.correspondent && updates.correspondent) {
-        console.log('[DEBUG] Document already has a correspondent, keeping existing one:', currentDoc.correspondent);
-        delete updates.correspondent;
+        const keepExisting = process.env.KEEP_EXISTING_CORRESPONDENT === 'yes';
+        if (keepExisting) {
+          console.log('[DEBUG] Document already has a correspondent, keeping existing one:', currentDoc.correspondent);
+          delete updates.correspondent;
+        } else {
+          console.log('[DEBUG] Document has correspondent, but KEEP_EXISTING_CORRESPONDENT=no, allowing replacement');
+        }
       }
 
       let updateData;

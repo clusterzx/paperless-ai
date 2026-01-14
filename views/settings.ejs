@@ -444,11 +444,20 @@
                             <div class="space-y-2">
                                 <div class="form-group">
                                     <label for="useExistingData">Use existing Correspondents and Tags?</label>
-                                    <select id="useExistingData" 
-                                            name="useExistingData" 
+                                    <select id="useExistingData"
+                                            name="useExistingData"
                                             class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                         <option value="no" <%= config.USE_EXISTING_DATA === 'no' ? 'selected' : '' %>>No</option>
                                         <option value="yes" <%= config.USE_EXISTING_DATA === 'yes' ? 'selected' : '' %>>Yes</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="keepExistingCorrespondent">Keep existing correspondent if already set?</label>
+                                    <select id="keepExistingCorrespondent"
+                                            name="keepExistingCorrespondent"
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        <option value="no" <%= config.KEEP_EXISTING_CORRESPONDENT === 'no' ? 'selected' : '' %>>No (allow AI to replace)</option>
+                                        <option value="yes" <%= config.KEEP_EXISTING_CORRESPONDENT === 'yes' ? 'selected' : '' %>>Yes (preserve existing)</option>
                                     </select>
                                 </div>
                                 <div class="space-y-2">

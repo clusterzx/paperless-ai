@@ -381,14 +381,24 @@
                                     <!-- Basic Settings -->
                                     <div class="form-group">
                                         <label for="useExistingData">Use existing Correspondents and Tags?</label>
-                                        <select id="useExistingData" 
-                                                name="useExistingData" 
+                                        <select id="useExistingData"
+                                                name="useExistingData"
                                                 class="modern-input">
                                                 <option value="no" <%= config.USE_EXISTING_DATA === 'no' ? 'selected' : '' %>>No</option>
                                                 <option value="yes" <%= config.USE_EXISTING_DATA === 'yes' ? 'selected' : '' %>>Yes</option>
                                             </select>
                                         </div>
-    
+
+                                        <div class="form-group">
+                                            <label for="keepExistingCorrespondent">Keep existing correspondent if already set?</label>
+                                            <select id="keepExistingCorrespondent"
+                                                    name="keepExistingCorrespondent"
+                                                    class="modern-input">
+                                                <option value="no" <%= config.KEEP_EXISTING_CORRESPONDENT === 'no' ? 'selected' : '' %>>No (allow AI to replace)</option>
+                                                <option value="yes" <%= config.KEEP_EXISTING_CORRESPONDENT === 'yes' ? 'selected' : '' %>>Yes (preserve existing)</option>
+                                            </select>
+                                        </div>
+
                                         <div class="form-group">
                                             <label for="scanInterval">Scan Interval (Cron Format)</label>
                                             <input type="text" 
