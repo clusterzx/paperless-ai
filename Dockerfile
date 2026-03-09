@@ -1,5 +1,5 @@
 # Use a slim Node.js (LTS) image as base
-FROM node:22-slim
+FROM node:22-slim as builder
 
 WORKDIR /app
 
@@ -17,20 +17,37 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install PM2 process manager globally
-RUN npm install pm2 -g
-
 # Install Python dependencies for RAG service in a virtual environment
 COPY requirements.txt /app/
-RUN python3 -m venv /app/venv
 ENV PATH="/app/venv/bin:$PATH"
-RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+RUN python3 -m venv /app/venv && pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
 # Copy package files for dependency installation
 COPY package*.json ./
 
 # Install node dependencies with clean install
 RUN npm ci --only=production && npm cache clean --force
+
+FROM node:22-slim
+
+WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 \
+        python3-distutils \
+        libpython3-stdlib \
+        libexpat1 \
+        curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/venv /app/venv
+ENV PATH="/app/venv/bin:$PATH"
+
+RUN npm install pm2 -g
+
+COPY --from=builder /app/node_modules /app/node_modules
 
 # Copy application source code
 COPY . .

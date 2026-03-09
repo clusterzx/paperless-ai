@@ -7,7 +7,6 @@ api-test.ps1
 openai_debug.log
 prompt.bak
 data bak/
-data_bak/
 data_*/
 .env*
 docker-compose-dev.yml
@@ -20,11 +19,10 @@ api_correspondent.js
 prompt.txt
 api_test_r1.js
 openrouter.js
-/chromadb
-rag_config.conf
-indexed.conf
-indexing_complete.flag
 RAGZ_README.md
+paperless-ai-chrome.zip
+Dockerfile
+Dockerfile.rag
 
 # Local development files
 .local/
