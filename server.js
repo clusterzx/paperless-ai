@@ -560,6 +560,7 @@ async function startScanning() {
     const isConfigured = await setupService.isConfigured();
     if (!isConfigured) {
       console.log(`Setup not completed. Visit http://your-machine-ip:${process.env.PAPERLESS_AI_PORT || 3000}/setup to complete setup.`);
+      return;
     }
 
     const userId = await paperlessService.getOwnUserID();
