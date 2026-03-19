@@ -288,9 +288,18 @@ async function buildUpdateData(analysis, doc) {
 
       const fieldDetails = await paperlessService.findExistingCustomField(customField.field_name);
       if (fieldDetails?.id) {
+        let fieldValue = customField.value.trim();
+
+        // Paperless-ngx enforces a 128-character limit on STRING custom fields.
+        // Truncate with ellipsis to prevent 400 Bad Request errors.
+        if (fieldDetails.data_type === 'string' && fieldValue.length > 128) {
+          console.warn(`[WARN] Custom field "${customField.field_name}" value truncated from ${fieldValue.length} to 128 characters`);
+          fieldValue = fieldValue.substring(0, 125) + '...';
+        }
+
         processedFields.push({
           field: fieldDetails.id,
-          value: customField.value.trim()
+          value: fieldValue
         });
         processedFieldIds.add(fieldDetails.id);
       }
