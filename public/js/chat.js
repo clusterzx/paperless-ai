@@ -187,19 +187,13 @@ function setTheme(theme) {
 
 function setupTextareaAutoResize() {
     const textarea = document.getElementById('messageInput');
-    
+
     function adjustHeight() {
         textarea.style.height = 'auto';
         textarea.style.height = (textarea.scrollHeight) + 'px';
     }
-    
+
     textarea.addEventListener('input', adjustHeight);
-    textarea.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            document.getElementById('messageForm').dispatchEvent(new Event('submit'));
-        }
-    });
 }
 
 document.getElementById('documentSelect').addEventListener('change', function() {
