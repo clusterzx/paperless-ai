@@ -105,14 +105,26 @@ class ModalManager {
     showModal(title) {
         this.modalTitle.textContent = title;
         this.modalContent.innerHTML = '';
-        this.modal.classList.remove('hidden'); // Fix: Remove 'hidden' class
+        this.modal.classList.remove('hidden');
+        // Force a reflow so the browser computes the initial state (opacity: 0)
+        // before transitioning to the visible state. Without this, removing
+        // 'hidden' and adding 'show' in the same frame can cause the browser
+        // to skip the transition, leaving the modal-container background
+        // transparent.
+        void this.modal.offsetHeight;
         this.modal.classList.add('show');
         document.body.style.overflow = 'hidden';
     }
 
     hideModal() {
         this.modal.classList.remove('show');
-        this.modal.classList.add('hidden'); // Fix: Add 'hidden' class back
+        // Wait for the fade-out transition to finish before hiding with
+        // display:none so the exit animation plays fully.
+        this.modal.addEventListener('transitionend', () => {
+            if (!this.modal.classList.contains('show')) {
+                this.modal.classList.add('hidden');
+            }
+        }, { once: true });
         document.body.style.overflow = '';
     }
 
