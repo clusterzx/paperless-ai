@@ -157,7 +157,7 @@
                                                 <div class="w-3 h-3 rounded-full bg-gray-200 mr-2"></div>
                                                 <span>Unprocessed</span>
                                             </div>
-                                            <span class="font-semibold"><%= paperless_data.documentCount - paperless_data.processedDocumentCount %></span>
+                                            <span class="font-semibold"><%= Math.max(0, paperless_data.documentCount - paperless_data.processedDocumentCount) %></span>
                                         </div>
                                     </div>
                                     <div class="total-stats mt-6 pt-4 border-t">
