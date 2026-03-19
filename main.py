@@ -63,7 +63,7 @@ CROSS_ENCODER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 COLLECTION_NAME = "documents"
 BM25_WEIGHT = 0.3
 SEMANTIC_WEIGHT = 0.7
-MAX_RESULTS = 20
+MAX_RESULTS = int(os.environ.get("RAG_MAX_RESULTS", 20))
 
 # Download NLTK resources if not present
 nltk.download('punkt', quiet=True)

@@ -56,9 +56,10 @@ class RagService {
   async askQuestion(question) {
     try {
       // 1. Get context from the RAG service
-      const response = await axios.post(`${this.baseUrl}/context`, { 
+      const maxSources = parseInt(process.env.RAG_MAX_SOURCES) || 5;
+      const response = await axios.post(`${this.baseUrl}/context`, {
         question,
-        max_sources: 5
+        max_sources: maxSources
       });
       
       const { context, sources } = response.data;
@@ -72,7 +73,11 @@ class RagService {
           sources.map(async (source) => {
             if (source.doc_id) {
               try {
-                const fullContent = await paperlessService.getDocumentContent(source.doc_id);
+                let fullContent = await paperlessService.getDocumentContent(source.doc_id);
+                const maxDocChars = parseInt(process.env.RAG_MAX_DOC_CHARS) || 0;
+                if (maxDocChars > 0 && fullContent && fullContent.length > maxDocChars) {
+                  fullContent = fullContent.substring(0, maxDocChars);
+                }
                 return `Full document content for ${source.title || 'Document ' + source.doc_id}:\n${fullContent}`;
               } catch (error) {
                 console.error(`Error fetching content for document ${source.doc_id}:`, error.message);
