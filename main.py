@@ -1798,7 +1798,7 @@ async def get_status():
     # Convert the status to a dict and add the AI model info
     status_dict = global_state.system_status.dict()
     status_dict["ai_status"] = "ok"
-    status_dict["ai_model"] = "llama3.2:latest"
+    status_dict["ai_model"] = os.environ.get("OLLAMA_MODEL", "llama3.2:latest")
     
     return status_dict
 

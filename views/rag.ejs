@@ -913,7 +913,7 @@
         function updateStatus(statusData) {
             // Update AI model info
             if (statusData.ai_status === 'ok') {
-                const modelName = statusData.ai_model.toUpperCase();
+                const modelName = (statusData.ai_model || 'UNKNOWN').toUpperCase();
                 aiModelName.textContent = `AI MODEL: ${modelName}`;
             } else {
                 aiModelName.textContent = 'AI: Not available';

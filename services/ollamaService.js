@@ -730,6 +730,11 @@ class OllamaService {
                 if (Array.isArray(data.models) && data.models.length > 0) {
                     modelName = data.models[0].name;
                 }
+                // Fall back to the configured model name when no model is
+                // actively loaded in Ollama's memory (e.g. after inactivity)
+                if (!modelName) {
+                    modelName = this.model || null;
+                }
                 console.log('Ollama model name:', modelName);
                 return { status: 'ok', model: modelName };
             }
