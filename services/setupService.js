@@ -16,9 +16,12 @@ class SetupService {
       const envContent = await fs.readFile(this.envPath, 'utf8');
       const config = {};
       envContent.split('\n').forEach(line => {
-        const [key, value] = line.split('=');
+        const eqIdx = line.indexOf('=');
+        if (eqIdx === -1) return;
+        const key = line.substring(0, eqIdx).trim();
+        const value = line.substring(eqIdx + 1).trim();
         if (key && value) {
-          config[key.trim()] = value.trim();
+          config[key] = value;
         }
       });
       return config;
