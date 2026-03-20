@@ -4372,9 +4372,8 @@ router.get('/dashboard/doc/:id', async (req, res) => {
   }
   try {
     // Redirect to paperless-ngx and show detail page of the document (for example https://paperless.example.com/documents/887/details)
-    const paperlessUrl = process.env.PAPERLESS_API_URL;
-    const paperlessUrlWithoutApi = paperlessUrl.replace('/api', '');
-    const redirectUrl = `${paperlessUrlWithoutApi}/documents/${docId}/details`;
+    const paperlessBaseUrl = process.env.PAPERLESS_PUBLIC_URL || process.env.PAPERLESS_API_URL.replace(/\/api\/?$/, '');
+    const redirectUrl = `${paperlessBaseUrl}/documents/${docId}/details`;
     console.log('Redirecting to Paperless-ngx URL:', redirectUrl);
     res.redirect(redirectUrl);
   } catch (error) {

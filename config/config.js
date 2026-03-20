@@ -68,7 +68,8 @@ module.exports = {
   externalApiConfig: externalApiConfig,
   paperless: {
     apiUrl: process.env.PAPERLESS_API_URL,
-    apiToken: process.env.PAPERLESS_API_TOKEN
+    apiToken: process.env.PAPERLESS_API_TOKEN,
+    publicUrl: process.env.PAPERLESS_PUBLIC_URL || (process.env.PAPERLESS_API_URL ? process.env.PAPERLESS_API_URL.replace(/\/api\/?$/, '') : '')
   },
   openai: {
     apiKey: process.env.OPENAI_API_KEY

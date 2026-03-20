@@ -244,6 +244,15 @@
             margin-bottom: 0.25rem;
         }
 
+        .source-link {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        .source-link:hover {
+            text-decoration: underline;
+        }
+
         .source-meta {
             display: flex;
             justify-content: space-between;
@@ -719,6 +728,9 @@
     </footer>
 
     <script>
+        // Paperless-NGX base URL for document links
+        const paperlessBaseUrl = '<%= paperlessBaseUrl %>';
+
         // DOM Elements
         const themeToggle = document.getElementById('theme-toggle');
         const statusIndicator = document.getElementById('status-indicator');
@@ -1149,9 +1161,13 @@
                     const date = source.date ? new Date(source.date).toLocaleDateString('en-US') : 'Unknown';
                     const hidden = index > 0 ? ' hidden' : '';
                     
+                    const titleHtml = (paperlessBaseUrl && source.doc_id)
+                        ? `<a href="${paperlessBaseUrl}/documents/${source.doc_id}/details" target="_blank" rel="noopener noreferrer" class="source-link">${source.title || 'Unknown Title'} <i class="fas fa-external-link-alt" style="font-size: 0.7em;"></i></a>`
+                        : (source.title || 'Unknown Title');
+
                     html += `
                         <div class="source${hidden}" data-index="${index}">
-                            <div class="source-title">${source.title || 'Unknown Title'}</div>
+                            <div class="source-title">${titleHtml}</div>
                             <p>${source.snippet || 'No excerpt available'}</p>
                             <div class="source-meta">
                                 <span>${source.correspondent || 'Unknown Sender'}</span>
