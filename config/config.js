@@ -75,7 +75,8 @@ module.exports = {
   },
   ollama: {
     apiUrl: process.env.OLLAMA_API_URL || 'http://localhost:11434',
-    model: process.env.OLLAMA_MODEL || 'llama3.2'
+    model: process.env.OLLAMA_MODEL || 'llama3.2',
+    think: process.env.OLLAMA_THINK === 'true'
   },
   custom: {
     apiUrl: process.env.CUSTOM_BASE_URL || '',
