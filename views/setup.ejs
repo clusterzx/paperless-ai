@@ -209,6 +209,9 @@
                                             <option value="azure" <%= config.AI_PROVIDER === 'azure' ? 'selected' : '' %>>
                                                 Azure
                                             </option>
+                                            <option value="novita" <%= config.AI_PROVIDER === 'novita' ? 'selected' : '' %>>
+                                                Novita AI
+                                            </option>
                                         </select>
                                     </div>
 
@@ -336,7 +339,7 @@
                                                    placeholder="Enter deployment name">
                                         </div>
 
-                                        <div class="form-group">
+<div class="form-group">
                                             <label for="azureApiVersion">API Version</label>
                                             <input type="text" 
                                                    id="azureApiVersion" 
@@ -344,8 +347,36 @@
                                                    value="<%= config.AZURE_API_VERSION %>"
                                                    class="modern-input"
                                                    placeholder="Enter API version">
-                                        </div>
-                                    </div>
+                                         </div>
+                                     </div>
+
+                                     <!-- Novita Settings -->
+                                     <div id="novitaSettings" class="provider-settings">
+                                         <div class="form-group">
+                                             <label for="novitaApiKey">API Key</label>
+                                             <div class="password-input">
+                                                 <input type="password" 
+                                                        id="novitaApiKey" 
+                                                        name="novitaApiKey"
+                                                        value="<%= config.NOVITA_API_KEY %>"
+                                                        class="modern-input">
+                                                 <button type="button" class="password-toggle" data-input="novitaApiKey">
+                                                     <i class="fas fa-eye"></i>
+                                                 </button>
+                                             </div>
+                                         </div>
+                                         
+                                         <div class="form-group">
+                                             <label for="novitaModel">Model</label>
+                                             <select id="novitaModel" 
+                                                     name="novitaModel"
+                                                     class="modern-input">
+                                                 <option value="moonshotai/kimi-k2.5" <%= config.NOVITA_MODEL === 'moonshotai/kimi-k2.5' ? 'selected' : '' %>>Kimi K2.5 (Default)</option>
+                                                 <option value="zai-org/glm-5" <%= config.NOVITA_MODEL === 'zai-org/glm-5' ? 'selected' : '' %>>GLM-5</option>
+                                                 <option value="minimax/minimax-m2.5" <%= config.NOVITA_MODEL === 'minimax/minimax-m2.5' ? 'selected' : '' %>>MiniMax M2.5</option>
+                                             </select>
+                                         </div>
+                                     </div>
 
                                     <div class="form-group">
                                         <label for="tokenLimit">Token Limit</label>
