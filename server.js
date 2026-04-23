@@ -288,9 +288,13 @@ async function buildUpdateData(analysis, doc) {
 
       const fieldDetails = await paperlessService.findExistingCustomField(customField.field_name);
       if (fieldDetails?.id) {
+        let fieldValue = customField.value.trim();
+        if (fieldDetails.data_type === 'monetary') {
+          fieldValue = fieldValue.replace(',', '.');
+        }
         processedFields.push({
           field: fieldDetails.id,
-          value: customField.value.trim()
+          value: fieldValue
         });
         processedFieldIds.add(fieldDetails.id);
       }
