@@ -32,6 +32,7 @@ Powered by **Retrieval-Augmented Generation (RAG)**, you can now search semantic
 - Analyzes content using OpenAI API, Ollama, and other compatible backends
 - Assigns title, tags, document type, and correspondent
 - Built-in support for:
+  - Foundry Local
   - Ollama (Mistral, Llama, Phi-3, Gemma-2)
   - OpenAI
   - DeepSeek.ai
@@ -78,6 +79,7 @@ Powered by **Retrieval-Augmented Generation (RAG)**, you can now search semantic
 - Health monitoring and auto-restart
 - Persistent volumes and graceful shutdown
 - Works out of the box with minimal setup
+- Foundry Local can be configured through the dedicated provider preset. Foundry Local Core itself is SDK-first and does not need to run as a web server in general; Paperless-AI uses the optional OpenAI-compatible endpoint for compatibility with its existing provider path. If you start the SDK 1.2 web service yourself, use `manager.urls[0]/v1`; if Paperless-AI runs in Docker while Foundry Local runs on the host, use `http://host.docker.internal:<port>/v1`, the loaded model alias (for example `qwen2.5-0.5b`), and either leave the API key blank or set any non-empty value
 
 ---
 

@@ -21,6 +21,11 @@ const { authenticateJWT, isAuthenticated } = require('./auth.js');
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const customService = require('../services/customService.js');
 const config = require('../config/config.js');
+const {
+  FOUNDRY_LOCAL_PROVIDER,
+  isCustomOpenAICompatibleProvider,
+  resolveCustomOpenAICompatibleConfig
+} = require('../services/providerUtils');
 require('dotenv').config({ path: '../data/.env' });
 
 /**
@@ -1726,19 +1731,28 @@ async function buildUpdateData(analysis, doc) {
 
 async function saveDocumentChanges(docId, updateData, analysis, originalData) {
   const { tags: originalTags, correspondent: originalCorrespondent, title: originalTitle } = originalData;
-  
-  await Promise.all([
+
+  const tasks = [
     documentModel.saveOriginalData(docId, originalTags, originalCorrespondent, originalTitle),
     paperlessService.updateDocument(docId, updateData),
     documentModel.addProcessedDocument(docId, updateData.title),
-    documentModel.addOpenAIMetrics(
-      docId, 
-      analysis.metrics.promptTokens,
-      analysis.metrics.completionTokens,
-      analysis.metrics.totalTokens
-    ),
     documentModel.addToHistory(docId, updateData.tags, updateData.title, analysis.document.correspondent)
-  ]);
+  ];
+
+  if (analysis.metrics) {
+    tasks.push(
+      documentModel.addOpenAIMetrics(
+        docId,
+        analysis.metrics.promptTokens,
+        analysis.metrics.completionTokens,
+        analysis.metrics.totalTokens
+      )
+    );
+  } else {
+    console.warn(`[WARNING] Skipping OpenAI metrics save for document ${docId} - metrics unavailable`);
+  }
+
+  await Promise.all(tasks);
 }
 
 /**
@@ -2997,10 +3011,10 @@ router.get('/debug/correspondents', async (req, res) => {
  *                   type: string
  *                   description: Detected document type
  *                   example: "Invoice"
- *                 metrics:
- *                   type: object
- *                   description: Token usage metrics (when using OpenAI)
- *                   properties:
+  *                 metrics:
+  *                   type: object
+  *                   description: Token usage metrics when returned by the configured AI provider
+  *                   properties:
  *                     promptTokens:
  *                       type: number
  *                       example: 350
@@ -3038,23 +3052,39 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
       return res.status(400).json({ error: 'Valid content string is required' });
     }
 
+    const saveMetricsIfAvailable = async (documentId, metrics) => {
+      if (!documentId) {
+        console.warn('[WARNING] Skipping OpenAI metrics save - document ID unavailable');
+        return;
+      }
+
+      if (!metrics) {
+        console.warn(`[WARNING] Skipping OpenAI metrics save for document ${documentId} - metrics unavailable`);
+        return;
+      }
+
+      await documentModel.addOpenAIMetrics(
+        documentId,
+        metrics.promptTokens,
+        metrics.completionTokens,
+        metrics.totalTokens
+      );
+    };
+
     if (process.env.AI_PROVIDER === 'openai') {
       const analyzeDocument = await openaiService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
-      await documentModel.addOpenAIMetrics(
-            id, 
-            analyzeDocument.metrics.promptTokens,
-            analyzeDocument.metrics.completionTokens,
-            analyzeDocument.metrics.totalTokens
-          )
+      await saveMetricsIfAvailable(id, analyzeDocument.metrics);
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'ollama') {
       const analyzeDocument = await ollamaService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
       return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'custom') {
+    } else if (isCustomOpenAICompatibleProvider(process.env.AI_PROVIDER)) {
       const analyzeDocument = await customService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
+      await saveMetricsIfAvailable(id, analyzeDocument.metrics);
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'azure') {
       const analyzeDocument = await azureService.analyzeDocument(content, existingTagsList, existingCorrespondentList, existingDocumentTypesList, id || []);
+      await saveMetricsIfAvailable(id, analyzeDocument.metrics);
       return res.json(analyzeDocument);
     } else {
       return res.status(500).json({ error: 'AI provider not configured' });
@@ -3115,10 +3145,10 @@ router.post('/manual/analyze', express.json(), async (req, res) => {
  *                   type: string
  *                   description: The raw AI response using the custom prompt
  *                   example: "Company: Acme Corp\nAmount: $125.00\nDue Date: 2023-08-15"
- *                 metrics:
- *                   type: object
- *                   description: Token usage metrics (when using OpenAI)
- *                   properties:
+  *                 metrics:
+  *                   type: object
+  *                   description: Token usage metrics when returned by the configured AI provider
+  *                   properties:
  *                     promptTokens:
  *                       type: number
  *                       example: 350
@@ -3150,35 +3180,39 @@ router.post('/manual/playground', express.json(), async (req, res) => {
       return res.status(400).json({ error: 'Valid content string is required' });
     }
 
+    const saveMetricsIfAvailable = async (resolvedDocumentId, metrics) => {
+      if (!resolvedDocumentId) {
+        console.warn('[WARNING] Skipping OpenAI metrics save - document ID unavailable');
+        return;
+      }
+
+      if (!metrics) {
+        console.warn(`[WARNING] Skipping OpenAI metrics save for document ${resolvedDocumentId} - metrics unavailable`);
+        return;
+      }
+
+      await documentModel.addOpenAIMetrics(
+        resolvedDocumentId,
+        metrics.promptTokens,
+        metrics.completionTokens,
+        metrics.totalTokens
+      );
+    };
+
     if (process.env.AI_PROVIDER === 'openai') {
       const analyzeDocument = await openaiService.analyzePlayground(content, prompt);
-      await documentModel.addOpenAIMetrics(
-        documentId, 
-        analyzeDocument.metrics.promptTokens,
-        analyzeDocument.metrics.completionTokens,
-        analyzeDocument.metrics.totalTokens
-      )
+      await saveMetricsIfAvailable(documentId, analyzeDocument.metrics);
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'ollama') {
       const analyzeDocument = await ollamaService.analyzePlayground(content, prompt);
       return res.json(analyzeDocument);
-    } else if (process.env.AI_PROVIDER === 'custom') {
+    } else if (isCustomOpenAICompatibleProvider(process.env.AI_PROVIDER)) {
       const analyzeDocument = await customService.analyzePlayground(content, prompt);
-      await documentModel.addOpenAIMetrics(
-        documentId, 
-        analyzeDocument.metrics.promptTokens,
-        analyzeDocument.metrics.completionTokens,
-        analyzeDocument.metrics.totalTokens
-      )
+      await saveMetricsIfAvailable(documentId, analyzeDocument.metrics);
       return res.json(analyzeDocument);
     } else if (process.env.AI_PROVIDER === 'azure') {
       const analyzeDocument = await azureService.analyzePlayground(content, prompt);
-      await documentModel.addOpenAIMetrics(
-        documentId, 
-        analyzeDocument.metrics.promptTokens,
-        analyzeDocument.metrics.completionTokens,
-        analyzeDocument.metrics.totalTokens
-      )
+      await saveMetricsIfAvailable(documentId, analyzeDocument.metrics);
       return res.json(analyzeDocument);
     } else {
       return res.status(500).json({ error: 'AI provider not configured' });
@@ -3440,11 +3474,11 @@ router.get('/health', async (req, res) => {
  *                 type: string
  *                 description: Username for Paperless-ngx (alternative to token authentication)
  *                 example: "admin"
- *               aiProvider:
- *                 type: string
- *                 description: Selected AI provider for document analysis
- *                 enum: ["openai", "ollama", "custom", "azure"]
- *                 example: "openai"
+  *               aiProvider:
+  *                 type: string
+  *                 description: Selected AI provider for document analysis
+  *                 enum: ["openai", "ollama", "custom", "foundry-local", "azure"]
+  *                 example: "openai"
  *               openaiKey:
  *                 type: string
  *                 description: API key for OpenAI (required when aiProvider is 'openai')
@@ -3469,12 +3503,24 @@ router.get('/health', async (req, res) => {
  *                 type: string
  *                 description: Base URL for custom LLM provider
  *                 example: "https://api.customllm.com"
- *               customModel:
- *                 type: string
- *                 description: Model name for custom LLM provider
- *                 example: "custom-model"
- *               scanInterval:
- *                 type: number
+  *               customModel:
+  *                 type: string
+  *                 description: Model name for custom LLM provider
+  *                 example: "custom-model"
+  *               foundryLocalBaseUrl:
+  *                 type: string
+  *                 description: OpenAI-compatible base URL for Foundry Local (required when aiProvider is 'foundry-local')
+  *                 example: "http://host.docker.internal:8081/v1"
+  *               foundryLocalApiKey:
+  *                 type: string
+  *                 description: Optional API key for Foundry Local. If omitted, Paperless-AI uses a dummy value.
+  *                 example: "foundry-local"
+  *               foundryLocalModel:
+  *                 type: string
+  *                 description: Loaded Foundry Local model alias to use for analysis. Exact variant IDs only work if that specific variant is loaded.
+  *                 example: "qwen2.5-0.5b"
+  *               scanInterval:
+  *                 type: number
  *                 description: Interval in minutes for scanning new documents
  *                 example: 15
  *               systemPrompt:
@@ -3608,6 +3654,9 @@ router.post('/setup', express.json(), async (req, res) => {
       customApiKey,
       customBaseUrl,
       customModel,
+      foundryLocalApiKey,
+      foundryLocalBaseUrl,
+      foundryLocalModel,
       activateTagging,
       activateCorrespondents,
       activateDocumentType,
@@ -3622,7 +3671,7 @@ router.post('/setup', express.json(), async (req, res) => {
     } = req.body;
 
     // Log setup request with sensitive data redacted
-    const sensitiveKeys = ['paperlessToken', 'openaiKey', 'customApiKey', 'password', 'confirmPassword'];
+    const sensitiveKeys = ['paperlessToken', 'openaiKey', 'customApiKey', 'foundryLocalApiKey', 'password', 'confirmPassword'];
     const redactedBody = Object.fromEntries(
       Object.entries(req.body).map(([key, value]) => [
       key,
@@ -3705,6 +3754,13 @@ router.post('/setup', express.json(), async (req, res) => {
       ? systemPrompt.replace(/\r\n/g, '\n').replace(/\n/g, '\\n').replace(/=/g, '')
       : '';
 
+    const selectedCustomProviderConfig = resolveCustomOpenAICompatibleConfig(
+      aiProvider,
+      aiProvider === FOUNDRY_LOCAL_PROVIDER ? foundryLocalBaseUrl : customBaseUrl,
+      aiProvider === FOUNDRY_LOCAL_PROVIDER ? foundryLocalApiKey : customApiKey,
+      aiProvider === FOUNDRY_LOCAL_PROVIDER ? foundryLocalModel : customModel
+    );
+
     // Prepare base config
     const config = {
       PAPERLESS_API_URL: paperlessApiUrl,
@@ -3724,9 +3780,9 @@ router.post('/setup', express.json(), async (req, res) => {
       USE_EXISTING_DATA: useExistingData || 'no',
       API_KEY: apiToken,
       JWT_SECRET: jwtToken,
-      CUSTOM_API_KEY: customApiKey || '',
-      CUSTOM_BASE_URL: customBaseUrl || '',
-      CUSTOM_MODEL: customModel || '',
+      CUSTOM_API_KEY: selectedCustomProviderConfig.apiKey || '',
+      CUSTOM_BASE_URL: selectedCustomProviderConfig.baseUrl || '',
+      CUSTOM_MODEL: selectedCustomProviderConfig.model || '',
       PAPERLESS_AI_INITIAL_SETUP: 'yes',
       ACTIVATE_TAGGING: activateTagging ? 'yes' : 'no',
       ACTIVATE_CORRESPONDENTS: activateCorrespondents ? 'yes' : 'no',
@@ -3762,16 +3818,23 @@ router.post('/setup', express.json(), async (req, res) => {
       }
       config.OLLAMA_API_URL = ollamaUrl || 'http://localhost:11434';
       config.OLLAMA_MODEL = ollamaModel || 'llama3.2';
-    } else if (aiProvider === 'custom') {
-      const isCustomValid = await setupService.validateCustomConfig(customBaseUrl, customApiKey, customModel);
+    } else if (isCustomOpenAICompatibleProvider(aiProvider)) {
+      const isCustomValid = await setupService.validateCustomConfig(
+        selectedCustomProviderConfig.baseUrl,
+        selectedCustomProviderConfig.apiKey,
+        selectedCustomProviderConfig.model,
+        aiProvider
+      );
       if (!isCustomValid) {
         return res.status(400).json({
-          error: 'Custom connection failed. Please check URL, API Key and Model.'
+          error: aiProvider === FOUNDRY_LOCAL_PROVIDER
+            ? 'Foundry Local connection failed. Please check the base URL and loaded model alias.'
+            : 'Custom connection failed. Please check URL, API Key and Model.'
         });
       }
-      config.CUSTOM_BASE_URL = customBaseUrl;
-      config.CUSTOM_API_KEY = customApiKey;
-      config.CUSTOM_MODEL = customModel;
+      config.CUSTOM_BASE_URL = selectedCustomProviderConfig.baseUrl;
+      config.CUSTOM_API_KEY = selectedCustomProviderConfig.apiKey;
+      config.CUSTOM_MODEL = selectedCustomProviderConfig.model;
     } else if (aiProvider === 'azure') {
       const isAzureValid = await setupService.validateAzureConfig(azureApiKey, azureEndpoint, azureDeploymentName, azureApiVersion);
       if (!isAzureValid) {
@@ -3841,11 +3904,11 @@ router.post('/setup', express.json(), async (req, res) => {
  *                 type: string
  *                 description: Username for Paperless-ngx (alternative to token authentication)
  *                 example: "admin"
- *               aiProvider:
- *                 type: string
- *                 description: Selected AI provider for document analysis
- *                 enum: ["openai", "ollama", "custom", "azure"]
- *                 example: "openai"
+  *               aiProvider:
+  *                 type: string
+  *                 description: Selected AI provider for document analysis
+  *                 enum: ["openai", "ollama", "custom", "foundry-local", "azure"]
+  *                 example: "openai"
  *               openaiKey:
  *                 type: string
  *                 description: API key for OpenAI (required when aiProvider is 'openai')
@@ -3870,12 +3933,24 @@ router.post('/setup', express.json(), async (req, res) => {
  *                 type: string
  *                 description: Base URL for custom LLM provider
  *                 example: "https://api.customllm.com"
- *               customModel:
- *                 type: string
- *                 description: Model name for custom LLM provider
- *                 example: "custom-model"
- *               scanInterval:
- *                 type: number
+  *               customModel:
+  *                 type: string
+  *                 description: Model name for custom LLM provider
+  *                 example: "custom-model"
+  *               foundryLocalBaseUrl:
+  *                 type: string
+  *                 description: OpenAI-compatible base URL for Foundry Local (required when aiProvider is 'foundry-local')
+  *                 example: "http://host.docker.internal:8081/v1"
+  *               foundryLocalApiKey:
+  *                 type: string
+  *                 description: Optional API key for Foundry Local. If omitted, Paperless-AI uses a dummy value.
+  *                 example: "foundry-local"
+  *               foundryLocalModel:
+  *                 type: string
+  *                 description: Loaded Foundry Local model alias to use for analysis. Exact variant IDs only work if that specific variant is loaded.
+  *                 example: "qwen2.5-0.5b"
+  *               scanInterval:
+  *                 type: number
  *                 description: Interval in minutes for scanning new documents
  *                 example: 15
  *               systemPrompt:
@@ -4015,6 +4090,9 @@ router.post('/settings', express.json(), async (req, res) => {
       customApiKey,
       customBaseUrl,
       customModel,
+      foundryLocalApiKey,
+      foundryLocalBaseUrl,
+      foundryLocalModel,
       activateTagging,
       activateCorrespondents,
       activateDocumentType,
@@ -4080,6 +4158,13 @@ router.post('/settings', express.json(), async (req, res) => {
       EXTERNAL_API_TIMEOUT: process.env.EXTERNAL_API_TIMEOUT || '5000',
       EXTERNAL_API_TRANSFORM: process.env.EXTERNAL_API_TRANSFORM || ''
     };
+
+    const selectedCustomProviderConfig = resolveCustomOpenAICompatibleConfig(
+      aiProvider,
+      aiProvider === FOUNDRY_LOCAL_PROVIDER ? foundryLocalBaseUrl : customBaseUrl,
+      aiProvider === FOUNDRY_LOCAL_PROVIDER ? foundryLocalApiKey : customApiKey,
+      aiProvider === FOUNDRY_LOCAL_PROVIDER ? foundryLocalModel : customModel
+    );
 
     // Process custom fields
     let processedCustomFields = [];
@@ -4171,6 +4256,23 @@ router.post('/settings', express.json(), async (req, res) => {
         }
         if (ollamaUrl) updatedConfig.OLLAMA_API_URL = ollamaUrl;
         if (ollamaModel) updatedConfig.OLLAMA_MODEL = ollamaModel;
+      } else if (isCustomOpenAICompatibleProvider(aiProvider)) {
+        const isCustomValid = await setupService.validateCustomConfig(
+          selectedCustomProviderConfig.baseUrl || currentConfig.CUSTOM_BASE_URL,
+          selectedCustomProviderConfig.apiKey || currentConfig.CUSTOM_API_KEY,
+          selectedCustomProviderConfig.model || currentConfig.CUSTOM_MODEL,
+          aiProvider
+        );
+        if (!isCustomValid) {
+          return res.status(400).json({
+            error: aiProvider === FOUNDRY_LOCAL_PROVIDER
+              ? 'Foundry Local connection failed. Please check the base URL and loaded model alias.'
+              : 'Custom connection failed. Please check URL, API Key and Model.'
+          });
+        }
+        updatedConfig.CUSTOM_BASE_URL = selectedCustomProviderConfig.baseUrl || currentConfig.CUSTOM_BASE_URL;
+        updatedConfig.CUSTOM_API_KEY = selectedCustomProviderConfig.apiKey || currentConfig.CUSTOM_API_KEY;
+        updatedConfig.CUSTOM_MODEL = selectedCustomProviderConfig.model || currentConfig.CUSTOM_MODEL;
       } else if (aiProvider === 'azure') {
         const isAzureValid = await setupService.validateAzureConfig(azureApiKey, azureEndpoint, azureDeploymentName, azureApiVersion);
         if (!isAzureValid) {
@@ -4197,9 +4299,6 @@ router.post('/settings', express.json(), async (req, res) => {
     if (usePromptTags) updatedConfig.USE_PROMPT_TAGS = usePromptTags;
     if (promptTags) updatedConfig.PROMPT_TAGS = normalizeArray(promptTags);
     if (useExistingData) updatedConfig.USE_EXISTING_DATA = useExistingData;
-    if (customApiKey) updatedConfig.CUSTOM_API_KEY = customApiKey;
-    if (customBaseUrl) updatedConfig.CUSTOM_BASE_URL = customBaseUrl;
-    if (customModel) updatedConfig.CUSTOM_MODEL = customModel;
     if (disableAutomaticProcessing) updatedConfig.DISABLE_AUTOMATIC_PROCESSING = disableAutomaticProcessing;
 
     // Update custom fields

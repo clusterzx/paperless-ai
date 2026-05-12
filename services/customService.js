@@ -11,6 +11,16 @@ const paperlessService = require('./paperlessService');
 const fs = require('fs').promises;
 const path = require('path');
 const RestrictionPromptService = require('./restrictionPromptService');
+const {
+  FOUNDRY_LOCAL_PROVIDER,
+  isCustomOpenAICompatibleProvider,
+  resolveCustomOpenAICompatibleConfig
+} = require('./providerUtils');
+const {
+  getTextFromMessageContent,
+  mapUsageMetrics,
+  parseJsonCompletionContent
+} = require('./openAiCompatibleResponseUtils');
 
 class CustomOpenAIService {
   constructor() {
@@ -19,10 +29,17 @@ class CustomOpenAIService {
   }
 
   initialize() {
-    if (!this.client && config.aiProvider === 'custom') {
+    if (!this.client && isCustomOpenAICompatibleProvider(config.aiProvider)) {
+      const providerConfig = resolveCustomOpenAICompatibleConfig(
+        config.aiProvider,
+        config.custom.apiUrl,
+        config.custom.apiKey,
+        config.custom.model
+      );
+
       this.client = new OpenAI({
-        baseURL: config.custom.apiUrl,
-        apiKey: config.custom.apiKey
+        baseURL: providerConfig.baseUrl,
+        apiKey: providerConfig.apiKey
       });
     }
   }
@@ -202,28 +219,25 @@ class CustomOpenAIService {
 
       // Log token usage
       console.log(`[DEBUG] [${timestamp}] Custom OpenAI request sent`);
-      console.log(`[DEBUG] [${timestamp}] Total tokens: ${response.usage.total_tokens}`);
-
-      const usage = response.usage;
-      const mappedUsage = {
-        promptTokens: usage.prompt_tokens,
-        completionTokens: usage.completion_tokens,
-        totalTokens: usage.total_tokens
-      };
-
-      let jsonContent = response.choices[0].message.content;
-      jsonContent = jsonContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const mappedUsage = mapUsageMetrics(
+        config.aiProvider === FOUNDRY_LOCAL_PROVIDER ? 'Foundry Local' : 'Custom provider',
+        response.usage,
+        timestamp
+      );
 
       let parsedResponse;
       try {
-        parsedResponse = JSON.parse(jsonContent);
-        //write to file and append to the file (txt)
-        fs.appendFile('./logs/response.txt', jsonContent, (err) => {
-          if (err) throw err;
-        });
+        parsedResponse = parseJsonCompletionContent(response.choices[0].message.content);
       } catch (error) {
-        console.error('Failed to parse JSON response:', error);
+        console.error('Failed to parse JSON response:', error, '\nRaw content:', getTextFromMessageContent(response.choices[0].message.content));
         throw new Error('Invalid JSON response from API');
+      }
+
+      try {
+        await fs.mkdir('./logs', { recursive: true });
+        await fs.appendFile('./logs/response.txt', `${JSON.stringify(parsedResponse)}\n`);
+      } catch (logError) {
+        console.warn('Failed to write response log:', logError.message);
       }
 
       // Validate response structure
@@ -329,23 +343,17 @@ class CustomOpenAIService {
 
       // Log token usage
       console.log(`[DEBUG] [${timestamp}] Custom OpenAI request sent`);
-      console.log(`[DEBUG] [${timestamp}] Total tokens: ${response.usage.total_tokens}`);
-
-      const usage = response.usage;
-      const mappedUsage = {
-        promptTokens: usage.prompt_tokens,
-        completionTokens: usage.completion_tokens,
-        totalTokens: usage.total_tokens
-      };
-
-      let jsonContent = response.choices[0].message.content;
-      jsonContent = jsonContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const mappedUsage = mapUsageMetrics(
+        config.aiProvider === FOUNDRY_LOCAL_PROVIDER ? 'Foundry Local' : 'Custom provider',
+        response.usage,
+        timestamp
+      );
 
       let parsedResponse;
       try {
-        parsedResponse = JSON.parse(jsonContent);
+        parsedResponse = parseJsonCompletionContent(response.choices[0].message.content);
       } catch (error) {
-        console.error('Failed to parse JSON response:', error);
+        console.error('Failed to parse JSON response:', error, '\nRaw content:', getTextFromMessageContent(response.choices[0].message.content));
         throw new Error('Invalid JSON response from API');
       }
 

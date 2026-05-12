@@ -273,6 +273,7 @@
                                         <option value="openai" <%= config.AI_PROVIDER === 'openai' ? 'selected' : '' %>>OpenAI (ChatGPT)</option>
                                         <option value="ollama" <%= config.AI_PROVIDER === 'ollama' ? 'selected' : '' %>>Ollama (Local LLM)</option>
                                         <option value="custom" <%= config.AI_PROVIDER === 'custom' ? 'selected' : '' %>>Custom</option>
+                                        <option value="foundry-local" <%= config.AI_PROVIDER === 'foundry-local' ? 'selected' : '' %>>Foundry Local</option>
                                         <option value="azure" <%= config.AI_PROVIDER === 'azure' ? 'selected' : '' %>>Azure</option>
                                     </select>
                                 </div>
@@ -361,6 +362,57 @@
                                             value="<%= config.CUSTOM_MODEL %>"
                                             class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                             placeholder="Enter model name">
+                                    </div>
+                                </div>
+
+                                <!-- Foundry Local Provider Settings -->
+                                <div id="foundryLocalSettings" class="space-y-4 hidden">
+                                    <div class="space-y-2">
+                                        <label for="foundryLocalBaseUrl" class="text-sm font-medium">Foundry Local Base URL</label>
+                                        <input type="text"
+                                            id="foundryLocalBaseUrl"
+                                            name="foundryLocalBaseUrl"
+                                            value="<%= config.CUSTOM_BASE_URL %>"
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                            placeholder="http://host.docker.internal:&lt;port&gt;/v1">
+                                        <p class="text-sm text-gray-500">
+                                            Foundry Local itself is SDK-first; this field is only for Paperless-AI's OpenAI-compatible integration.
+                                            <br>
+                                            If you start Foundry Local from the SDK, use <code>manager.urls[0]/v1</code>.
+                                            If Paperless-AI runs in Docker while Foundry Local runs on the host, use
+                                            <code>host.docker.internal</code> instead of <code>localhost</code>.
+                                        </p>
+                                    </div>
+
+                                    <div class="space-y-2">
+                                        <label for="foundryLocalApiKey" class="text-sm font-medium">Foundry Local API Key</label>
+                                        <div class="relative">
+                                            <input type="password"
+                                                id="foundryLocalApiKey"
+                                                name="foundryLocalApiKey"
+                                                value="<%= config.CUSTOM_API_KEY %>"
+                                                class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                placeholder="Optional - defaults to foundry-local">
+                                            <button type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" data-input="foundryLocalApiKey">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                        </div>
+                                        <p class="text-sm text-gray-500">
+                                            Foundry Local ignores the API key. Leave this blank to let Paperless-AI use a dummy value.
+                                        </p>
+                                    </div>
+
+                                    <div class="space-y-2">
+                                        <label for="foundryLocalModel" class="text-sm font-medium">Foundry Local Model</label>
+                                        <input type="text"
+                                            id="foundryLocalModel"
+                                            name="foundryLocalModel"
+                                            value="<%= config.CUSTOM_MODEL %>"
+                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                            placeholder="qwen2.5-0.5b">
+                                        <p class="text-sm text-gray-500">
+                                            Use the loaded model alias, for example <code>qwen2.5-0.5b</code>. Exact variant IDs only work if that specific variant is loaded.
+                                        </p>
                                     </div>
                                 </div>
 

@@ -4,6 +4,11 @@ const axios = require('axios');
 const { OpenAI } = require('openai');
 const config = require('../config/config');
 const AzureOpenAI = require('openai').AzureOpenAI;
+const {
+  FOUNDRY_LOCAL_PROVIDER,
+  isCustomOpenAICompatibleProvider,
+  resolveCustomOpenAICompatibleConfig
+} = require('./providerUtils');
 
 class SetupService {
   constructor() {
@@ -87,21 +92,27 @@ class SetupService {
     }
   }
 
-  async validateCustomConfig(url, apiKey, model) {
-    const config = {
-      baseURL: url,
-      apiKey: apiKey,
-      model: model
-    };
-    console.log('Custom AI config:', config);
+  async validateCustomConfig(url, apiKey, model, provider = 'custom') {
+    const providerConfig = resolveCustomOpenAICompatibleConfig(provider, url, apiKey, model);
+    console.log('Custom AI config:', {
+      baseURL: providerConfig.baseUrl,
+      apiKey: providerConfig.apiKey ? '******' : '',
+      model: providerConfig.model,
+      provider
+    });
+
+    if (!providerConfig.baseUrl || !providerConfig.model) {
+      return false;
+    }
+
     try {
-      const openai = new OpenAI({ 
-        apiKey: config.apiKey, 
-        baseURL: config.baseURL,
+      const openai = new OpenAI({
+        apiKey: providerConfig.apiKey,
+        baseURL: providerConfig.baseUrl,
       });
       const completion = await openai.chat.completions.create({
         messages: [{ role: "user", content: "Test" }],
-        model: config.model,
+        model: providerConfig.model,
       });
       return completion.choices && completion.choices.length > 0;
     } catch (error) {
@@ -181,14 +192,19 @@ class SetupService {
       if (!ollamaValid) {
         throw new Error('Invalid Ollama configuration');
       }
-    } else if (aiProvider === 'custom') {
+    } else if (isCustomOpenAICompatibleProvider(aiProvider)) {
       const customValid = await this.validateCustomConfig(
         config.CUSTOM_BASE_URL,
         config.CUSTOM_API_KEY,
-        config.CUSTOM_MODEL
+        config.CUSTOM_MODEL,
+        aiProvider
       );
       if (!customValid) {
-        throw new Error('Invalid Custom AI configuration');
+        throw new Error(
+          aiProvider === FOUNDRY_LOCAL_PROVIDER
+            ? 'Invalid Foundry Local configuration'
+            : 'Invalid Custom AI configuration'
+        );
       }
     } else if (aiProvider === 'azure') {
       const azureValid = await this.validateAzureConfig(

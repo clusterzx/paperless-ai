@@ -330,19 +330,28 @@ async function buildUpdateData(analysis, doc) {
 
 async function saveDocumentChanges(docId, updateData, analysis, originalData) {
   const { tags: originalTags, correspondent: originalCorrespondent, title: originalTitle } = originalData;
-  
-  await Promise.all([
+
+  const tasks = [
     documentModel.saveOriginalData(docId, originalTags, originalCorrespondent, originalTitle),
     paperlessService.updateDocument(docId, updateData),
     documentModel.addProcessedDocument(docId, updateData.title),
-    documentModel.addOpenAIMetrics(
-      docId, 
-      analysis.metrics.promptTokens,
-      analysis.metrics.completionTokens,
-      analysis.metrics.totalTokens
-    ),
     documentModel.addToHistory(docId, updateData.tags, updateData.title, analysis.document.correspondent)
-  ]);
+  ];
+
+  if (analysis.metrics) {
+    tasks.push(
+      documentModel.addOpenAIMetrics(
+        docId,
+        analysis.metrics.promptTokens,
+        analysis.metrics.completionTokens,
+        analysis.metrics.totalTokens
+      )
+    );
+  } else {
+    console.warn(`[WARNING] Skipping OpenAI metrics save for document ${docId} - metrics unavailable`);
+  }
+
+  await Promise.all(tasks);
 }
 
 // Main scanning functions

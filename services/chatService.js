@@ -9,6 +9,10 @@ const stream = require('stream');
 const { promisify } = require('util');
 const pipeline = promisify(stream.pipeline);
 const { OpenAI } = require('openai');
+const {
+  isCustomOpenAICompatibleProvider,
+  resolveCustomOpenAICompatibleConfig
+} = require('./providerUtils');
 
 class ChatService {
   constructor() {
@@ -141,15 +145,21 @@ class ChatService {
             res.write(`data: ${JSON.stringify({ content })}\n\n`);
           }
         }
-      } else if (aiProvider === 'custom') {
-        // Use OpenAI SDK with custom base URL
+      } else if (isCustomOpenAICompatibleProvider(aiProvider)) {
+        const providerConfig = resolveCustomOpenAICompatibleConfig(
+          aiProvider,
+          process.env.CUSTOM_BASE_URL,
+          process.env.CUSTOM_API_KEY,
+          process.env.CUSTOM_MODEL
+        );
+
         const customOpenAI = new OpenAI({
-          baseURL: process.env.CUSTOM_BASE_URL,
-          apiKey: process.env.CUSTOM_API_KEY,
+          baseURL: providerConfig.baseUrl,
+          apiKey: providerConfig.apiKey,
         });
 
         const stream = await customOpenAI.chat.completions.create({
-          model: process.env.CUSTOM_MODEL,
+          model: providerConfig.model,
           messages: chatData.messages,
           stream: true,
         });

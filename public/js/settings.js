@@ -104,6 +104,7 @@ class FormManager {
         const openaiSettings = document.getElementById('openaiSettings');
         const ollamaSettings = document.getElementById('ollamaSettings');
         const customSettings = document.getElementById('customSettings');
+        const foundryLocalSettings = document.getElementById('foundryLocalSettings');
         const azureSettings = document.getElementById('azureSettings');
 
         // Get all provider-specific fields
@@ -113,6 +114,9 @@ class FormManager {
         const customBaseUrl = document.getElementById('customBaseUrl');
         const customApiKey = document.getElementById('customApiKey');
         const customModel = document.getElementById('customModel');
+        const foundryLocalBaseUrl = document.getElementById('foundryLocalBaseUrl');
+        const foundryLocalApiKey = document.getElementById('foundryLocalApiKey');
+        const foundryLocalModel = document.getElementById('foundryLocalModel');
         const azureApiKey = document.getElementById('azureApiKey');
         const azureEndpoint = document.getElementById('azureEndpoint');
         const azureDeploymentName = document.getElementById('azureDeploymentName');
@@ -137,6 +141,7 @@ class FormManager {
         openaiSettings.classList.add('hidden');
         ollamaSettings.classList.add('hidden');
         customSettings.classList.add('hidden');
+        foundryLocalSettings.classList.add('hidden');
         azureSettings.classList.add('hidden');
         
         // Reset all required fields
@@ -146,6 +151,9 @@ class FormManager {
         customBaseUrl.required = false;
         customApiKey.required = false;
         customModel.required = false;
+        foundryLocalBaseUrl.required = false;
+        foundryLocalApiKey.required = false;
+        foundryLocalModel.required = false;
         azureApiKey.required = false;
         azureEndpoint.required = false;
         azureDeploymentName.required = false;
@@ -167,6 +175,11 @@ class FormManager {
                 customBaseUrl.required = true;
                 customApiKey.required = true;
                 customModel.required = true;
+                break;
+            case 'foundry-local':
+                foundryLocalSettings.classList.remove('hidden');
+                foundryLocalBaseUrl.required = true;
+                foundryLocalModel.required = true;
                 break;
             case 'azure':
                 azureSettings.classList.remove('hidden');

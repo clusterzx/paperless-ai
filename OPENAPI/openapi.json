@@ -2116,6 +2116,7 @@
                       "openai",
                       "ollama",
                       "custom",
+                      "foundry-local",
                       "azure"
                     ],
                     "example": "openai"
@@ -2154,6 +2155,21 @@
                     "type": "string",
                     "description": "Model name for custom LLM provider",
                     "example": "custom-model"
+                  },
+                  "foundryLocalBaseUrl": {
+                    "type": "string",
+                    "description": "OpenAI-compatible base URL for Foundry Local (required when aiProvider is 'foundry-local')",
+                    "example": "http://host.docker.internal:8081/v1"
+                  },
+                  "foundryLocalApiKey": {
+                    "type": "string",
+                    "description": "Optional API key for Foundry Local. If omitted, Paperless-AI uses a dummy value.",
+                    "example": "foundry-local"
+                  },
+                  "foundryLocalModel": {
+                    "type": "string",
+                    "description": "Loaded Foundry Local model alias to use for analysis. Exact variant IDs only work if that specific variant is loaded.",
+                    "example": "qwen2.5-0.5b"
                   },
                   "scanInterval": {
                     "type": "number",
@@ -3005,6 +3021,7 @@
                       "openai",
                       "ollama",
                       "custom",
+                      "foundry-local",
                       "azure"
                     ],
                     "example": "openai"
@@ -3043,6 +3060,21 @@
                     "type": "string",
                     "description": "Model name for custom LLM provider",
                     "example": "custom-model"
+                  },
+                  "foundryLocalBaseUrl": {
+                    "type": "string",
+                    "description": "OpenAI-compatible base URL for Foundry Local (required when aiProvider is 'foundry-local')",
+                    "example": "http://host.docker.internal:8081/v1"
+                  },
+                  "foundryLocalApiKey": {
+                    "type": "string",
+                    "description": "Optional API key for Foundry Local. If omitted, Paperless-AI uses a dummy value.",
+                    "example": "foundry-local"
+                  },
+                  "foundryLocalModel": {
+                    "type": "string",
+                    "description": "Loaded Foundry Local model alias to use for analysis. Exact variant IDs only work if that specific variant is loaded.",
+                    "example": "qwen2.5-0.5b"
                   },
                   "scanInterval": {
                     "type": "number",
@@ -3497,7 +3529,7 @@
                     },
                     "metrics": {
                       "type": "object",
-                      "description": "Token usage metrics (when using OpenAI)",
+                      "description": "Token usage metrics when returned by the configured AI provider",
                       "properties": {
                         "promptTokens": {
                           "type": "number",
@@ -3599,7 +3631,7 @@
                     },
                     "metrics": {
                       "type": "object",
-                      "description": "Token usage metrics (when using OpenAI)",
+                      "description": "Token usage metrics when returned by the configured AI provider",
                       "properties": {
                         "promptTokens": {
                           "type": "number",
