@@ -3,6 +3,8 @@ const openaiService = require('./openaiService');
 const ollamaService = require('./ollamaService');
 const customService = require('./customService');
 const azureService = require('./azureService');
+const astraflowService = require('./astraflowService');
+const astraflowCnService = require('./astraflowCnService');
 
 class AIServiceFactory {
   static getService() {
@@ -16,6 +18,10 @@ class AIServiceFactory {
         return customService;
       case 'azure':
         return azureService;
+      case 'astraflow':
+        return astraflowService;
+      case 'astraflow-cn':
+        return astraflowCnService;
     }
   }
 }

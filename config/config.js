@@ -88,6 +88,16 @@ module.exports = {
     deploymentName: process.env.AZURE_DEPLOYMENT_NAME || '',
     apiVersion: process.env.AZURE_API_VERSION || '2023-05-15'
   },
+  // Astraflow (global) — https://astraflow.ucloud-global.com
+  astraflow: {
+    apiKey: process.env.ASTRAFLOW_API_KEY || '',
+    model: process.env.ASTRAFLOW_MODEL || ''
+  },
+  // Astraflow (China) — https://astraflow.ucloud.cn
+  astraflowCn: {
+    apiKey: process.env.ASTRAFLOW_CN_API_KEY || '',
+    model: process.env.ASTRAFLOW_CN_MODEL || ''
+  },
   customFields: process.env.CUSTOM_FIELDS || '',
   aiProvider: process.env.AI_PROVIDER || 'openai',
   scanInterval: process.env.SCAN_INTERVAL || '*/30 * * * *',
