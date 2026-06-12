@@ -398,6 +398,34 @@ class OpenAIService {
     }
   }
 
+  async listModels(apiKey = null) {
+    // Fetch the list of available models from the OpenAI API.
+    // An explicit apiKey (e.g. from an unsaved settings form) takes precedence
+    // over the configured one so users can preview models before saving.
+    try {
+      const key = apiKey || config.openai?.apiKey || process.env.OPENAI_API_KEY;
+
+      if (!key) {
+        throw new Error('OpenAI API key not provided');
+      }
+
+      const client = new OpenAI({ apiKey: key });
+      const response = await client.models.list();
+      const models = (response?.data || [])
+        .map(model => model.id)
+        // Only keep models that can be used for chat completions.
+        .filter(id => /^(gpt-|o\d|chatgpt-)/i.test(id))
+        // Exclude non-text models (audio, realtime, image, embeddings, tts, etc.).
+        .filter(id => !/(audio|realtime|transcribe|tts|image|embedding|whisper|moderation|dall-e|search|computer-use)/i.test(id))
+        .sort((a, b) => a.localeCompare(b));
+
+      return { status: 'ok', models };
+    } catch (error) {
+      console.error('Error fetching OpenAI models:', error);
+      return { status: 'error', error: error.message, models: [] };
+    }
+  }
+
   async checkStatus() {
     // send test request to OpenAI API and respond with 'ok' or 'error'
     try {

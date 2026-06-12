@@ -76,6 +76,84 @@ class FormManager {
         // Initialize new sections
         this.toggleAiTagInput();
         this.togglePromptTagsInput();
+
+        // Initialize OpenAI model fetching
+        this.initializeModelFetch();
+    }
+
+    initializeModelFetch() {
+        const fetchBtn = document.getElementById('fetchOpenAIModels');
+        if (fetchBtn) {
+            fetchBtn.addEventListener('click', () => this.fetchOpenAIModels());
+        }
+    }
+
+    async fetchOpenAIModels() {
+        const fetchBtn = document.getElementById('fetchOpenAIModels');
+        const status = document.getElementById('openaiModelsStatus');
+        const select = document.getElementById('openaiModel');
+        const apiKeyInput = document.getElementById('openaiKey');
+
+        if (!fetchBtn || !select) {
+            return;
+        }
+
+        const originalBtnHtml = fetchBtn.innerHTML;
+        fetchBtn.disabled = true;
+        fetchBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Loading...</span>';
+        if (status) {
+            status.textContent = '';
+            status.style.color = '';
+        }
+
+        try {
+            const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+            const url = apiKey
+                ? `/api/openai/models?apiKey=${encodeURIComponent(apiKey)}`
+                : '/api/openai/models';
+
+            const response = await fetch(url);
+            const result = await response.json();
+
+            if (!response.ok || result.status !== 'ok' || !Array.isArray(result.models) || result.models.length === 0) {
+                throw new Error(result.error || result.message || 'No models returned');
+            }
+
+            const currentValue = select.value;
+            select.innerHTML = '';
+            result.models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                if (model === currentValue) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+
+            // Keep the previously selected model available even if the API did
+            // not return it (e.g. fine-tuned or deprecated models still in use).
+            if (currentValue && !result.models.includes(currentValue)) {
+                const option = document.createElement('option');
+                option.value = currentValue;
+                option.textContent = currentValue;
+                option.selected = true;
+                select.insertBefore(option, select.firstChild);
+            }
+
+            if (status) {
+                status.textContent = `Loaded ${result.models.length} models.`;
+                status.style.color = '#16a34a';
+            }
+        } catch (error) {
+            if (status) {
+                status.textContent = `Failed to load models: ${error.message}`;
+                status.style.color = '#dc2626';
+            }
+        } finally {
+            fetchBtn.disabled = false;
+            fetchBtn.innerHTML = originalBtnHtml;
+        }
     }
 
     toggleProviderSettings() {

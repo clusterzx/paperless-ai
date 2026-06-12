@@ -139,7 +139,8 @@ let PUBLIC_ROUTES = [
   '/health',
   '/login',
   '/logout',
-  '/setup'
+  '/setup',
+  '/api/openai/models'
 ];
 
 // Combined middleware to check authentication and setup
@@ -203,6 +204,81 @@ const protectApiRoute = (req, res, next) => {
     return res.status(403).json({ message: 'Invalid or expired token' });
   }
 };
+
+/**
+ * @swagger
+ * /api/openai/models:
+ *   get:
+ *     summary: List available OpenAI models
+ *     description: |
+ *       Retrieves the list of available chat-capable models from the OpenAI API.
+ *       An optional API key can be supplied via the `apiKey` query parameter to
+ *       preview models before the key has been saved in the configuration.
+ *     tags:
+ *       - System
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: apiKey
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Optional OpenAI API key to use for the request
+ *     responses:
+ *       200:
+ *         description: List of available models
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                 models:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *       500:
+ *         description: Server error
+ */
+router.get('/api/openai/models', async (req, res) => {
+  try {
+    // Allow access while authenticated, or during the initial setup phase
+    // (before any user exists) so the setup wizard can preview models too.
+    const token = req.cookies.jwt || req.headers.authorization?.split(' ')[1];
+    let authorized = false;
+
+    if (token) {
+      try {
+        jwt.verify(token, JWT_SECRET);
+        authorized = true;
+      } catch (error) {
+        authorized = false;
+      }
+    }
+
+    if (!authorized) {
+      const users = await documentModel.getUsers();
+      const setupPhase = !Array.isArray(users) || users.length === 0;
+      if (!setupPhase) {
+        return res.status(401).json({ status: 'error', message: 'Authentication required', models: [] });
+      }
+    }
+
+    const apiKey = req.query.apiKey || null;
+    const result = await openaiService.listModels(apiKey);
+
+    if (result.status === 'error') {
+      return res.status(400).json(result);
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error('[ERROR] fetching OpenAI models:', error);
+    res.status(500).json({ status: 'error', error: 'Error fetching OpenAI models', models: [] });
+  }
+});
 
 /**
  * @swagger
