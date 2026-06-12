@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paperless-ai Setup</title>
+    <title>BMP-ai Setup</title>
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="css/setup.css">
@@ -25,9 +25,9 @@
             <div class="mx-auto max-w-7xl px-6 lg:px-8">
                 <div class="flex h-24 items-center justify-between">
                     <div class="flex items-center space-x-6">
-                        <img src="/favicon.ico" alt="Paperless AI Logo" style="height: 60px;">
+                        <img src="/favicon.ico" alt="BMP AI Logo" style="height: 60px;">
                         <div>
-                            <h1 class="text-2xl font-bold">Paperless-AI <small><%= config.PAPERLESS_AI_VERSION %></small></h1>
+                            <h1 class="text-2xl font-bold">BMP-AI <small><%= config.PAPERLESS_AI_VERSION %></small></h1>
                             <p class="text-sm text-secondary">Configuration Setup</p>
                         </div>
                     </div>
@@ -139,7 +139,7 @@
                                     <!-- Connection settings content -->
                                     <div class="form-group">
                                         <label for="paperlessUrl" class="flex items-center gap-2">
-                                            Paperless-ngx API URL
+                                            BMP API URL
                                             <button type="button" 
                                                     class="help-btn text-gray-400 hover:text-gray-600 focus:outline-none"
                                                     id="urlHelp">
@@ -171,7 +171,7 @@
                                     </div>
 
                                     <div class="form-group">
-                                        <label for="paperlessUsername">Paperless-ngx Username</label>
+                                        <label for="paperlessUsername">BMP Username</label>
                                         <input type="text" 
                                                id="paperlessUsername" 
                                                name="paperlessUsername"
@@ -879,8 +879,8 @@
     const tourSteps = [
         {
             id: 'welcome',
-            title: 'Welcome to Paperless-AI Setup',
-            text: 'This guided walkthrough will help you configure Paperless-AI, an intelligent automation add-on for Paperless-NGX. Follow the steps carefully to optimize document processing.',
+            title: 'Welcome to BMP-AI Setup',
+            text: 'This guided walkthrough will help you configure BMP-AI, an intelligent automation add-on for BMP. Follow the steps carefully to optimize document processing.',
             buttons: [
                 {
                     text: 'Skip',
@@ -896,7 +896,7 @@
         {
             id: 'user-setup',
             title: 'User Setup',
-            text: 'Here, you need to create a user account for Paperless-AI. This user will be used to access and manage the automation processes.',
+            text: 'Here, you need to create a user account for BMP-AI. This user will be used to access and manage the automation processes.',
             attachTo: {
                 element: '#user-tab',
                 on: 'right'
@@ -911,8 +911,8 @@
         },
         {
             id: 'api-connection',
-            title: 'Paperless-NGX API Connection',
-            text: 'Enter the API URL of your Paperless-NGX instance. This is required for the AI to access and process your documents.',
+            title: 'BMP API Connection',
+            text: 'Enter the API URL of your BMP instance. This is required for the AI to access and process your documents.',
             attachTo: {
                 element: '#paperlessUrl',
                 on: 'right'
@@ -928,7 +928,7 @@
         {
             id: 'api-token',
             title: 'API Token',
-            text: 'Provide a valid API Token for authentication. This ensures Paperless-AI can interact securely with Paperless-NGX.',
+            text: 'Provide a valid API Token for authentication. This ensures BMP-AI can interact securely with BMP.',
             attachTo: {
                 element: '#paperlessToken',
                 on: 'right'
@@ -943,8 +943,8 @@
         },
         {
             id: 'paperless-username',
-            title: 'Paperless-ngx Username',
-            text: 'Specify the username used in Paperless-NGX for API authentication.',
+            title: 'BMP Username',
+            text: 'Specify the username used in BMP for API authentication.',
             attachTo: {
                 element: '#paperlessUsername',
                 on: 'right'
@@ -976,7 +976,7 @@
         {
             id: 'existing-data',
             title: 'Use Existing Data',
-            text: 'Enable this option to reuse existing Paperless-NGX correspondents and tags for document classification. <br> <b>Note:</b> This will improve AI accuracy and reduce manual corrections. BUT if you have a vast amount of data, it may overload the Token limit.',
+            text: 'Enable this option to reuse existing BMP correspondents and tags for document classification. <br> <b>Note:</b> This will improve AI accuracy and reduce manual corrections. BUT if you have a vast amount of data, it may overload the Token limit.',
             attachTo: {
                 element: '#useExistingData',
                 on: 'right'
@@ -1072,7 +1072,7 @@
         {
             id: 'correspondent-detection',
             title: 'AI Correspondent Detection',
-            text: 'When enabled, AI will attempt to extract the senders name and link it to an existing Paperless-NGX correspondent.',
+            text: 'When enabled, AI will attempt to extract the senders name and link it to an existing BMP correspondent.',
             attachTo: {
                 element: '#activateCorrespondents',
                 on: 'right'
@@ -1168,7 +1168,7 @@
         {
             id: 'save-config',
             title: 'Save Configuration',
-            text: 'Click "Save Configuration" to apply all your settings and activate Paperless-AI automation.',
+            text: 'Click "Save Configuration" to apply all your settings and activate BMP-AI automation.',
             attachTo: {
                 element: '.submit-btn',
                 on: 'top'
