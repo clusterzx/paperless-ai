@@ -133,6 +133,12 @@ app.get('/api-docs.json', (req, res) => {
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
+// Expose RAG availability to all views so the sidebar can hide the RAG link when disabled.
+app.use((req, res, next) => {
+  res.locals.ragEnabled = process.env.RAG_SERVICE_ENABLED === 'true';
+  next();
+});
+
 // //Layout middleware
 // app.use((req, res, next) => {
 //   const originalRender = res.render;
