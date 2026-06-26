@@ -13,6 +13,7 @@ services:
       - PGID=1000
       - PAPERLESS_AI_PORT=${PAPERLESS_AI_PORT:-3000}
       - RAG_SERVICE_URL=http://localhost:8000
+      # Set to false to skip the Python RAG service (~1GB RAM) if you only use AI tagging.
       - RAG_SERVICE_ENABLED=true
     ports:
       - "3000:${PAPERLESS_AI_PORT:-3000}"
