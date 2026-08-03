@@ -1117,19 +1117,33 @@ async searchForExistingDocumentType(documentType) {
   }
 }
 
-async getOrCreateDocumentType(name) {
+async getOrCreateDocumentType(name, options = {}) {
   this.initialize();
-  
+
+  // Check if we should restrict to existing document types
+  // Explicitly check options first, then env var
+  const restrictToExistingDocumentTypes = options.restrictToExistingDocumentTypes === true ||
+                                         (options.restrictToExistingDocumentTypes === undefined &&
+                                          process.env.RESTRICT_TO_EXISTING_DOCUMENT_TYPES === 'yes');
+
+  console.log(`[DEBUG] Processing document type with restrictToExistingDocumentTypes=${restrictToExistingDocumentTypes}`);
+
   try {
       // Suche nach existierendem document_type
       const existingDocType = await this.searchForExistingDocumentType(name);
       console.log("[DEBUG] Response Document Type Search: ", existingDocType);
-  
+
       if (existingDocType) {
           console.log(`[DEBUG] Found existing document type "${name}" with ID ${existingDocType.id}`);
           return existingDocType;
       }
-  
+
+      // If we're restricting to existing document types and none was found, return null
+      if (restrictToExistingDocumentTypes) {
+          console.log(`[DEBUG] Document type "${name}" does not exist and restrictions are enabled, returning null`);
+          return null;
+      }
+
       // Erstelle neuen document_type
       try {
           const createResponse = await this.client.post('/document_types/', { 

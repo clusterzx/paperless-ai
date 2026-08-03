@@ -1616,10 +1616,11 @@ async function buildUpdateData(analysis, doc) {
   // Create options object with restriction settings
   const options = {
     restrictToExistingTags: config.restrictToExistingTags === 'yes' ? true : false,
-    restrictToExistingCorrespondents: config.restrictToExistingCorrespondents === 'yes' ? true : false
+    restrictToExistingCorrespondents: config.restrictToExistingCorrespondents === 'yes' ? true : false,
+    restrictToExistingDocumentTypes: config.restrictToExistingDocumentTypes === 'yes' ? true : false
   };
 
-  console.log(`[DEBUG] Building update data with restrictions: tags=${options.restrictToExistingTags}, correspondents=${options.restrictToExistingCorrespondents}`);
+  console.log(`[DEBUG] Building update data with restrictions: tags=${options.restrictToExistingTags}, correspondents=${options.restrictToExistingCorrespondents}, documentTypes=${options.restrictToExistingDocumentTypes}`);
 
   // Only process tags if tagging is activated
   if (config.limitFunctions?.activateTagging !== 'no') {
@@ -1652,7 +1653,7 @@ async function buildUpdateData(analysis, doc) {
   // Only process document type if document type classification is activated
   if (config.limitFunctions?.activateDocumentType !== 'no' && analysis.document.document_type) {
     try {
-      const documentType = await paperlessService.getOrCreateDocumentType(analysis.document.document_type);
+      const documentType = await paperlessService.getOrCreateDocumentType(analysis.document.document_type, options);
       if (documentType) {
         updateData.document_type = documentType.id;
       }
