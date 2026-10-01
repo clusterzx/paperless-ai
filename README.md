@@ -31,7 +31,7 @@ Version 4 is rebuilt from scratch with a focus on reliability, speed and low res
 | RAG answers | not streamed, no references | **streamed**, **cited sources** `[1]`, follow-up questions |
 | Index updates | full re-crawl & re-embed | **incremental** (changed/deleted documents only) |
 | Settings | written to `.env`, container restart required | validated, **applied instantly** – no restart |
-| Paperless-ngx | 2.x | **2.x and 3.x** (API version negotiated automatically) |
+| Paperless-ngx | 2.x | **2.x and 3.x** (API version negotiated automatically, verified against 2.14, 2.20 and 3.2) |
 | Undo | only “forget processing state” | **real undo** – restores the original values in Paperless |
 
 Upgrading from 3.x is automatic: your `data/.env`, user account, processing state, history and token statistics are migrated on first start (the old files are kept untouched).
@@ -138,7 +138,7 @@ Self-signed certificates for Paperless/AI endpoints: mount your CA and set `NODE
 
 | Option | Notes |
 | --- | --- |
-| **Local** (default) | `Xenova/multilingual-e5-small` (~120 MB, downloaded once to `data/models`), 100+ languages, runs on the CPU in a worker thread and is unloaded when idle |
+| **Local** (default) | `Xenova/multilingual-e5-small` (~120 MB, downloaded once to `data/models`), 100+ languages incl. cross-lingual search, runs on the CPU in a worker thread (≈ 0.5 GB RAM while indexing, released after 5 minutes idle) |
 | Ollama | e.g. `nomic-embed-text`, `bge-m3`, `mxbai-embed-large` (`ollama pull …`) |
 | OpenAI / OpenAI-compatible / Azure | e.g. `text-embedding-3-small` |
 | None | keyword search only (BM25) – smallest footprint |
@@ -159,6 +159,8 @@ npm run dev          # backend (tsx watch, port 3000) + web UI (Vite, port 5173)
 npm run demo         # demo with a fake Paperless-ngx and a fake LLM: http://127.0.0.1:3456 (admin / demo1234)
 npm run check        # typecheck + lint + unit/integration tests
 npm run test:e2e     # Playwright end-to-end tests (uses the demo server)
+# compatibility check against a real (disposable!) Paperless-ngx instance:
+PAPERLESS_URL=http://localhost:8000 PAPERLESS_TOKEN=… npx tsx e2e/real-paperless-check.ts
 npm run build && npm start
 ```
 

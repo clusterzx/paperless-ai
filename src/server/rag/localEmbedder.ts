@@ -50,6 +50,8 @@ export class LocalEmbedder implements EmbeddingClient {
       this.waiting.delete(msg.id);
       if (msg.error) pending.reject(new AiError(`Local embedding failed: ${msg.error}`));
       else pending.resolve(msg.vectors ?? []);
+      // An idle worker must not keep the process alive; a busy one must.
+      if (!this.waiting.size) worker.unref();
     });
     worker.on('error', (err) => {
       log.error({ err }, 'Embedding worker crashed');
@@ -87,6 +89,7 @@ export class LocalEmbedder implements EmbeddingClient {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.waiting.set(id, { resolve, reject });
+      worker.ref();
       worker.postMessage({ id, texts });
     });
   }
