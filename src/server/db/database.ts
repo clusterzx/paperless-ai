@@ -124,6 +124,12 @@ const MIGRATIONS: Migration[] = [
         );
       `),
   },
+  {
+    version: 3,
+    name: 'rag pending embeddings index',
+    // Finding/counting passages without embedding must not scan the whole (large) chunk table.
+    up: (db) => db.exec(`CREATE INDEX rag_chunks_pending ON rag_chunks(id) WHERE embedding IS NULL;`),
+  },
 ];
 
 export function openDatabase(file: string): Db {

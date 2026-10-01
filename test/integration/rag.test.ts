@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ChatStreamEvent, RagSource } from '../../src/shared/api.js';
 import { createHarness, parseSsePayload, waitFor, type Harness } from '../helpers/appHarness.js';
 import type { ChatRequestInfo } from '../helpers/mockLlm.js';
+import { RagService } from '../../src/server/rag/service.js';
 
 const LONG_CONTENT = Array.from(
   { length: 40 },
@@ -113,6 +114,18 @@ describe('RAG with embeddings (hybrid search)', () => {
     expect(res.sources[0].documentId).toBe(2);
     const doctor = await search(h, { query: 'physician visit' });
     expect(doctor.sources[0].documentId).toBe(3);
+  });
+
+  it('loads the stored vectors after a restart', async () => {
+    const fresh = new RagService(h.ctx);
+    try {
+      const res = await fresh.search('automobile coverage');
+      expect(res.mode).toBe('hybrid');
+      expect(res.documents[0].documentId).toBe(2);
+      expect(fresh.status()).toMatchObject({ vectorSearch: true, embedded: h.rag.status().chunks });
+    } finally {
+      await fresh.stop();
+    }
   });
 
   it('applies filters', async () => {

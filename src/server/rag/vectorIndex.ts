@@ -28,7 +28,9 @@ export function toBlob(v: Float32Array): Buffer {
 }
 
 export function fromBlob(b: Buffer | Uint8Array): Float32Array {
-  // Copy to guarantee 4-byte alignment.
+  // A view when the bytes are 4-byte aligned, otherwise a copy. The result shares memory with the
+  // blob – callers that keep it must copy (VectorIndex quantises it immediately).
+  if (b.byteOffset % 4 === 0) return new Float32Array(b.buffer, b.byteOffset, b.byteLength / 4);
   const copy = new Uint8Array(b.byteLength);
   copy.set(b);
   return new Float32Array(copy.buffer);

@@ -153,21 +153,24 @@ export const documentRoutes =
 
     const legacyHistory = new Map<string, { turns: ChatTurn[]; at: number }>();
     const historyKey = (id: number, who: string) => `${who}:${id}`;
-    const prune = () => {
+    // Conversations expire after an hour; at most 500 are kept (oldest dropped first).
+    const remember = (key: string, entry: { turns: ChatTurn[]; at: number }) => {
       const cutoff = Date.now() - 3600_000;
       for (const [k, v] of legacyHistory) if (v.at < cutoff) legacyHistory.delete(k);
+      legacyHistory.delete(key);
+      legacyHistory.set(key, entry);
+      while (legacyHistory.size > 500) legacyHistory.delete(legacyHistory.keys().next().value!);
     };
     const who = (p: Principal | null) => (p?.kind === 'user' ? `u${p.userId}` : 'key');
 
     app.get('/chat/init/:id', { schema: { hide: true, params: z.object({ id: z.coerce.number().int().positive() }) } }, async (req) => {
-      prune();
       const doc = await ctx.paperless().getDocument(req.params.id);
-      legacyHistory.set(historyKey(doc.id, who(req.principal)), { turns: [], at: Date.now() });
+      remember(historyKey(doc.id, who(req.principal)), { turns: [], at: Date.now() });
       return { documentTitle: doc.title, initialized: true };
     });
     app.get('/chat/init', { schema: { hide: true, querystring: z.object({ documentId: z.coerce.number().int().positive() }) } }, async (req) => {
       const doc = await ctx.paperless().getDocument(req.query.documentId);
-      legacyHistory.set(historyKey(doc.id, who(req.principal)), { turns: [], at: Date.now() });
+      remember(historyKey(doc.id, who(req.principal)), { turns: [], at: Date.now() });
       return { documentTitle: doc.title, initialized: true };
     });
 
@@ -191,7 +194,7 @@ export const documentRoutes =
               entry.turns.push({ role: 'user', content: req.body.message }, { role: 'assistant', content: answer });
               entry.turns.splice(0, Math.max(0, entry.turns.length - 20));
               entry.at = Date.now();
-              legacyHistory.set(key, entry);
+              remember(key, entry);
               return 'data: [DONE]\n\n';
             }
             return '';

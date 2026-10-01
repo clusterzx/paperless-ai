@@ -93,7 +93,7 @@ describe('migrations', () => {
   it('creates the schema and records applied migrations', () => {
     const db = memoryDb();
     const versions = (db.prepare('SELECT version FROM schema_migrations ORDER BY version').all() as { version: number }[]).map((r) => r.version);
-    expect(versions).toEqual([1, 2]);
+    expect(versions).toEqual([1, 2, 3]);
     const tables = (db.prepare(`SELECT name FROM sqlite_master WHERE type IN ('table')`).all() as { name: string }[]).map((t) => t.name);
     for (const t of ['users', 'documents', 'history', 'usage', 'kv', 'rag_documents', 'rag_chunks', 'rag_fts']) expect(tables).toContain(t);
   });
@@ -102,7 +102,7 @@ describe('migrations', () => {
     const db = memoryDb();
     migrate(db);
     migrate(db);
-    expect((db.prepare('SELECT COUNT(*) AS c FROM schema_migrations').get() as { c: number }).c).toBe(2);
+    expect((db.prepare('SELECT COUNT(*) AS c FROM schema_migrations').get() as { c: number }).c).toBe(3);
   });
 
   it('persists to a file and reopens without re-running migrations', () => {

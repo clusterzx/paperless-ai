@@ -32,6 +32,7 @@ const RRF_K = 60;
 const CANDIDATES = 80;
 const FETCH_BATCH = 25;
 const EMBED_BATCH = 64;
+const VECTOR_LOAD_BATCH = 2000;
 
 /** Remove [n] citation markers (and the space before them) from earlier answers. */
 const stripCitations = (text: string) => text.replace(/\s*\[\d+\](\[\d+\])*/g, '');
@@ -61,6 +62,8 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
   readonly store: RagStore;
   private readonly vectors = new VectorIndex();
   private vectorsLoaded = false;
+  private vectorsLoading: Promise<void> | null = null;
+  private vectorGeneration = 0;
   private embedder: { key: string; client: EmbeddingClient } | null = null;
   private syncing: Promise<void> | null = null;
   private abort: AbortController | null = null;
@@ -91,6 +94,8 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
   start(): void {
     this.stopped = false;
     this.schedule();
+    // Load the vector index in the background so that the first question does not wait for it.
+    if (this.enabled) setImmediate(() => void this.ensureVectors().catch((err: unknown) => log.warn(`Loading the vector index failed: ${describeError(err)}`)));
     if (this.enabled && this.ctx.isConfigured()) {
       setTimeout(() => void this.sync().catch(() => undefined), 10_000).unref();
     }
@@ -165,34 +170,54 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     return client;
   }
 
-  /** Make sure the stored embeddings belong to the configured model; load them into memory. */
-  private ensureVectors(): void {
+  /** Make sure the stored embeddings belong to the configured model and are loaded into memory. */
+  private async ensureVectors(): Promise<void> {
     const key = this.embeddingKey(this.cfg);
     const storedKey = this.ctx.repos.kv.get<string>('rag_embedding_key');
     if (storedKey !== key) {
       if (storedKey) log.info(`Embedding model changed (${storedKey} → ${key}) – passages will be re-embedded`);
+      this.resetVectors();
       this.store.clearEmbeddings();
-      this.vectors.clear();
       this.ctx.repos.kv.set('rag_embedding_key', key);
       this.vectorsLoaded = true;
       return;
     }
     if (this.vectorsLoaded) return;
+    this.vectorsLoading ??= this.loadVectors().finally(() => (this.vectorsLoading = null));
+    return this.vectorsLoading;
+  }
+
+  /** Forget the in-memory vectors (an unfinished load is abandoned). */
+  private resetVectors(): void {
+    this.vectorGeneration++;
+    this.vectorsLoading = null;
+    this.vectorsLoaded = false;
+    this.vectors.clear();
+  }
+
+  /**
+   * Load the stored vectors page by page and yield to the event loop in between – large archives
+   * (hundreds of thousands of passages) must not block other requests while loading.
+   */
+  private async loadVectors(): Promise<void> {
+    const generation = ++this.vectorGeneration;
     const started = Date.now();
     this.vectors.clear();
-    let mismatched = false;
-    for (const row of this.store.iterateEmbeddings()) {
+    let afterId = 0;
+    for (;;) {
+      const rows = this.store.embeddingsAfter(afterId, VECTOR_LOAD_BATCH);
       try {
-        this.vectors.add(row.id, row.documentId, row.vector);
+        for (const row of rows) this.vectors.add(row.id, row.documentId, row.vector);
       } catch {
-        mismatched = true;
+        log.warn('Stored embeddings have inconsistent dimensions – re-embedding all passages');
+        this.store.clearEmbeddings();
+        this.vectors.clear();
         break;
       }
-    }
-    if (mismatched) {
-      log.warn('Stored embeddings have inconsistent dimensions – re-embedding all passages');
-      this.store.clearEmbeddings();
-      this.vectors.clear();
+      if (rows.length < VECTOR_LOAD_BATCH) break;
+      afterId = rows[rows.length - 1].id;
+      await new Promise((resolve) => setImmediate(resolve));
+      if (generation !== this.vectorGeneration) return; // reset meanwhile (rebuild, model change)
     }
     this.vectorsLoaded = true;
     if (this.vectors.count) {
@@ -259,9 +284,8 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     this.abort?.abort(new Error('rebuild requested'));
     await this.syncing?.catch(() => undefined);
     this.store.clear();
-    this.vectors.clear();
+    this.resetVectors();
     this.ctx.repos.kv.delete('rag_embedding_key');
-    this.vectorsLoaded = false;
     void this.sync({ full: true });
   }
 
@@ -274,7 +298,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     if (!this.ctx.isConfigured()) throw new Error('Setup is not complete');
     const started = Date.now();
     this.lastError = null;
-    this.ensureVectors();
+    await this.ensureVectors();
     const client = this.ctx.paperless();
     const metadata = this.ctx.metadata();
 
@@ -395,7 +419,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     opts: { filters?: SearchFilters; limit?: number; keywords?: string[]; signal?: AbortSignal } = {},
   ): Promise<SearchResult> {
     const started = Date.now();
-    if (this.enabled) this.ensureVectors();
+    if (this.enabled) await this.ensureVectors();
     const keywords = opts.keywords ?? [];
     const terms = queryTerms(keywords.length ? `${question} ${keywords.join(' ')}` : question, 32);
     const limit = opts.limit ?? this.cfg.rag.topK;

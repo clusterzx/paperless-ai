@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { analysisJson, createHarness, type Harness, type HarnessOptions } from '../helpers/appHarness.js';
 import type { ChatRequestInfo } from '../helpers/mockLlm.js';
 
@@ -174,6 +174,24 @@ describe('automatic processing', () => {
     expect(hh.paperless.patches()).toHaveLength(0);
     expect(hh.ctx.repos.documents.get(1)!.status).toBe('processed');
     expect(hh.ctx.repos.history.list({}).total).toBe(0);
+  });
+
+  it('never changes a document twice when saving the history fails after the update', async () => {
+    const hh = await harness();
+    hh.paperless.addDocument({ id: 1, title: 'scan.pdf', content: 'Unremarkable document content here', created: '2024-05-05' });
+    hh.llm.reply(analysisJson({ title: 'New title' }));
+    const spy = vi.spyOn(hh.ctx.repos.history, 'add').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    try {
+      await scan(hh);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(hh.paperless.patches()).toHaveLength(1);
+    expect(hh.ctx.repos.documents.get(1)!.status).toBe('processed');
+    expect(await scan(hh)).toBe(0);
+    expect(hh.paperless.patches()).toHaveLength(1);
   });
 
   it('marks failures, retries them on later scans up to maxAttempts and again after a change', async () => {

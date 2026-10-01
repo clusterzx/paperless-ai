@@ -106,10 +106,22 @@ describe('RagStore', () => {
     expect(store.pendingEmbeddings(10).map((p) => p.id)).toEqual([ids[1]]);
     expect([...store.embeddings(ids).get(ids[0])!]).toEqual([1, 2, 3]);
     expect(store.embeddings(ids).has(ids[1])).toBe(false);
-    expect([...store.iterateEmbeddings()].map((e) => [e.id, e.documentId, [...e.vector]])).toEqual([[ids[0], 1, [1, 2, 3]]]);
-    expect(store.stats().embedded).toBe(1);
+    expect(store.embeddingsAfter(0, 10).map((e) => [e.id, e.documentId, [...e.vector]])).toEqual([[ids[0], 1, [1, 2, 3]]]);
+    expect(store.embeddingsAfter(ids[0], 10)).toEqual([]);
+    expect(store.stats()).toEqual({ documents: 1, chunks: 2, embedded: 1 });
     store.clearEmbeddings();
     expect(store.countPendingEmbeddings()).toBe(2);
+    expect(store.stats()).toEqual({ documents: 1, chunks: 2, embedded: 0 });
+    store.deleteDocument(1);
+    expect(store.stats()).toEqual({ documents: 0, chunks: 0, embedded: 0 });
+  });
+
+  it('finds passages without embedding through the partial index', () => {
+    const plan = (sql: string) => (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as { detail: string }[]).map((r) => r.detail).join(' | ');
+    expect(plan('SELECT COUNT(*) FROM rag_chunks WHERE embedding IS NULL')).toContain('rag_chunks_pending');
+    expect(plan('SELECT c.id FROM rag_chunks c JOIN rag_documents d ON d.id = c.document_id WHERE c.embedding IS NULL ORDER BY c.id LIMIT 10')).toContain(
+      'rag_chunks_pending',
+    );
   });
 
   it('filters documents by metadata', () => {

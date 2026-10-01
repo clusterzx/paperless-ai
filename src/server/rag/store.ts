@@ -43,7 +43,15 @@ export function metaLine(d: Pick<RagDocumentMeta, 'title' | 'correspondent' | 'd
 }
 
 export class RagStore {
+  /** Results of aggregate queries, dropped on every change (status is polled frequently). */
+  private readonly cache = new Map<string, unknown>();
+
   constructor(private readonly db: Db) {}
+
+  private cached<T>(key: string, compute: () => T): T {
+    if (!this.cache.has(key)) this.cache.set(key, compute());
+    return this.cache.get(key) as T;
+  }
 
   /** id → modified/hash/meta of all indexed documents (for change detection). */
   indexedDocuments(): Map<number, { modified: string | null; meta: string; contentHash: string }> {
@@ -64,6 +72,7 @@ export class RagStore {
 
   /** Replace a document and its passages. Returns the ids of the new chunks. */
   upsertDocument(doc: RagDocumentMeta, chunks: string[]): number[] {
+    this.cache.clear();
     return this.db.transaction(() => {
       this.deleteDocumentRows(doc.id);
       this.db
@@ -95,10 +104,12 @@ export class RagStore {
   }
 
   deleteDocument(documentId: number): number[] {
+    this.cache.clear();
     return this.db.transaction(() => this.deleteDocumentRows(documentId))();
   }
 
   clear(): void {
+    this.cache.clear();
     this.db.transaction(() => {
       this.db.exec(`DELETE FROM rag_chunks; DELETE FROM rag_documents; DELETE FROM rag_fts;`);
     })();
@@ -121,10 +132,11 @@ export class RagStore {
   }
 
   countPendingEmbeddings(): number {
-    return (this.db.prepare('SELECT COUNT(*) AS c FROM rag_chunks WHERE embedding IS NULL').get() as { c: number }).c;
+    return this.cached('pending', () => (this.db.prepare('SELECT COUNT(*) AS c FROM rag_chunks WHERE embedding IS NULL').get() as { c: number }).c);
   }
 
   saveEmbeddings(items: { id: number; vector: Float32Array }[]): void {
+    this.cache.delete('pending');
     const stmt = this.db.prepare('UPDATE rag_chunks SET embedding = ? WHERE id = ?');
     this.db.transaction(() => {
       for (const it of items) stmt.run(toBlob(it.vector), it.id);
@@ -132,15 +144,16 @@ export class RagStore {
   }
 
   clearEmbeddings(): void {
+    this.cache.clear();
     this.db.prepare('UPDATE rag_chunks SET embedding = NULL').run();
   }
 
-  /** Iterate all stored embeddings (used to build the in-memory vector index). */
-  *iterateEmbeddings(): Generator<{ id: number; documentId: number; vector: Float32Array }> {
-    const stmt = this.db.prepare('SELECT id, document_id AS documentId, embedding FROM rag_chunks WHERE embedding IS NOT NULL');
-    for (const row of stmt.iterate() as Iterable<{ id: number; documentId: number; embedding: Buffer }>) {
-      yield { id: row.id, documentId: row.documentId, vector: fromBlob(row.embedding) };
-    }
+  /** Stored embeddings with an id above `afterId`, in id order (pages for building the in-memory index). */
+  embeddingsAfter(afterId: number, limit: number): { id: number; documentId: number; vector: Float32Array }[] {
+    const rows = this.db
+      .prepare('SELECT id, document_id AS documentId, embedding FROM rag_chunks WHERE id > ? AND embedding IS NOT NULL ORDER BY id LIMIT ?')
+      .all(afterId, limit) as { id: number; documentId: number; embedding: Buffer }[];
+    return rows.map((row) => ({ id: row.id, documentId: row.documentId, vector: fromBlob(row.embedding) }));
   }
 
   embeddings(ids: number[]): Map<number, Float32Array> {
@@ -261,15 +274,20 @@ export class RagStore {
   }
 
   distinctValues(column: 'correspondent' | 'document_type'): string[] {
-    return (
-      this.db.prepare(`SELECT DISTINCT ${column} AS v FROM rag_documents WHERE ${column} IS NOT NULL AND ${column} != ''`).all() as { v: string }[]
-    ).map((r) => r.v);
+    return this.cached(`distinct:${column}`, () =>
+      (this.db.prepare(`SELECT DISTINCT ${column} AS v FROM rag_documents WHERE ${column} IS NOT NULL AND ${column} != ''`).all() as { v: string }[]).map(
+        (r) => r.v,
+      ),
+    );
   }
 
   stats(): { documents: number; chunks: number; embedded: number } {
-    const d = (this.db.prepare('SELECT COUNT(*) AS c FROM rag_documents').get() as { c: number }).c;
-    const c = this.db.prepare('SELECT COUNT(*) AS c, COUNT(embedding) AS e FROM rag_chunks').get() as { c: number; e: number };
-    return { documents: d, chunks: c.c, embedded: c.e };
+    // Counts from the small documents table and the pending-embeddings index – never a scan over all passages.
+    const { documents, chunks } = this.cached('counts', () => {
+      const r = this.db.prepare('SELECT COUNT(*) AS d, COALESCE(SUM(chunk_count), 0) AS c FROM rag_documents').get() as { d: number; c: number };
+      return { documents: r.d, chunks: r.c };
+    });
+    return { documents, chunks, embedded: chunks - this.countPendingEmbeddings() };
   }
 }
 

@@ -146,6 +146,8 @@ Self-signed certificates for Paperless/AI endpoints: mount your CA and set `NODE
 
 Changing the embedding model re-embeds the passages automatically; the keyword search keeps working meanwhile.
 
+Memory: the vector index keeps one byte per dimension and passage in RAM (a document has about one passage per 1,000 characters) – e.g. 100,000 passages need ≈ 40 MB with the local model (384 dimensions) and ≈ 155 MB with `text-embedding-3-small` (1,536 dimensions).
+
 **Smart search terms** (on by default, `RAG_QUERY_EXPANSION=false` to disable): before searching, the AI adds a few search terms to the question – synonyms, names and translations into the language of your archive. This costs one short extra AI call per question and noticeably improves the hit rate, especially when you ask in a different language than your documents are written in.
 
 Retrieval quality, measured with `npx tsx e2e/rag-eval/run.ts` (49 German/English documents, 27 questions in both languages; “hit@k” = the right document is among the first k sources the AI sees):

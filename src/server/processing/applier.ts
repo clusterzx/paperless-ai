@@ -84,6 +84,8 @@ export function convertCustomFieldValue(field: PaperlessCustomField, value: stri
       return `${cur}${n.toFixed(2)}`;
     }
     case 'select': {
+      // Paperless < 2.15 stores plain string options and the option index as value; newer
+      // versions use {id, label} options and the option id.
       const options = field.extra_data?.select_options ?? [];
       const idx = options.findIndex((o) => normalizeName(typeof o === 'string' ? o : o.label) === normalizeName(v));
       if (idx < 0) return undefined;
@@ -285,6 +287,23 @@ export interface ApplyMeta {
 export async function applyPlannedUpdate(ctx: AppContext, doc: PaperlessDocument, plan: PlannedUpdate, info: ApplyMeta): Promise<PaperlessDocument> {
   const hasChanges = Object.keys(plan.patch).length > 0;
   const updated = hasChanges ? await ctx.paperless().updateDocument(doc.id, plan.patch) : doc;
+  try {
+    // Undo snapshot and processing state are stored together (or not at all).
+    ctx.db.transaction(() => recordApplied(ctx, doc, updated, plan, info, hasChanges))();
+  } catch (err) {
+    // Paperless was changed already: never process (and change) the document a second time.
+    log.error({ err, documentId: doc.id }, `Document ${doc.id} was updated in Paperless, but the history could not be saved`);
+    try {
+      ctx.repos.documents.markProcessed(doc.id, updated.title ?? doc.title, updated.modified ?? null);
+    } catch {
+      /* database unavailable – logged above */
+    }
+  }
+  if (plan.notes.length) log.info({ documentId: doc.id, notes: plan.notes }, `Document ${doc.id}: ${plan.notes.join('; ')}`);
+  return updated;
+}
+
+function recordApplied(ctx: AppContext, doc: PaperlessDocument, updated: PaperlessDocument, plan: PlannedUpdate, info: ApplyMeta, hasChanges: boolean): void {
   if (hasChanges) {
     ctx.repos.history.add({
       documentId: doc.id,
@@ -305,8 +324,6 @@ export async function applyPlannedUpdate(ctx: AppContext, doc: PaperlessDocument
     });
   }
   ctx.repos.documents.markProcessed(doc.id, updated.title ?? doc.title, updated.modified ?? null);
-  if (plan.notes.length) log.info({ documentId: doc.id, notes: plan.notes }, `Document ${doc.id}: ${plan.notes.join('; ')}`);
-  return updated;
 }
 
 /**
