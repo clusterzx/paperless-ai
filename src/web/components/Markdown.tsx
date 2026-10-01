@@ -5,7 +5,19 @@ import { cn } from '../lib/format';
 
 marked.setOptions({ gfm: true, breaks: true });
 
-/** Replace "[n]" citation markers in text nodes with clickable chips. */
+/**
+ * Answers contain text from documents and the model – no styles, forms or embedded content.
+ * Table alignment uses the `align` attribute (styled in styles.css), so inline styles are not needed.
+ */
+const PURIFY = {
+  USE_PROFILES: { html: true },
+  FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'dialog', 'iframe', 'object', 'embed'],
+  FORBID_ATTR: ['style'],
+};
+/** Second pass after the citation chips were added – they are the only buttons left. */
+const PURIFY_WITH_CITES = { ...PURIFY, FORBID_TAGS: PURIFY.FORBID_TAGS.filter((t) => t !== 'button') };
+
+/** Replace "[n]" citation markers in text nodes with clickable chips (built with DOM APIs, text only). */
 function linkCitations(html: string, maxCitation: number): string {
   if (!maxCitation) return html;
   const tpl = document.createElement('template');
@@ -53,8 +65,9 @@ export const Markdown = memo(function Markdown({
 }) {
   const html = useMemo(() => {
     const raw = marked.parse(text, { async: false }) as string;
-    const clean = DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
-    return linkCitations(clean, citations);
+    // Sanitize first so the content itself cannot bring buttons, then sanitize the final markup once more.
+    const clean = DOMPurify.sanitize(raw, PURIFY);
+    return citations ? DOMPurify.sanitize(linkCitations(clean, citations), PURIFY_WITH_CITES) : clean;
   }, [text, citations]);
   return (
     <div
@@ -63,7 +76,10 @@ export const Markdown = memo(function Markdown({
         const el = (e.target as HTMLElement).closest<HTMLElement>('[data-cite]');
         if (el && onCite) onCite(Number(el.dataset.cite));
         const a = (e.target as HTMLElement).closest('a');
-        if (a) a.setAttribute('target', '_blank');
+        if (a) {
+          a.setAttribute('target', '_blank');
+          a.setAttribute('rel', 'noopener noreferrer');
+        }
       }}
       dangerouslySetInnerHTML={{ __html: html }}
     />

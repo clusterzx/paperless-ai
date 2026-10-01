@@ -45,7 +45,9 @@ export default function PlaygroundPage() {
   const [query, setQuery] = useState('');
   const q = useDebounced(query, 400);
   const docs = useAsync((signal) => get<DocumentSummary[]>(`/api/playground/documents${qs({ limit: 16, query: q })}`, signal), [q]);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Selected documents (kept across searches once the user picked them) – shown first and analyzed.
+  const [selected, setSelected] = useState<Map<number, DocumentSummary>>(new Map());
+  const pickedManually = useRef(false);
   const [runs, setRuns] = useState<Record<number, RunState>>({});
   const [running, setRunning] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
@@ -57,12 +59,25 @@ export default function PlaygroundPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.data]);
   useEffect(() => {
-    if (docs.data) setSelected(new Set(docs.data.slice(0, 6).map((d) => d.id)));
+    if (docs.data && !pickedManually.current) setSelected(new Map(docs.data.slice(0, 6).map((d) => [d.id, d])));
   }, [docs.data]);
+  const pick = (fn: (prev: Map<number, DocumentSummary>) => Map<number, DocumentSummary>) => {
+    pickedManually.current = true;
+    setSelected(fn);
+  };
+  const results = docs.data ?? [];
+  const shownDocs = [...[...selected.values()].filter((d) => !results.some((r) => r.id === d.id)), ...results];
 
   const stopRef = useRef(false);
+  // Leaving the page stops a running batch (no more model calls in the background).
+  useEffect(
+    () => () => {
+      stopRef.current = true;
+    },
+    [],
+  );
   const run = async () => {
-    const ids = (docs.data ?? []).filter((d) => selected.has(d.id)).map((d) => d.id);
+    const ids = [...selected.keys()];
     if (!ids.length) return toast.info('Select at least one document');
     setRunning(true);
     setStopRequested(false);
@@ -112,7 +127,7 @@ export default function PlaygroundPage() {
           </>
         }
       />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,26rem)_1fr]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
         <div className="space-y-4">
           <Card
             title="Prompt"
@@ -190,12 +205,12 @@ export default function PlaygroundPage() {
           title="Documents"
           description="Select the documents to test with"
           actions={
-            <div className="flex items-center gap-2">
-              <Input className="h-8 w-48 py-1 text-xs" placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
-              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set((docs.data ?? []).map((d) => d.id)))}>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input className="h-8 w-full py-1 text-xs sm:w-48" placeholder="Search…" aria-label="Search documents" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <Button size="sm" variant="ghost" onClick={() => pick((sel) => new Map([...sel, ...results.map((d) => [d.id, d] as const)]))}>
                 All
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+              <Button size="sm" variant="ghost" onClick={() => pick(() => new Map())}>
                 None
               </Button>
             </div>
@@ -208,11 +223,11 @@ export default function PlaygroundPage() {
                 <Skeleton key={i} className="h-64 rounded-xl" />
               ))}
             </div>
-          ) : !docs.data?.length ? (
+          ) : !shownDocs.length ? (
             <EmptyState title="No documents found" />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-              {docs.data.map((d) => {
+              {shownDocs.map((d) => {
                 const r = runs[d.id];
                 const s = r?.result?.suggestion;
                 const currentTags = d.tags.map((t) => meta.tagName(t).toLowerCase());
@@ -229,10 +244,10 @@ export default function PlaygroundPage() {
                     <button
                       className="relative isolate h-32 overflow-hidden bg-surface-2"
                       onClick={() =>
-                        setSelected((set) => {
-                          const n = new Set(set);
+                        pick((sel) => {
+                          const n = new Map(sel);
                           if (n.has(d.id)) n.delete(d.id);
-                          else n.add(d.id);
+                          else n.set(d.id, d);
                           return n;
                         })
                       }

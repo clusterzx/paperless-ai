@@ -5,7 +5,7 @@ import type { ConnectionTestResult } from '@shared/api';
 import { errorMessage, post } from '../lib/api';
 import { getIn, SECRET_MASK, type Setter } from '../lib/draft';
 import { cn } from '../lib/format';
-import { Alert, Badge, Button, Field, Input, Select, Switch, TagInput, Textarea } from './ui';
+import { Alert, Badge, Button, Field, Input, NumberInput, Select, Switch, TagInput, Textarea } from './ui';
 
 export type Config = AppConfig;
 export type Locked = Record<string, string>;
@@ -44,19 +44,44 @@ export function TestResult({ result }: { result: ConnectionTestResult | null }) 
   );
 }
 
-/** Password-style input for secrets; an already stored secret is shown as a placeholder. */
+/**
+ * Password-style input for secrets; an already stored secret is shown as a placeholder.
+ * Emptying the field keeps the stored secret – only "Clear" removes it.
+ */
 export function SecretInput({ value, onChange, disabled, placeholder, id }: { value: string; onChange: (v: string) => void; disabled?: boolean; placeholder?: string; id?: string }) {
   const stored = value === SECRET_MASK;
+  // Remembered while the user types over the stored secret; reset by "Clear", set again by discard/save.
+  const [hasStored, setHasStored] = useState(stored);
+  const [cleared, setCleared] = useState(false);
+  if (stored && !hasStored) {
+    setHasStored(true);
+    setCleared(false);
+  }
   return (
-    <Input
-      id={id}
-      type="password"
-      autoComplete="new-password"
-      disabled={disabled}
-      value={stored ? '' : value}
-      placeholder={stored ? 'Stored – leave empty to keep the current value' : placeholder}
-      onChange={(e) => onChange(e.target.value === '' && stored ? SECRET_MASK : e.target.value)}
-    />
+    <div className="flex gap-2">
+      <Input
+        id={id}
+        type="password"
+        autoComplete="new-password"
+        disabled={disabled}
+        value={stored ? '' : value}
+        placeholder={stored ? 'Stored – leave empty to keep the current value' : cleared ? 'Removed when you save' : placeholder}
+        onChange={(e) => onChange(e.target.value === '' && hasStored ? SECRET_MASK : e.target.value)}
+      />
+      {hasStored && !disabled && (
+        <Button
+          variant="ghost"
+          title="Remove the stored value"
+          onClick={() => {
+            setHasStored(false);
+            setCleared(true);
+            onChange('');
+          }}
+        >
+          Clear
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -66,6 +91,10 @@ function bind(draft: Config, set: Setter, locked: Locked, path: string) {
     onChange: (e: { target: { value: string } }) => set(path, e.target.value),
     disabled: Boolean(locked[path]),
   };
+}
+
+function bindNumber(draft: Config, set: Setter, locked: Locked, path: string) {
+  return { value: Number(getIn(draft, path) ?? 0), onChange: (v: number) => set(path, v), disabled: Boolean(locked[path]) };
 }
 
 export function FormGrid({ children, className }: { children: ReactNode; className?: string }) {
@@ -237,16 +266,16 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
         <summary className="cursor-pointer text-sm font-medium text-fg select-none">Advanced model settings</summary>
         <FormGrid className="mt-4 lg:grid-cols-4">
           <Field label="Context window (tokens)" locked={locked['ai.tokenLimit']} hint="Long documents are truncated to fit.">
-            <Input type="number" min={1024} {...bind(draft, set, locked, 'ai.tokenLimit')} onChange={(e) => set('ai.tokenLimit', Number(e.target.value))} />
+            <NumberInput min={1024} {...bindNumber(draft, set, locked, 'ai.tokenLimit')} />
           </Field>
           <Field label="Answer tokens" locked={locked['ai.responseTokens']} hint="Reserved for the model's answer.">
-            <Input type="number" min={100} {...bind(draft, set, locked, 'ai.responseTokens')} onChange={(e) => set('ai.responseTokens', Number(e.target.value))} />
+            <NumberInput min={100} {...bindNumber(draft, set, locked, 'ai.responseTokens')} />
           </Field>
           <Field label="Temperature" locked={locked['ai.temperature']} hint="Low values = consistent results.">
-            <Input type="number" min={0} max={2} step={0.1} {...bind(draft, set, locked, 'ai.temperature')} onChange={(e) => set('ai.temperature', Number(e.target.value))} />
+            <NumberInput min={0} max={2} step={0.1} {...bindNumber(draft, set, locked, 'ai.temperature')} />
           </Field>
           <Field label="Timeout (seconds)" locked={locked['ai.timeoutSeconds']}>
-            <Input type="number" min={10} {...bind(draft, set, locked, 'ai.timeoutSeconds')} onChange={(e) => set('ai.timeoutSeconds', Number(e.target.value))} />
+            <NumberInput min={10} {...bindNumber(draft, set, locked, 'ai.timeoutSeconds')} />
           </Field>
         </FormGrid>
       </details>
@@ -303,7 +332,7 @@ export function ProcessingSection({ draft, set, locked, tagSuggestions = [] }: S
           </div>
         </Field>
         <Field label="Parallel analyses" locked={locked['processing.concurrency']} hint="Use 1 for local models; cloud APIs can handle 2–4.">
-          <Input type="number" min={1} max={8} {...bind(draft, set, locked, 'processing.concurrency')} onChange={(e) => set('processing.concurrency', Number(e.target.value))} />
+          <NumberInput min={1} max={8} {...bindNumber(draft, set, locked, 'processing.concurrency')} />
         </Field>
       </FormGrid>
 
@@ -348,7 +377,7 @@ export function ProcessingSection({ draft, set, locked, tagSuggestions = [] }: S
 
       <FormGrid>
         <Field label="Retries for failed documents" locked={locked['processing.maxAttempts']} hint="Failed documents are retried on later scans up to this many times.">
-          <Input type="number" min={1} max={20} {...bind(draft, set, locked, 'processing.maxAttempts')} onChange={(e) => set('processing.maxAttempts', Number(e.target.value))} />
+          <NumberInput min={1} max={20} {...bindNumber(draft, set, locked, 'processing.maxAttempts')} />
         </Field>
       </FormGrid>
     </div>
@@ -562,7 +591,7 @@ export function ExternalApiSection({ draft, set, locked }: SectionProps) {
               </Select>
             </Field>
             <Field label="Timeout (ms)" locked={locked['externalApi.timeoutMs']}>
-              <Input type="number" min={100} {...bind(draft, set, locked, 'externalApi.timeoutMs')} onChange={(ev) => set('externalApi.timeoutMs', Number(ev.target.value))} />
+              <NumberInput min={100} {...bindNumber(draft, set, locked, 'externalApi.timeoutMs')} />
             </Field>
           </FormGrid>
           <FormGrid>
@@ -647,10 +676,10 @@ export function RagSection({ draft, set, locked, localEmbeddings }: SectionProps
           </FormGrid>
           <FormGrid className="lg:grid-cols-3">
             <Field label="Documents per answer" locked={locked['rag.topK']} hint="How many documents are given to the AI.">
-              <Input type="number" min={2} max={40} {...bind(draft, set, locked, 'rag.topK')} onChange={(e) => set('rag.topK', Number(e.target.value))} />
+              <NumberInput min={2} max={40} {...bindNumber(draft, set, locked, 'rag.topK')} />
             </Field>
             <Field label="Context budget (tokens)" locked={locked['rag.contextTokens']} hint="Maximum size of the document excerpts.">
-              <Input type="number" min={1000} {...bind(draft, set, locked, 'rag.contextTokens')} onChange={(e) => set('rag.contextTokens', Number(e.target.value))} />
+              <NumberInput min={1000} {...bindNumber(draft, set, locked, 'rag.contextTokens')} />
             </Field>
             <div className="flex items-end pb-2">
               <Switch label="Keep index up to date automatically" checked={r.autoSync} locked={locked['rag.autoSync']} onChange={(v) => set('rag.autoSync', v)} />

@@ -80,6 +80,8 @@ test('history lists changes and can undo them', async ({ page }) => {
   await page.keyboard.press('Escape');
 
   await row.getByRole('button', { name: 'Undo' }).click();
+  // The confirm button keeps its autoFocus.
+  await expect(page.getByRole('button', { name: 'Undo changes' })).toBeFocused();
   await page.getByRole('button', { name: 'Undo changes' }).click();
   await expect(page.getByText('1 document(s) restored')).toBeVisible();
   await expect(row).toHaveCount(0);
@@ -99,7 +101,7 @@ test('ask your archive answers with cited sources', async ({ page }) => {
   await expect(cite).toBeVisible();
   await cite.click();
   // The conversation is kept in the history.
-  await page.getByRole('button', { name: 'Conversations' }).click();
+  await page.getByRole('button', { name: 'History' }).click();
   await expect(page.getByRole('dialog').getByText('Wie hoch war die letzte Stromrechnung der Stadtwerke?')).toBeVisible();
   await page.keyboard.press('Escape');
 
@@ -150,4 +152,86 @@ test('logs page streams log entries and sign out works', async ({ page }) => {
   await expect(page.getByText(/Processed document \d+/).first()).toBeVisible();
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+});
+
+test('ask survives "New" during an answer and reports interrupted answers', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await login(page);
+  await page.goto('/ask');
+  const composer = page.getByPlaceholder('Ask about your documents…');
+
+  // A stream that stops without a final event is reported instead of looking complete.
+  await page.route('**/api/rag/chat', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/event-stream', body: `data: ${JSON.stringify({ type: 'delta', text: 'Teilantwort' })}\n\n` }),
+  );
+  await composer.fill('Wie hoch war die letzte Stromrechnung?');
+  await composer.press('Enter');
+  await expect(page.getByText('Teilantwort')).toBeVisible();
+  await expect(page.getByText(/connection was interrupted/)).toBeVisible();
+  await page.unroute('**/api/rag/chat');
+
+  // "New" while the answer is still pending starts an empty conversation (used to blank the page).
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/rag/chat', async (route) => {
+    await held;
+    await route.continue().catch(() => undefined);
+  });
+  await composer.fill('Und die davor?');
+  await composer.press('Enter');
+  await expect(page.getByText('Thinking…')).toBeVisible();
+  await page.getByRole('button', { name: 'New chat' }).click();
+  release();
+  await expect(page.getByText('What would you like to know?')).toBeVisible();
+  await page.unroute('**/api/rag/chat');
+  await composer.fill('Wie hoch war die letzte Stromrechnung der Stadtwerke?');
+  await composer.press('Enter');
+  await expect(page.getByText(/finden sich die gesuchten Angaben/)).toBeVisible({ timeout: 20_000 });
+  expect(errors).toEqual([]);
+});
+
+test('modals keep the focus while typing and trap Tab', async ({ page }) => {
+  await login(page);
+  await page.goto('/playground');
+  const open = page.getByRole('button', { name: 'Save & rate' });
+  await expect(open).toBeEnabled();
+  await open.click();
+  const dialog = page.getByRole('dialog', { name: 'Rate this prompt' });
+  const comment = dialog.getByLabel('Comment');
+  await comment.pressSequentially('Works well for invoices');
+  await expect(comment).toHaveValue('Works well for invoices');
+  for (let i = 0; i < 15; i++) await page.keyboard.press('Tab');
+  expect(await dialog.evaluate((el) => el.contains(el.ownerDocument.activeElement))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(open).toBeFocused();
+
+  // No horizontal scrolling on a phone.
+  await page.setViewportSize({ width: 375, height: 800 });
+  await expect(page.getByRole('heading', { name: 'Prompt playground' })).toBeVisible();
+  expect(await page.locator('main').evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+});
+
+test('settings form controls are labelled and keep typed numbers', async ({ page }) => {
+  await login(page);
+  await page.goto('/settings?tab=processing');
+  const parallel = page.getByLabel('Parallel analyses');
+  const before = await parallel.inputValue();
+  await parallel.fill('');
+  await expect(parallel).toHaveValue('');
+  await parallel.blur();
+  await expect(parallel).toHaveValue(before);
+
+  await page.getByRole('switch', { name: 'Only process documents with specific tags' }).click();
+  await expect(page.getByRole('combobox', { name: 'Trigger tags' }).or(page.getByRole('textbox', { name: 'Trigger tags' }))).toBeVisible();
+
+  // Tabs: arrow keys move to the next tab.
+  await page.getByRole('tab', { name: 'Prompt' }).click();
+  await page.getByRole('tab', { name: 'Prompt' }).press('ArrowRight');
+  await expect(page).toHaveURL(/tab=fields/);
+  await expect(page.getByRole('tabpanel', { name: 'Custom fields' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add custom field' }).click();
+  await expect(page.getByRole('combobox', { name: 'Type' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Currency' })).toBeVisible();
 });

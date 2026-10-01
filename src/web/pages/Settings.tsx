@@ -14,9 +14,10 @@ import {
   type Config,
   type Locked,
 } from '../components/settingsForms';
-import { Alert, Button, Card, Field, Input, PageHeader, Skeleton, Tabs, useConfirm, useToast } from '../components/ui';
+import { Alert, Button, Card, Field, Input, PageHeader, Skeleton, Tabs, tabPanelProps, useConfirm, useToast } from '../components/ui';
 import { ApiError, errorMessage, get, post, put } from '../lib/api';
 import { changedPaths, useDraft } from '../lib/draft';
+import { useUnsavedChanges } from '../lib/hooks';
 import { useMetadata } from '../lib/metadata';
 import { useSession } from '../lib/session';
 
@@ -198,12 +199,7 @@ export default function SettingsPage() {
   }, [setDraft]);
 
   const dirty = loaded && draft ? changedPaths(loaded.config, draft).length > 0 : false;
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+  useUnsavedChanges(dirty);
 
   const save = async (force = false) => {
     if (!draft || !loaded) return;
@@ -229,10 +225,8 @@ export default function SettingsPage() {
           confirmLabel: 'Save anyway',
           danger: true,
         });
-        if (ok) {
-          setSaving(false);
-          return save(true);
-        }
+        // Awaited, so `finally` below does not reset `saving` while the forced save runs.
+        if (ok) return await save(true);
       } else toast.error(errorMessage(err));
     } finally {
       setSaving(false);
@@ -261,8 +255,8 @@ export default function SettingsPage() {
   return (
     <Page>
       <PageHeader title="Settings" description="All changes take effect immediately after saving – no restart required." />
-      <Tabs value={tab} onChange={(t) => navigate(`/settings?tab=${t}`, { replace: true })} tabs={tabs} />
-      <div className="mt-6 pb-24">
+      <Tabs id="settings" value={tab} onChange={(t) => navigate(`/settings?tab=${t}`, { replace: true })} tabs={tabs} />
+      <div className="mt-6 pb-24" {...tabPanelProps('settings', tab)}>
         {Object.keys(locked).length > 0 && formTab && (
           <Alert tone="warn" className="mb-6">
             Some settings are defined by environment variables (marked with a lock) and cannot be changed here.
@@ -315,7 +309,8 @@ export default function SettingsPage() {
       {formTab && (
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-4 lg:pl-64">
           <div
-            className={`pointer-events-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-2xl border border-border bg-surface/95 px-4 py-3 shadow-pop backdrop-blur transition ${dirty ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'}`}
+            // Hidden: invisible + no pointer events, so it does not block clicks on the page below.
+            className={`flex w-full max-w-3xl items-center justify-between gap-3 rounded-2xl border border-border bg-surface/95 px-4 py-3 shadow-pop backdrop-blur transition ${dirty ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none invisible translate-y-4 opacity-0'}`}
             aria-hidden={!dirty}
           >
             <span className="text-sm text-muted">You have unsaved changes</span>

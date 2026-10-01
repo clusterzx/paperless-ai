@@ -8,9 +8,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type AnchorHTMLAttributes,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type RefObject,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
@@ -33,32 +36,48 @@ const variants: Record<Variant, string> = {
   primary: 'bg-accent text-white hover:bg-accent-strong shadow-card border border-transparent dark:text-[#04140e]',
   secondary: 'bg-surface text-fg border border-border hover:bg-surface-2 shadow-card',
   ghost: 'text-muted hover:text-fg hover:bg-surface-2 border border-transparent',
-  danger: 'bg-danger text-white hover:opacity-90 border border-transparent shadow-card',
+  danger: 'bg-danger text-white hover:opacity-90 border border-transparent shadow-card dark:text-[#1f0707]',
   subtle: 'bg-accent-soft text-accent-text hover:brightness-95 border border-transparent',
 };
+
+/** Button styles – also for links that look like buttons (a <button> must not be nested in an <a>). */
+export function buttonClass({ variant = 'secondary', size = 'md', className }: { variant?: Variant; size?: 'sm' | 'md'; className?: string } = {}): string {
+  return cn(
+    'inline-flex shrink-0 items-center justify-center gap-2 rounded-lg font-medium whitespace-nowrap transition select-none disabled:cursor-not-allowed disabled:opacity-55',
+    size === 'sm' ? 'h-8 px-2.5 text-xs' : 'h-9 px-3.5 text-sm',
+    variants[variant],
+    className,
+  );
+}
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = 'secondary', size = 'md', loading, icon, className, children, disabled, type = 'button', ...rest },
   ref,
 ) {
   return (
-    <button
-      ref={ref}
-      type={type}
-      disabled={disabled || loading}
-      className={cn(
-        'inline-flex shrink-0 items-center justify-center gap-2 rounded-lg font-medium whitespace-nowrap transition select-none disabled:cursor-not-allowed disabled:opacity-55',
-        size === 'sm' ? 'h-8 px-2.5 text-xs' : 'h-9 px-3.5 text-sm',
-        variants[variant],
-        className,
-      )}
-      {...rest}
-    >
+    <button ref={ref} type={type} disabled={disabled || loading} className={buttonClass({ variant, size, className })} {...rest}>
       {loading ? <Loader2 className="size-4 animate-spin" /> : icon}
       {children}
     </button>
   );
 });
+
+/** External link styled as a button. */
+export function LinkButton({
+  variant = 'secondary',
+  size = 'md',
+  icon,
+  className,
+  children,
+  ...rest
+}: AnchorHTMLAttributes<HTMLAnchorElement> & { variant?: Variant; size?: 'sm' | 'md'; icon?: ReactNode }) {
+  return (
+    <a target="_blank" rel="noreferrer" className={buttonClass({ variant, size, className })} {...rest}>
+      {icon}
+      {children}
+    </a>
+  );
+}
 
 export function IconButton({ label, className, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
   return (
@@ -98,7 +117,7 @@ export function Card({
   return (
     <section className={cn('rounded-xl border border-border bg-surface shadow-card', className)}>
       {(title || actions) && (
-        <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-3.5">
+        <header className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-border px-5 py-3.5">
           <div className="flex min-w-0 items-start gap-2.5">
             {icon && <span className="mt-0.5 text-accent">{icon}</span>}
             <div className="min-w-0">
@@ -106,7 +125,8 @@ export function Card({
               {description && <p className="mt-0.5 text-xs text-muted">{description}</p>}
             </div>
           </div>
-          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+          {/* Actions wrap below the title on narrow screens instead of overflowing. */}
+          {actions && <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
       <div className={cn('p-5', bodyClassName)}>{children}</div>
@@ -234,19 +254,63 @@ export function Field({
   );
 }
 
-export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, id, ...rest }, ref) {
+/** The id the surrounding Field's label points to – unless the control names itself (e.g. a preset picker next to the field's input). */
+function useFieldId(id: string | undefined, ariaLabel: string | undefined): string | undefined {
   const fieldId = useContext(FieldIdContext);
-  return <input ref={ref} id={id ?? fieldId} className={cn('input', className)} {...rest} />;
+  return id ?? (ariaLabel ? undefined : fieldId);
+}
+
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, id, ...rest }, ref) {
+  const fieldId = useFieldId(id, rest['aria-label']);
+  return <input ref={ref} id={fieldId} className={cn('input', className)} {...rest} />;
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, id, ...rest }, ref) {
-  const fieldId = useContext(FieldIdContext);
-  return <textarea ref={ref} id={id ?? fieldId} className={cn('input', className)} {...rest} />;
+  const fieldId = useFieldId(id, rest['aria-label']);
+  return <textarea ref={ref} id={fieldId} className={cn('input', className)} {...rest} />;
 });
 
-export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+/** Number input that keeps the typed text while editing – an emptied field does not turn into 0. */
+export function NumberInput({
+  value,
+  onChange,
+  onBlur,
+  ...rest
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange'> & { value: number; onChange: (v: number) => void }) {
+  const [text, setText] = useState(String(value));
+  const [shown, setShown] = useState(value);
+  // Follow changes from outside (discard, save) unless they are what is being typed.
+  if (!Object.is(value, shown)) {
+    setShown(value);
+    if (text.trim() === '' || Number(text) !== value) setText(String(value));
+  }
   return (
-    <select className={cn('input appearance-none bg-[length:16px] bg-[right_0.6rem_center] bg-no-repeat pr-8', className)} style={{ backgroundImage: CHEVRON }} {...rest}>
+    <Input
+      type="number"
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        if (e.target.value.trim() !== '' && Number.isFinite(e.target.valueAsNumber)) onChange(e.target.valueAsNumber);
+      }}
+      onBlur={(e) => {
+        // Nothing (valid) entered → show the value that is actually kept.
+        if (text.trim() === '' || !Number.isFinite(Number(text))) setText(String(value));
+        onBlur?.(e);
+      }}
+      {...rest}
+    />
+  );
+}
+
+export function Select({ className, children, id, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
+  const fieldId = useFieldId(id, rest['aria-label']);
+  return (
+    <select
+      id={fieldId}
+      className={cn('input appearance-none bg-[length:16px] bg-[right_0.6rem_center] bg-no-repeat pr-8', className)}
+      style={{ backgroundImage: CHEVRON }}
+      {...rest}
+    >
       {children}
     </select>
   );
@@ -304,13 +368,36 @@ export function Switch({
   );
 }
 
-export function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { value: T; label: ReactNode }[] }) {
+/**
+ * Arrow-key navigation for a group of options where only the selected one is tabbable (tabs, radio groups):
+ * moves the selection and the focus. Attach to the group element; `vertical` also handles ArrowUp/ArrowDown.
+ */
+export function rovingKeyDown<T>(e: ReactKeyboardEvent<HTMLElement>, values: T[], current: T, select: (v: T) => void, vertical = false) {
+  const steps: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1, ...(vertical ? { ArrowDown: 1, ArrowUp: -1 } : {}) };
+  const i = values.indexOf(current);
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? values.length - 1 : e.key in steps ? (i + steps[e.key] + values.length) % values.length : null;
+  if (next === null || !values.length) return;
+  e.preventDefault();
+  select(values[next]);
+  e.currentTarget.querySelectorAll<HTMLElement>('button')[next]?.focus();
+}
+
+/** Single choice between a few options (radio group). */
+export function Segmented<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: { value: T; label: ReactNode }[]; label?: string }) {
   return (
-    <div className="inline-flex rounded-lg border border-border bg-surface-2 p-0.5">
+    <div
+      className="inline-flex rounded-lg border border-border bg-surface-2 p-0.5"
+      role="radiogroup"
+      aria-label={label}
+      onKeyDown={(e) => rovingKeyDown(e, options.map((o) => o.value), value, onChange, true)}
+    >
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          tabIndex={value === o.value ? 0 : -1}
           onClick={() => onChange(o.value)}
           className={cn(
             'rounded-md px-3 py-1 text-xs font-medium transition',
@@ -342,6 +429,7 @@ export function TagInput({
 }) {
   const [text, setText] = useState('');
   const listId = useId();
+  const fieldId = useContext(FieldIdContext);
   const add = (raw: string) => {
     const parts = raw
       .split(',')
@@ -365,6 +453,7 @@ export function TagInput({
         </Badge>
       ))}
       <input
+        id={fieldId}
         list={suggestions.length ? listId : undefined}
         className="min-w-[8rem] flex-1 bg-transparent text-sm outline-none placeholder:text-faint"
         value={text}
@@ -394,14 +483,29 @@ export function TagInput({
   );
 }
 
-export function Tabs<T extends string>({ value, onChange, tabs }: { value: T; onChange: (v: T) => void; tabs: { id: T; label: ReactNode; icon?: ReactNode }[] }) {
+/** Ids that connect a tab and its panel (render the panel with `tabPanelProps`). */
+const tabIds = (id: string, tab: string) => ({ tab: `${id}-tab-${tab}`, panel: `${id}-panel-${tab}` });
+
+export function tabPanelProps(id: string, tab: string) {
+  return { role: 'tabpanel', id: tabIds(id, tab).panel, 'aria-labelledby': tabIds(id, tab).tab } as const;
+}
+
+export function Tabs<T extends string>({ id, value, onChange, tabs }: { id: string; value: T; onChange: (v: T) => void; tabs: { id: T; label: ReactNode; icon?: ReactNode }[] }) {
   return (
-    <div className="-mx-1 flex gap-1 overflow-x-auto border-b border-border px-1" role="tablist">
+    <div
+      className="-mx-1 flex gap-1 overflow-x-auto border-b border-border px-1"
+      role="tablist"
+      onKeyDown={(e) => rovingKeyDown(e, tabs.map((t) => t.id), value, onChange)}
+    >
       {tabs.map((t) => (
         <button
           key={t.id}
+          id={tabIds(id, t.id).tab}
           role="tab"
           aria-selected={value === t.id}
+          // Only the selected tab's panel is rendered.
+          aria-controls={value === t.id ? tabIds(id, t.id).panel : undefined}
+          tabIndex={value === t.id ? 0 : -1}
           type="button"
           onClick={() => onChange(t.id)}
           className={cn(
@@ -443,6 +547,56 @@ export function Pagination({ page, pageSize, total, onPage }: { page: number; pa
 
 // ------------------------------------------------------------------ modal & confirm
 
+/** Open dialogs, innermost last – only the topmost one handles Escape and keeps Tab inside. */
+const dialogStack: object[] = [];
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Dialog behaviour for modals and drawers: focus moves into the dialog when it opens (unless a child
+ * already took it with autoFocus), Tab cycles inside it, Escape closes it and focus returns to the opener.
+ */
+export function useDialog(ref: RefObject<HTMLElement | null>, open: boolean, onClose: () => void): void {
+  // Callers pass inline callbacks – a ref keeps the effect from re-running (and stealing focus) on every render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  // Read while rendering: by the time effects run, a child's autoFocus has already moved the focus.
+  const opener = useMemo(() => (open ? (document.activeElement as HTMLElement | null) : null), [open]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!open || !el) return;
+    const token = {};
+    dialogStack.push(token);
+    if (!el.contains(document.activeElement)) el.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (dialogStack.at(-1) !== token) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCloseRef.current();
+      } else if (e.key === 'Tab') {
+        const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => n.getClientRects().length > 0);
+        const [first, last] = [items[0], items[items.length - 1]];
+        const active = document.activeElement;
+        const outside = !el.contains(active);
+        if (!items.length) {
+          e.preventDefault();
+          el.focus();
+        } else if (e.shiftKey ? outside || active === el || active === first : outside || active === last) {
+          e.preventDefault();
+          (e.shiftKey ? last : first).focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      dialogStack.splice(dialogStack.indexOf(token), 1);
+      // Only when the dialog really closed (not when StrictMode re-runs the effect).
+      if (!el.isConnected) opener?.focus?.();
+    };
+  }, [open, ref, opener]);
+}
+
 export function Modal({
   open,
   onClose,
@@ -459,30 +613,24 @@ export function Modal({
   size?: 'sm' | 'md' | 'lg' | 'xl';
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    document.addEventListener('keydown', onKey);
-    const prev = document.activeElement as HTMLElement | null;
-    ref.current?.focus();
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      prev?.focus?.();
-    };
-  }, [open, onClose]);
+  const titleId = useId();
+  useDialog(ref, open, onClose);
   if (!open) return null;
   const width = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' }[size];
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
       <div
         ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
         className={cn('animate-in relative flex max-h-[90vh] w-full flex-col rounded-t-2xl border border-border bg-surface shadow-pop outline-none sm:rounded-2xl', width)}
       >
         {title && (
           <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3.5">
-            <h3 className="font-semibold text-fg">{title}</h3>
+            <h3 id={titleId} className="font-semibold text-fg">{title}</h3>
             <IconButton label="Close" onClick={onClose}>
               <X className="size-4" />
             </IconButton>
@@ -561,8 +709,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
+      {/* Top right: the bottom edge belongs to the chat input and the settings save bar. */}
       {createPortal(
-        <div className="pointer-events-none fixed right-4 bottom-4 z-[60] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2" aria-live="polite">
+        <div className="pointer-events-none fixed top-4 right-4 z-[60] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2" aria-live="polite">
           {toasts.map((t) => (
             <div
               key={t.id}

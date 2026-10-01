@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { SessionInfo } from '@shared/api';
 import { get, onUnauthorized } from './api';
 
@@ -42,7 +42,12 @@ function apply(pref: ThemePref) {
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
 }
 
-export function useTheme(): [ThemePref, (t: ThemePref) => void] {
+type ThemeContextValue = [ThemePref, (t: ThemePref) => void];
+
+const ThemeContext = createContext<ThemeContextValue>(['system', () => undefined]);
+
+/** One theme state for the whole app; keeps "system" in sync with the OS. */
+export function ThemeProvider({ children }: { children: ReactNode }) {
   const [pref, setPref] = useState<ThemePref>(() => {
     try {
       return (localStorage.getItem('pai-theme') as ThemePref) || 'system';
@@ -58,13 +63,28 @@ export function useTheme(): [ThemePref, (t: ThemePref) => void] {
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, [pref]);
-  const set = (t: ThemePref) => {
+  const set = useCallback((t: ThemePref) => {
     try {
       localStorage.setItem('pai-theme', t);
     } catch {
       /* ignore */
     }
     setPref(t);
-  };
-  return [pref, set];
+  }, []);
+  const value = useMemo<ThemeContextValue>(() => [pref, set], [pref, set]);
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
+export const useTheme = () => useContext(ThemeContext);
+
+// ------------------------------------------------------------------ sign-out
+
+/** Remove data of the signed-in user kept in this browser (Ask conversations and filters). */
+export function clearUserData(): void {
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
+    for (const key of keys) if (key?.startsWith('pai-ask-')) localStorage.removeItem(key);
+  } catch {
+    /* storage unavailable */
+  }
 }

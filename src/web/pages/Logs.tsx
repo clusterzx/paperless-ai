@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, Bug, Download, Pause, Play, Plug, Search, Stethoscope, Trash2 } from 'lucide-react';
-import type { ConnectionTestResult, LogEntryDto } from '@shared/api';
+import type { ConnectionTestResult, LogEntryDto, SessionInfo } from '@shared/api';
 import { Page } from '../components/Layout';
 import { TestResult } from '../components/settingsForms';
-import { Alert, Badge, Button, Card, Input, PageHeader, Select, Tabs } from '../components/ui';
+import { Alert, Badge, Button, Card, Input, PageHeader, Select, Tabs, tabPanelProps } from '../components/ui';
 import { errorMessage, get, post } from '../lib/api';
 import { cn } from '../lib/format';
+import { useSession } from '../lib/session';
 
 const LEVEL_TONE: Record<string, string> = {
   trace: 'text-faint',
@@ -16,6 +17,8 @@ const LEVEL_TONE: Record<string, string> = {
   fatal: 'text-danger',
 };
 const LEVELS = ['debug', 'info', 'warn', 'error'];
+/** Entries kept in memory (also while paused). */
+const MAX_ENTRIES = 2000;
 
 function formatEntry(e: LogEntryDto): string {
   const err = (e.data?.err as { message?: string } | undefined)?.message;
@@ -23,6 +26,7 @@ function formatEntry(e: LogEntryDto): string {
 }
 
 function LiveLogs() {
+  const { refresh } = useSession();
   const [entries, setEntries] = useState<LogEntryDto[]>([]);
   const [level, setLevel] = useState('info');
   const [search, setSearch] = useState('');
@@ -31,6 +35,8 @@ function LiveLogs() {
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const box = useRef<HTMLDivElement>(null);
+  // Follow new entries only while scrolled to the bottom.
+  const stick = useRef(true);
   const buffer = useRef<LogEntryDto[]>([]);
 
   useEffect(() => {
@@ -44,13 +50,31 @@ function LiveLogs() {
         lastId = r.entries.at(-1)?.id ?? 0;
         es = new EventSource('/api/logs/stream');
         es.onopen = () => setConnected(true);
-        es.onerror = () => setConnected(false);
+        let checking = false;
+        es.onerror = () => {
+          setConnected(false);
+          // The stream also fails when the session ended – then go to the login page instead of staying "Disconnected".
+          if (checking) return;
+          checking = true;
+          get<SessionInfo>('/api/session')
+            .then((s) => {
+              if (!s.authenticated && !cancelled) {
+                es?.close();
+                void refresh();
+              }
+            })
+            .catch(() => undefined)
+            .finally(() => {
+              checking = false;
+            });
+        };
         es.onmessage = (ev) => {
           try {
             const e = JSON.parse(ev.data) as LogEntryDto;
             if (e.id <= lastId) return;
             lastId = e.id;
             buffer.current.push(e);
+            if (buffer.current.length > MAX_ENTRIES) buffer.current.splice(0, buffer.current.length - MAX_ENTRIES);
           } catch {
             /* ignore */
           }
@@ -61,14 +85,14 @@ function LiveLogs() {
     const flush = setInterval(() => {
       if (pausedRef.current || !buffer.current.length) return;
       const add = buffer.current.splice(0);
-      setEntries((list) => [...list, ...add].slice(-3000));
+      setEntries((list) => [...list, ...add].slice(-MAX_ENTRIES));
     }, 400);
     return () => {
       cancelled = true;
       clearInterval(flush);
       es?.close();
     };
-  }, []);
+  }, [refresh]);
 
   const shown = useMemo(() => {
     const min = LEVELS.indexOf(level);
@@ -77,7 +101,7 @@ function LiveLogs() {
   }, [entries, level, search]);
 
   useEffect(() => {
-    if (!paused && box.current) box.current.scrollTop = box.current.scrollHeight;
+    if (!paused && stick.current && box.current) box.current.scrollTop = box.current.scrollHeight;
   }, [shown, paused]);
 
   const download = () => {
@@ -100,7 +124,16 @@ function LiveLogs() {
       }
       actions={
         <>
-          <Button size="sm" variant="ghost" icon={paused ? <Play className="size-3.5" /> : <Pause className="size-3.5" />} onClick={() => setPaused((p) => !p)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={paused ? <Play className="size-3.5" /> : <Pause className="size-3.5" />}
+            onClick={() => {
+              // Resuming follows the live log again.
+              if (paused) stick.current = true;
+              setPaused(!paused);
+            }}
+          >
             {paused ? 'Resume' : 'Pause'}
           </Button>
           <Button size="sm" variant="ghost" icon={<Trash2 className="size-3.5" />} onClick={() => setEntries([])}>
@@ -126,7 +159,14 @@ function LiveLogs() {
           ))}
         </Select>
       </div>
-      <div ref={box} className="h-[60vh] overflow-y-auto bg-surface-2/40 p-3 font-mono text-[11.5px] leading-relaxed">
+      <div
+        ref={box}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}
+        className="h-[60vh] overflow-y-auto bg-surface-2/40 p-3 font-mono text-[11.5px] leading-relaxed"
+      >
         {shown.map((e) => (
           <div key={e.id} className="flex gap-2 border-b border-border/40 py-0.5 hover:bg-surface-2">
             <span className="shrink-0 text-faint">{new Date(e.time).toLocaleTimeString()}</span>
@@ -208,7 +248,7 @@ function Diagnostics() {
         description="Raw responses of the Paperless-ngx API as seen by Paperless-AI (first page)."
         actions={
           <div className="flex gap-2">
-            <Select className="h-8 w-44 py-0 text-xs" value={resource} onChange={(e) => setResource(e.target.value)}>
+            <Select className="h-8 w-44 py-0 text-xs" value={resource} onChange={(e) => setResource(e.target.value)} aria-label="Resource">
               {RESOURCES.map((r) => (
                 <option key={r}>{r}</option>
               ))}
@@ -232,6 +272,7 @@ export default function LogsPage() {
     <Page wide>
       <PageHeader title="Logs & diagnostics" description="Live application log, connection checks and the raw Paperless API." />
       <Tabs
+        id="logs"
         value={tab}
         onChange={setTab}
         tabs={[
@@ -239,7 +280,9 @@ export default function LogsPage() {
           { id: 'diagnostics', label: 'Diagnostics', icon: <Stethoscope className="size-4" /> },
         ]}
       />
-      <div className="mt-6">{tab === 'logs' ? <LiveLogs /> : <Diagnostics />}</div>
+      <div className="mt-6" {...tabPanelProps('logs', tab)}>
+        {tab === 'logs' ? <LiveLogs /> : <Diagnostics />}
+      </div>
     </Page>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useLocation, useSearch } from 'wouter';
+import { useLocation } from 'wouter';
 import { LogIn } from 'lucide-react';
 import { Logo } from '../components/Layout';
 import { Alert, Button, Field, Input } from '../components/ui';
@@ -21,10 +21,21 @@ export function AuthShell({ title, subtitle, children, wide }: { title: string; 
   );
 }
 
+/** Where to go after signing in: only paths on this origin ("/…" – not "//host" or "/\\host"). */
+function nextPath(): string {
+  // Read the raw query string – wouter's useSearch() returns it decoded, which breaks "&" inside `next`.
+  const next = new URLSearchParams(window.location.search).get('next');
+  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/';
+  try {
+    return new URL(next, window.location.origin).origin === window.location.origin ? next : '/';
+  } catch {
+    return '/';
+  }
+}
+
 export default function LoginPage() {
   const { refresh } = useSession();
   const [, navigate] = useLocation();
-  const search = useSearch();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -36,9 +47,9 @@ export default function LoginPage() {
     setError(null);
     try {
       await post('/api/auth/login', { username, password });
+      const next = nextPath();
       const s = await refresh();
-      const next = new URLSearchParams(search).get('next');
-      if (s && !s.setupRequired) navigate(next && next.startsWith('/') && !next.startsWith('//') ? next : '/', { replace: true });
+      if (s && !s.setupRequired) navigate(next, { replace: true });
     } catch (err) {
       setError(errorMessage(err));
     } finally {

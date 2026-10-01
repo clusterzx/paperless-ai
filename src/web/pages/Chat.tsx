@@ -4,7 +4,7 @@ import { ExternalLink, FileSearch, FileText, MessageSquareText, PanelLeft } from
 import type { DocumentDetail } from '@shared/api';
 import { ChatScroll, Composer, MessageView, useChatStream } from '../components/chat';
 import { DocumentPicker } from '../components/DocumentPicker';
-import { Alert, Badge, Button, EmptyState, Modal, Skeleton } from '../components/ui';
+import { Alert, Badge, Button, EmptyState, LinkButton, Modal, Skeleton } from '../components/ui';
 import { get } from '../lib/api';
 import { useAsync } from '../lib/hooks';
 import { formatDate } from '../lib/format';
@@ -16,7 +16,8 @@ function DocumentChat({ documentId }: { documentId: number }) {
   const chat = useChatStream(`/api/chat/document/${documentId}`);
   const [, navigate] = useLocation();
   const suggestions = ['Summarize this document.', 'What are the key dates and deadlines?', 'Which amounts are mentioned?', 'Is there anything I need to do?'];
-  const send = (text: string) => chat.send(text, (history, message) => ({ message, history }));
+  // The server accepts up to 50 turns – the recent ones are enough context.
+  const send = (text: string) => chat.send(text, (history, message) => ({ message, history: history.slice(-12) }));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -38,15 +39,13 @@ function DocumentChat({ documentId }: { documentId: number }) {
           <Skeleton className="h-9 w-64" />
         )}
         <div className="flex shrink-0 gap-2">
-          <Button size="sm" variant="ghost" icon={<FileSearch className="size-4" />} onClick={() => navigate(`/review?doc=${documentId}`)}>
+          <Button size="sm" variant="ghost" icon={<FileSearch className="size-4" />} onClick={() => navigate(`/review?doc=${documentId}`)} aria-label="Review">
             <span className="hidden sm:inline">Review</span>
           </Button>
           {doc.data && (
-            <a href={doc.data.url} target="_blank" rel="noreferrer">
-              <Button size="sm" variant="ghost" icon={<ExternalLink className="size-4" />}>
-                <span className="hidden sm:inline">Paperless</span>
-              </Button>
-            </a>
+            <LinkButton href={doc.data.url} size="sm" variant="ghost" icon={<ExternalLink className="size-4" />} aria-label="Open in Paperless">
+              <span className="hidden sm:inline">Paperless</span>
+            </LinkButton>
           )}
         </div>
       </div>

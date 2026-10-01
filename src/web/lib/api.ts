@@ -30,6 +30,20 @@ async function parse(res: Response): Promise<unknown> {
   }
 }
 
+/** Error text of a failed request; validation errors list the offending fields (`details: [{ path, message }]`). */
+function describeError(data: unknown, status: number): string {
+  const body = data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
+  const message = typeof body?.error === 'string' ? body.error : typeof data === 'string' && data ? data : `Request failed (${status})`;
+  const details = (Array.isArray(body?.details) ? (body.details as unknown[]) : [])
+    .map((d) => {
+      if (typeof d === 'string') return d;
+      const { path, message: msg } = (d ?? {}) as { path?: unknown; message?: unknown };
+      return [path, msg].filter((x) => typeof x === 'string' && x).join(': ');
+    })
+    .filter(Boolean);
+  return details.length ? `${message} – ${details.slice(0, 5).join('; ')}` : message;
+}
+
 export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
   const res = await fetch(path, {
     method: init.method ?? (init.body !== undefined ? 'POST' : 'GET'),
@@ -42,8 +56,7 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
   if (!res.ok) {
     const body = data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
     if (res.status === 401 && !path.startsWith('/api/auth/')) unauthorizedListeners.forEach((fn) => fn());
-    const message = (body?.error as string) ?? (typeof data === 'string' && data ? data : `Request failed (${res.status})`);
-    throw new ApiError(message, res.status, body);
+    throw new ApiError(describeError(data, res.status), res.status, body);
   }
   return data as T;
 }
@@ -62,6 +75,7 @@ export function qs(params: Record<string, string | number | boolean | undefined 
 /**
  * POST a JSON body and consume a server-sent event stream.
  * Events are JSON objects in `data:` lines; incomplete lines are buffered.
+ * A stream always ends with a "done" or "error" event – if it just stops, the connection was lost.
  */
 export async function streamEvents<E>(path: string, body: unknown, onEvent: (e: E) => void, signal?: AbortSignal): Promise<void> {
   const res = await fetch(path, {
@@ -73,13 +87,13 @@ export async function streamEvents<E>(path: string, body: unknown, onEvent: (e: 
   });
   if (!res.ok || !res.body) {
     const data = await parse(res);
-    const msg = data && typeof data === 'object' ? ((data as { error?: string }).error ?? '') : String(data ?? '');
     if (res.status === 401) unauthorizedListeners.forEach((fn) => fn());
-    throw new ApiError(msg || `Request failed (${res.status})`, res.status, null);
+    throw new ApiError(describeError(data, res.status), res.status, null);
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let finished = false;
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -95,12 +109,16 @@ export async function streamEvents<E>(path: string, body: unknown, onEvent: (e: 
         .join('\n');
       if (!data) continue;
       try {
-        onEvent(JSON.parse(data) as E);
+        const event = JSON.parse(data) as E;
+        const type = (event as { type?: unknown } | null)?.type;
+        if (type === 'done' || type === 'error') finished = true;
+        onEvent(event);
       } catch {
         /* ignore malformed event */
       }
     }
   }
+  if (!finished) throw new Error('The connection was interrupted – the answer may be incomplete');
 }
 
 export function errorMessage(err: unknown): string {

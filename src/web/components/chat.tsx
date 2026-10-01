@@ -26,10 +26,13 @@ export function useChatStream(endpoint: string | null, initial: ChatMessage[] = 
   const [busy, setBusy] = useState(false);
   const ctrl = useRef<AbortController | null>(null);
 
-  const patchLast = (fn: (m: ChatMessage) => ChatMessage) =>
+  /** Update one message; a no-op once it is gone (e.g. "New" was clicked while the answer streamed). */
+  const patch = (id: string, fn: (m: ChatMessage) => ChatMessage) =>
     setMessages((list) => {
+      const i = list.findIndex((m) => m.id === id);
+      if (i < 0) return list;
       const copy = [...list];
-      copy[copy.length - 1] = fn(copy[copy.length - 1]);
+      copy[i] = fn(copy[i]);
       return copy;
     });
 
@@ -37,7 +40,10 @@ export function useChatStream(endpoint: string | null, initial: ChatMessage[] = 
     async (text: string, buildBody: (history: ChatTurn[], text: string) => Record<string, unknown>) => {
       if (!endpoint || !text.trim()) return;
       const history: ChatTurn[] = messages.filter((m) => m.content && !m.error).map((m) => ({ role: m.role, content: m.content }));
-      setMessages((list) => [...list, { id: uid(), role: 'user', content: text.trim() }, { id: uid(), role: 'assistant', content: '', streaming: true, status: 'Thinking…' }]);
+      // Each stream only patches its own answer, so a stale stream cannot touch another conversation.
+      const answerId = uid();
+      const update = (fn: (m: ChatMessage) => ChatMessage) => patch(answerId, fn);
+      setMessages((list) => [...list, { id: uid(), role: 'user', content: text.trim() }, { id: answerId, role: 'assistant', content: '', streaming: true, status: 'Thinking…' }]);
       setBusy(true);
       const c = new AbortController();
       ctrl.current = c;
@@ -46,20 +52,23 @@ export function useChatStream(endpoint: string | null, initial: ChatMessage[] = 
           endpoint,
           { ...buildBody(history, text.trim()), ...(extraBody?.() ?? {}) },
           (e) => {
-            if (e.type === 'delta') patchLast((m) => ({ ...m, content: m.content + e.text, status: null }));
-            else if (e.type === 'sources') patchLast((m) => ({ ...m, sources: e.sources }));
-            else if (e.type === 'status') patchLast((m) => ({ ...m, status: e.message }));
-            else if (e.type === 'error') patchLast((m) => ({ ...m, error: e.message, status: null }));
-            else if (e.type === 'done') patchLast((m) => ({ ...m, model: e.model, tokens: e.usage?.totalTokens, status: null }));
+            if (e.type === 'delta') update((m) => ({ ...m, content: m.content + e.text, status: null }));
+            else if (e.type === 'sources') update((m) => ({ ...m, sources: e.sources }));
+            else if (e.type === 'status') update((m) => ({ ...m, status: e.message }));
+            else if (e.type === 'error') update((m) => ({ ...m, error: e.message, status: null }));
+            else if (e.type === 'done') update((m) => ({ ...m, model: e.model, tokens: e.usage?.totalTokens, status: null }));
           },
           c.signal,
         );
       } catch (err) {
-        if (!c.signal.aborted) patchLast((m) => ({ ...m, error: errorMessage(err), status: null }));
+        if (!c.signal.aborted) update((m) => ({ ...m, error: errorMessage(err), status: null }));
       } finally {
-        patchLast((m) => ({ ...m, streaming: false, status: null, content: m.content || (c.signal.aborted ? '*(stopped)*' : m.content) }));
-        setBusy(false);
-        ctrl.current = null;
+        update((m) => ({ ...m, streaming: false, status: null, content: m.content || (c.signal.aborted ? '*(stopped)*' : m.content) }));
+        // A newer stream may already be running.
+        if (ctrl.current === c) {
+          setBusy(false);
+          ctrl.current = null;
+        }
       }
     },
     [endpoint, messages, extraBody],

@@ -3,7 +3,7 @@ import { useLocation, useSearch } from 'wouter';
 import { Check, ExternalLink, FileSearch, MessageSquareText, PanelLeft, Plus, Save, Sparkles, Undo2 } from 'lucide-react';
 import type { AnalysisResult, DocumentDetail } from '@shared/api';
 import { DocumentPicker } from '../components/DocumentPicker';
-import { Alert, Badge, Button, Card, EmptyState, Field, Input, Modal, Skeleton, TagInput, useToast } from '../components/ui';
+import { Alert, Badge, Button, Card, EmptyState, Field, Input, LinkButton, Modal, Skeleton, TagInput, useToast } from '../components/ui';
 import { errorMessage, get, post } from '../lib/api';
 import { useAsync } from '../lib/hooks';
 import { duration, formatNumber } from '../lib/format';
@@ -121,11 +121,9 @@ function ReviewDocument({ documentId }: { documentId: number }) {
           <Button size="sm" variant="ghost" icon={<MessageSquareText className="size-4" />} onClick={() => navigate(`/chat?doc=${d.id}`)}>
             Chat
           </Button>
-          <a href={d.url} target="_blank" rel="noreferrer">
-            <Button size="sm" variant="ghost" icon={<ExternalLink className="size-4" />}>
-              Paperless
-            </Button>
-          </a>
+          <LinkButton href={d.url} size="sm" variant="ghost" icon={<ExternalLink className="size-4" />}>
+            Paperless
+          </LinkButton>
         </div>
       </div>
       {error && <Alert tone="danger">{error}</Alert>}

@@ -2,7 +2,7 @@
 
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
-/* Semantic design tokens (light) */
+/* Semantic design tokens (light) – text colors keep ≥ 4.5:1 contrast on their backgrounds */
 :root {
   --bg: #f6f7f9;
   --surface: #ffffff;
@@ -12,18 +12,18 @@
   --border-strong: #cfd4dc;
   --text: #111827;
   --muted: #5b6474;
-  --faint: #8a93a3;
-  --accent: #0f9f6e;
-  --accent-strong: #0b815a;
+  --faint: #667080;
+  --accent: #0a8459;
+  --accent-strong: #086b4a;
   --accent-soft: #e3f6ee;
   --accent-text: #076646;
-  --danger: #d43c3c;
+  --danger: #c73636;
   --danger-soft: #fdeceb;
-  --warn: #c27c0e;
+  --warn: #9a6205;
   --warn-soft: #fdf3e1;
-  --info: #2f6fdb;
+  --info: #2b67d0;
   --info-soft: #e8f0fd;
-  --ring: rgb(15 159 110 / 0.35);
+  --ring: rgb(10 132 89 / 0.35);
   --shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06);
   --shadow-lg: 0 12px 32px -8px rgb(16 24 40 / 0.18), 0 4px 8px -4px rgb(16 24 40 / 0.08);
   color-scheme: light;
@@ -38,7 +38,7 @@
   --border-strong: #354152;
   --text: #e6eaf0;
   --muted: #9aa5b4;
-  --faint: #6c7788;
+  --faint: #7f8a9c;
   --accent: #2dc58f;
   --accent-strong: #4fd6a5;
   --accent-soft: #10342a;
@@ -174,6 +174,12 @@
 .prose-chat th {
   @apply bg-surface-2 font-semibold;
 }
+.prose-chat [align='center'] {
+  @apply text-center;
+}
+.prose-chat [align='right'] {
+  @apply text-right;
+}
 .prose-chat a {
   @apply text-accent-text underline underline-offset-2;
 }
@@ -181,7 +187,7 @@
   @apply my-2 border-l-2 border-border-strong pl-3 text-muted;
 }
 .prose-chat .cite {
-  @apply ml-0.5 inline-flex h-[1.15rem] min-w-[1.15rem] -translate-y-1 cursor-pointer items-center justify-center rounded-md bg-accent-soft px-1 align-baseline text-[0.68rem] font-semibold text-accent-text no-underline transition hover:bg-accent hover:text-white;
+  @apply ml-0.5 inline-flex h-[1.15rem] min-w-[1.15rem] -translate-y-1 cursor-pointer items-center justify-center rounded-md bg-accent-soft px-1 align-baseline text-[0.68rem] font-semibold text-accent-text no-underline transition hover:bg-accent hover:text-white dark:hover:text-[#04140e];
 }
 
 @keyframes caret {

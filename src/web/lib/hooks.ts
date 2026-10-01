@@ -67,8 +67,13 @@ export function useDebounced<T>(value: T, ms = 300): T {
   return v;
 }
 
-/** State persisted in localStorage. */
-export function useLocalStorage<T>(key: string, initial: T): [T, (v: T | ((p: T) => T)) => void] {
+const isQuotaError = (err: unknown) => err instanceof DOMException && (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+
+/**
+ * State persisted in localStorage. When the storage quota is exceeded, `shrink` can make the value
+ * smaller (e.g. drop the oldest entries; return null to give up) so it can still be saved.
+ */
+export function useLocalStorage<T>(key: string, initial: T, shrink?: (v: T) => T | null): [T, (v: T | ((p: T) => T)) => void] {
   const [value, setValue] = useState<T>(() => {
     try {
       const raw = localStorage.getItem(key);
@@ -77,14 +82,22 @@ export function useLocalStorage<T>(key: string, initial: T): [T, (v: T | ((p: T)
       return initial;
     }
   });
+  const shrinkRef = useRef(shrink);
+  shrinkRef.current = shrink;
   const set = useCallback(
     (v: T | ((p: T) => T)) => {
       setValue((prev) => {
-        const next = typeof v === 'function' ? (v as (p: T) => T)(prev) : v;
-        try {
-          localStorage.setItem(key, JSON.stringify(next));
-        } catch {
-          /* quota / private mode */
+        let next = typeof v === 'function' ? (v as (p: T) => T)(prev) : v;
+        for (;;) {
+          try {
+            localStorage.setItem(key, JSON.stringify(next));
+            break;
+          } catch (err) {
+            /* quota / private mode */
+            const smaller = isQuotaError(err) ? (shrinkRef.current?.(next) ?? null) : null;
+            if (smaller === null) break;
+            next = smaller;
+          }
         }
         return next;
       });
@@ -92,4 +105,25 @@ export function useLocalStorage<T>(key: string, initial: T): [T, (v: T | ((p: T)
     [key],
   );
   return [value, set];
+}
+
+// ------------------------------------------------------------------ unsaved changes
+
+let unsavedChanges = 0;
+
+/** True while a page has unsaved changes (checked before in-app navigation). */
+export const hasUnsavedChanges = () => unsavedChanges > 0;
+
+/** Warn before the page is closed or reloaded – and, via `hasUnsavedChanges`, before in-app navigation – while `dirty`. */
+export function useUnsavedChanges(dirty: boolean): void {
+  useEffect(() => {
+    if (!dirty) return;
+    unsavedChanges++;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => {
+      unsavedChanges--;
+      window.removeEventListener('beforeunload', warn);
+    };
+  }, [dirty]);
 }

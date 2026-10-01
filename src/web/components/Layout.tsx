@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
   FileSearch,
@@ -19,7 +19,9 @@ import {
 } from 'lucide-react';
 import { post } from '../lib/api';
 import { cn } from '../lib/format';
-import { useSession, useTheme, type ThemePref } from '../lib/session';
+import { hasUnsavedChanges } from '../lib/hooks';
+import { clearUserData, useSession, useTheme, type ThemePref } from '../lib/session';
+import { rovingKeyDown, useConfirm, useDialog } from './ui';
 
 interface NavItem {
   href: string;
@@ -40,12 +42,18 @@ function ThemeSwitcher() {
     { value: 'dark', icon: <Moon className="size-3.5" />, label: 'Dark' },
   ];
   return (
-    <div className="flex rounded-lg border border-border bg-surface-2 p-0.5" role="radiogroup" aria-label="Theme">
+    <div
+      className="flex rounded-lg border border-border bg-surface-2 p-0.5"
+      role="radiogroup"
+      aria-label="Theme"
+      onKeyDown={(e) => rovingKeyDown(e, options.map((o) => o.value), pref, setPref, true)}
+    >
       {options.map((o) => (
         <button
           key={o.value}
           role="radio"
           aria-checked={pref === o.value}
+          tabIndex={pref === o.value ? 0 : -1}
           title={o.label}
           onClick={() => setPref(o.value)}
           className={cn('flex flex-1 items-center justify-center rounded-md py-1.5 transition', pref === o.value ? 'bg-surface text-fg shadow-card' : 'text-faint hover:text-fg')}
@@ -59,9 +67,15 @@ function ThemeSwitcher() {
 
 export function Layout({ children }: { children: ReactNode }) {
   const { session, refresh } = useSession();
-  const [location] = useLocation();
+  const confirm = useConfirm();
+  const [location, navigate] = useLocation();
   const [open, setOpen] = useState(false);
+  const drawer = useRef<HTMLElement>(null);
+  useDialog(drawer, open, () => setOpen(false));
   useEffect(() => setOpen(false), [location]);
+
+  const confirmDiscard = () =>
+    confirm({ title: 'Discard unsaved changes?', message: 'Your changes on this page have not been saved yet.', confirmLabel: 'Discard', danger: true });
 
   const nav: NavItem[] = [
     { href: '/', label: 'Dashboard', icon: <LayoutDashboard className="size-[18px]" /> },
@@ -77,11 +91,19 @@ export function Layout({ children }: { children: ReactNode }) {
   ];
 
   const isActive = (href: string) => (href === '/' ? location === '/' : location === href || location.startsWith(`${href}/`));
+  // Pages with unsaved changes (settings) are only left after confirming.
+  const guardedNavigate = async (e: MouseEvent, href: string) => {
+    if (!hasUnsavedChanges() || isActive(href)) return;
+    e.preventDefault();
+    if (await confirmDiscard()) navigate(href);
+  };
   const renderItem = (item: NavItem) =>
     item.hidden ? null : (
       <Link
         key={item.href}
         href={item.href}
+        aria-current={isActive(item.href) ? 'page' : undefined}
+        onClick={(e) => void guardedNavigate(e, item.href)}
         className={cn(
           'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition',
           isActive(item.href) ? 'bg-accent-soft text-accent-text' : 'text-muted hover:bg-surface-2 hover:text-fg',
@@ -93,8 +115,10 @@ export function Layout({ children }: { children: ReactNode }) {
     );
 
   const logout = async () => {
+    if (hasUnsavedChanges() && !(await confirmDiscard())) return;
     await post('/api/auth/logout').catch(() => undefined);
     await refresh();
+    clearUserData();
   };
 
   const sidebar = (
@@ -134,7 +158,14 @@ export function Layout({ children }: { children: ReactNode }) {
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
-          <aside className="animate-in absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r border-border bg-surface shadow-pop">
+          <aside
+            ref={drawer}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu"
+            tabIndex={-1}
+            className="animate-in absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r border-border bg-surface shadow-pop outline-none"
+          >
             <button className="absolute top-4 right-3 rounded-lg p-1.5 text-muted hover:bg-surface-2" onClick={() => setOpen(false)} aria-label="Close menu">
               <X className="size-4" />
             </button>

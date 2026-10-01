@@ -210,8 +210,11 @@ function SearchResults({ filters }: { filters: Filters }) {
   );
 }
 
+/** When the storage quota is exceeded, the oldest conversation (last in the list) is dropped. */
+const dropOldest = (list: Conversation[]) => (list.length > 1 ? list.slice(0, -1) : null);
+
 export default function AskPage() {
-  const [conversations, setConversations] = useLocalStorage<Conversation[]>('pai-ask-conversations', []);
+  const [conversations, setConversations] = useLocalStorage<Conversation[]>('pai-ask-conversations', [], dropOldest);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [mode, setMode] = useState<'chat' | 'search'>('chat');
   const [filters, setFilters] = useLocalStorage<Filters>('pai-ask-filters', EMPTY_FILTERS);
@@ -245,6 +248,11 @@ export default function AskPage() {
     chat.setMessages(c.messages);
     setHistoryOpen(false);
   };
+  const remove = (c: Conversation) => {
+    // The open conversation would otherwise be saved again with its old id.
+    if (c.id === activeId) newChat();
+    setConversations((l) => l.filter((x) => x.id !== c.id));
+  };
   const ask = (text: string) =>
     chat.send(text, (history, question) => ({ question, history: history.slice(-10), filters: Object.keys(activeFilters).length ? activeFilters : undefined }));
 
@@ -271,6 +279,7 @@ export default function AskPage() {
           </div>
           <div className="flex items-center gap-2">
             <Segmented
+              label="Mode"
               value={mode}
               onChange={setMode}
               options={[
@@ -278,7 +287,7 @@ export default function AskPage() {
                 { value: 'search', label: 'Search' },
               ]}
             />
-            <Button size="sm" variant="ghost" icon={<History className="size-4" />} onClick={() => setHistoryOpen(true)} aria-label="Conversations">
+            <Button size="sm" variant="ghost" icon={<History className="size-4" />} onClick={() => setHistoryOpen(true)} aria-label="History">
               <span className="hidden sm:inline">History</span>
             </Button>
             <Button size="sm" variant="ghost" icon={<MessageSquarePlus className="size-4" />} onClick={newChat} aria-label="New chat">
@@ -363,7 +372,7 @@ export default function AskPage() {
                     {timeAgo(c.updatedAt)} · {c.messages.filter((m) => m.role === 'user').length} questions
                   </div>
                 </button>
-                <Button size="sm" variant="ghost" aria-label="Delete" onClick={() => setConversations((l) => l.filter((x) => x.id !== c.id))}>
+                <Button size="sm" variant="ghost" aria-label="Delete" onClick={() => remove(c)}>
                   <Trash2 className="size-3.5" />
                 </Button>
               </li>

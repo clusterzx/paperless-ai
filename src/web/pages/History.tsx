@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import { ArrowDown, ArrowUp, ExternalLink, Eye, History as HistoryIcon, MessageSquareText, RefreshCw, RotateCcw, Search, Undo2 } from 'lucide-react';
 import type { HistoryPage as HistoryPageData } from '@shared/api';
 import { Page } from '../components/Layout';
-import { Alert, Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Pagination, Select, Skeleton, Switch, useConfirm, useToast } from '../components/ui';
+import { Alert, Badge, Button, Card, EmptyState, Input, LinkButton, Modal, PageHeader, Pagination, Select, Skeleton, Switch, useConfirm, useToast } from '../components/ui';
 import { errorMessage, get, post, qs } from '../lib/api';
 import { useAsync, useDebounced } from '../lib/hooks';
 import { cn, formatDate, formatNumber } from '../lib/format';
@@ -11,6 +11,19 @@ import { useMetadata } from '../lib/metadata';
 
 type Item = HistoryPageData['items'][number];
 type SortKey = 'createdAt' | 'documentId' | 'title' | 'correspondent';
+type Sort = { key: SortKey; order: 'asc' | 'desc' };
+
+function SortHead({ k, sort, onSort, children, className }: { k: SortKey; sort: Sort; onSort: (k: SortKey) => void; children: ReactNode; className?: string }) {
+  const active = sort.key === k;
+  return (
+    <th className={cn('px-3 py-2.5 font-medium', className)} aria-sort={active ? (sort.order === 'asc' ? 'ascending' : 'descending') : undefined}>
+      <button className="inline-flex items-center gap-1 hover:text-fg" onClick={() => onSort(k)}>
+        {children}
+        {active && (sort.order === 'desc' ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />)}
+      </button>
+    </th>
+  );
+}
 
 function DetailModal({ item, onClose }: { item: Item | null; onClose: () => void }) {
   const meta = useMetadata();
@@ -74,7 +87,7 @@ export default function HistoryPage() {
   const [includeReverted, setIncludeReverted] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [sort, setSort] = useState<{ key: SortKey; order: 'asc' | 'desc' }>({ key: 'createdAt', order: 'desc' });
+  const [sort, setSort] = useState<Sort>({ key: 'createdAt', order: 'desc' });
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [detail, setDetail] = useState<Item | null>(null);
   const [busy, setBusy] = useState(false);
@@ -92,21 +105,16 @@ export default function HistoryPage() {
   const items = useMemo(() => data.data?.items ?? [], [data.data]);
   const selectedDocs = useMemo(() => [...new Set(items.filter((i) => selected.has(i.id)).map((i) => i.documentId))], [items, selected]);
   const allSelected = items.length > 0 && items.every((i) => selected.has(i.id));
+  // The selection only covers rows on screen – start over when another page, filter or order is shown.
+  useEffect(() => setSelected(new Set()), [page, pageSize, q, tag, correspondent, sort, includeReverted]);
 
   const sortBy = (key: SortKey) => setSort((s) => ({ key, order: s.key === key && s.order === 'desc' ? 'asc' : 'desc' }));
-  const SortHead = ({ k, children, className }: { k: SortKey; children: React.ReactNode; className?: string }) => (
-    <th className={cn('px-3 py-2.5 font-medium', className)}>
-      <button className="inline-flex items-center gap-1 hover:text-fg" onClick={() => sortBy(k)}>
-        {children}
-        {sort.key === k && (sort.order === 'desc' ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />)}
-      </button>
-    </th>
-  );
 
-  const act = async (fn: () => Promise<void>) => {
+  /** Runs an action; it returns false when it did not run (confirmation cancelled) – then the selection is kept. */
+  const act = async (fn: () => Promise<boolean>) => {
     setBusy(true);
     try {
-      await fn();
+      if (!(await fn())) return;
       setSelected(new Set());
       await data.reload();
     } catch (err) {
@@ -126,18 +134,20 @@ export default function HistoryPage() {
           danger: true,
         }))
       )
-        return;
+        return false;
       const res = await post<{ results: { documentId: number; ok: boolean; error?: string }[] }>('/api/history/revert', { documentIds: docIds });
       const failed = res.results.filter((r) => !r.ok);
       if (failed.length) toast.error(`${failed.length} could not be restored: ${failed[0].error}`);
       if (res.results.length - failed.length) toast.success(`${res.results.length - failed.length} document(s) restored`);
+      return true;
     });
 
   const reprocess = (docIds: number[]) =>
     act(async () => {
-      if (!(await confirm({ title: `Process ${docIds.length} document(s) again?`, message: 'The documents are analyzed again with the current settings and prompt.', confirmLabel: 'Process again' }))) return;
+      if (!(await confirm({ title: `Process ${docIds.length} document(s) again?`, message: 'The documents are analyzed again with the current settings and prompt.', confirmLabel: 'Process again' }))) return false;
       const res = await post<{ queued: number }>('/api/processing/documents', { ids: docIds });
       toast.success(`${res.queued} document(s) queued`);
+      return true;
     });
 
   const resetAll = () =>
@@ -150,9 +160,10 @@ export default function HistoryPage() {
           danger: true,
         }))
       )
-        return;
+        return false;
       const res = await post<{ reset: number }>('/api/history/reset', { all: true });
       toast.success(`Processing state of ${res.reset} document(s) reset`);
+      return true;
     });
 
   return (
@@ -199,7 +210,7 @@ export default function HistoryPage() {
           </div>
         </div>
 
-        {selected.size > 0 && (
+        {selectedDocs.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-b border-border bg-accent-soft/50 px-3 py-2 text-sm">
             <span className="font-medium">{selectedDocs.length} document(s) selected</span>
             <Button size="sm" variant="danger" icon={<Undo2 className="size-3.5" />} onClick={() => revert(selectedDocs)} loading={busy}>
@@ -228,13 +239,17 @@ export default function HistoryPage() {
                     onChange={() => setSelected(allSelected ? new Set() : new Set(items.map((i) => i.id)))}
                   />
                 </th>
-                <SortHead k="documentId" className="w-20">
+                <SortHead k="documentId" sort={sort} onSort={sortBy} className="w-20">
                   ID
                 </SortHead>
-                <SortHead k="title">Title</SortHead>
+                <SortHead k="title" sort={sort} onSort={sortBy}>
+                  Title
+                </SortHead>
                 <th className="px-3 py-2.5 font-medium">Tags</th>
-                <SortHead k="correspondent">Correspondent</SortHead>
-                <SortHead k="createdAt" className="w-40">
+                <SortHead k="correspondent" sort={sort} onSort={sortBy}>
+                  Correspondent
+                </SortHead>
+                <SortHead k="createdAt" sort={sort} onSort={sortBy} className="w-40">
                   Changed
                 </SortHead>
                 <th className="w-36 px-3 py-2.5 text-right font-medium">Actions</th>
@@ -291,11 +306,9 @@ export default function HistoryPage() {
                           <Button size="sm" variant="ghost" aria-label="Chat" title="Chat about this document" onClick={() => navigate(`/chat?doc=${i.documentId}`)}>
                             <MessageSquareText className="size-4" />
                           </Button>
-                          <a href={i.url} target="_blank" rel="noreferrer">
-                            <Button size="sm" variant="ghost" aria-label="Open in Paperless" title="Open in Paperless">
-                              <ExternalLink className="size-4" />
-                            </Button>
-                          </a>
+                          <LinkButton href={i.url} size="sm" variant="ghost" aria-label="Open in Paperless" title="Open in Paperless">
+                            <ExternalLink className="size-4" />
+                          </LinkButton>
                           {i.canRevert && (
                             <Button size="sm" variant="ghost" aria-label="Undo" title="Undo AI changes" onClick={() => revert([i.documentId])}>
                               <Undo2 className="size-4 text-danger" />

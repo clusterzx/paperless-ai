@@ -21,7 +21,7 @@ import type { DashboardData, ProcessingStatus } from '@shared/api';
 import { Page } from '../components/Layout';
 import { Bars, Donut, HBars, Legend, type Slice } from '../components/charts';
 import { Alert, Badge, Button, Card, EmptyState, Modal, PageHeader, Segmented, Skeleton, Stat, useToast } from '../components/ui';
-import { errorMessage, get, post } from '../lib/api';
+import { errorMessage, get, post, qs } from '../lib/api';
 import { useAsync, useInterval } from '../lib/hooks';
 import { compactNumber, duration, formatDate, formatNumber, timeAgo } from '../lib/format';
 
@@ -113,6 +113,7 @@ function MetadataModal({ initial, onClose }: { initial: MetaKind | null; onClose
     <Modal open={open} onClose={onClose} title="Paperless metadata" size="md">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Segmented
+          label="Metadata type"
           value={kind}
           onChange={setKind}
           options={[
@@ -122,7 +123,7 @@ function MetadataModal({ initial, onClose }: { initial: MetaKind | null; onClose
           ]}
         />
       </div>
-      <input className="input mb-3" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+      <input className="input mb-3" placeholder="Filter…" aria-label="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} />
       {data.loading ? (
         <Skeleton className="h-40" />
       ) : (
@@ -246,7 +247,8 @@ function LiveStatus({ status, onChange }: { status: ProcessingStatus; onChange: 
 }
 
 export default function DashboardPage() {
-  const dash = useAsync(() => get<DashboardData>('/api/dashboard'), []);
+  // tzOffset: the activity timeline is grouped by the viewer's local days.
+  const dash = useAsync(() => get<DashboardData>(`/api/dashboard${qs({ tzOffset: new Date().getTimezoneOffset() })}`), []);
   const update = useAsync(() => get<{ updateAvailable: boolean; latest: string | null; url: string | null }>('/api/update-check'), []);
   const [status, setStatus] = useState<ProcessingStatus | null>(null);
   const [meta, setMeta] = useState<MetaKind | null>(null);
@@ -277,8 +279,10 @@ export default function DashboardPage() {
     if (!d) return [];
     const map = new Map(d.timeline.map((t) => [t.date, t.count]));
     const out: { label: string; value: number }[] = [];
+    const today = new Date();
     for (let i = 29; i >= 0; i--) {
-      const day = new Date(Date.now() - i * 86_400_000);
+      // Calendar arithmetic (not 24 h steps) so DST changes do not skip or repeat a day.
+      const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
       const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
       out.push({ label: key, value: map.get(key) ?? 0 });
     }
