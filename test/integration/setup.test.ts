@@ -50,6 +50,42 @@ describe('setup wizard', () => {
     expect(res.json()).toEqual({ models: ['other-model', 'test-model'] });
   });
 
+  it('never sends preset secrets to another server before an account exists', async () => {
+    // e.g. token and key preset by environment variables on a fresh installation
+    h.ctx.config.update({ paperless: { url: h.paperless.url, token: h.paperless.token }, ai: { provider: 'custom', custom: { baseUrl: h.llm.openaiUrl, model: 'test-model', apiKey: 'sk-preset' } } });
+    const otherPaperless = await startMockPaperless({ token: 'other' });
+    const otherLlm = await startMockLlm();
+    try {
+      const same = await h.inject({ method: 'POST', url: '/api/setup/test-paperless', payload: { url: h.paperless.url, token: SECRET_MASK } });
+      expect(same.json()).toMatchObject({ ok: true });
+      const other = await h.inject({ method: 'POST', url: '/api/setup/test-paperless', payload: { url: otherPaperless.url, token: SECRET_MASK } });
+      expect(other.json()).toMatchObject({ ok: false, message: expect.stringContaining('API token') });
+      const setup = await h.inject({
+        method: 'POST',
+        url: '/api/setup',
+        payload: { username: 'evil', password: 'long enough password', config: { paperless: { url: otherPaperless.url } } },
+      });
+      expect(setup.json()).toMatchObject({ step: 'paperless' });
+      expect(otherPaperless.requests).toHaveLength(0);
+
+      await h.inject({ method: 'POST', url: '/api/setup/models', payload: { ai: { custom: { baseUrl: otherLlm.openaiUrl, apiKey: SECRET_MASK } } } });
+      await h.inject({ method: 'POST', url: '/api/setup/test-ai', payload: { ai: { custom: { baseUrl: otherLlm.openaiUrl } } } });
+      expect(otherLlm.requests.length).toBeGreaterThan(0);
+      for (const r of otherLlm.requests) expect(JSON.stringify(r.headers)).not.toContain('sk-preset');
+      // the preset key is used for its own server, an entered key anywhere
+      h.llm.clearRequests();
+      await h.inject({ method: 'POST', url: '/api/setup/models', payload: { ai: { custom: { apiKey: SECRET_MASK } } } });
+      expect(h.llm.requests[0].headers.authorization).toBe('Bearer sk-preset');
+      otherLlm.clearRequests();
+      await h.inject({ method: 'POST', url: '/api/setup/models', payload: { ai: { custom: { baseUrl: otherLlm.openaiUrl, apiKey: 'sk-other' } } } });
+      expect(otherLlm.requests[0].headers.authorization).toBe('Bearer sk-other');
+      expect(h.ctx.repos.users.count()).toBe(0);
+    } finally {
+      await otherPaperless.close();
+      await otherLlm.close();
+    }
+  });
+
   it('validates the user input', async () => {
     const short = await h.inject({ method: 'POST', url: '/api/setup', payload: { username: 'admin', password: 'short', config: setupConfig() } });
     expect(short.statusCode).toBe(400);
@@ -128,34 +164,6 @@ describe('setup wizard', () => {
     ] as const) {
       const res = await h.inject({ method: payload ? 'POST' : 'GET', url, payload, headers: h.apiKeyHeaders() });
       expect(res.statusCode, url).toBe(403);
-    }
-  });
-
-  it('never sends stored secrets to another server', async () => {
-    const otherPaperless = await startMockPaperless({ token: 'other' });
-    const otherLlm = await startMockLlm();
-    try {
-      // Paperless: the stored token is only used for the configured server
-      const same = await h.inject({ method: 'POST', url: '/api/setup/test-paperless', headers: { cookie }, payload: { url: h.paperless.url, token: SECRET_MASK } });
-      expect(same.json()).toMatchObject({ ok: true });
-      const other = await h.inject({ method: 'POST', url: '/api/setup/test-paperless', headers: { cookie }, payload: { url: otherPaperless.url, token: SECRET_MASK } });
-      expect(other.json()).toMatchObject({ ok: false, message: expect.stringContaining('API token') });
-      const viaSettings = await h.inject({ method: 'POST', url: '/api/settings/test-paperless', headers: { cookie }, payload: { url: otherPaperless.url } });
-      expect(viaSettings.json()).toMatchObject({ ok: false, message: expect.stringContaining('API token') });
-      expect(otherPaperless.requests).toHaveLength(0);
-
-      // AI: the stored key of the OpenAI-compatible provider stays with its base URL
-      await h.inject({ method: 'POST', url: '/api/setup/models', headers: { cookie }, payload: { ai: { custom: { baseUrl: otherLlm.openaiUrl, apiKey: SECRET_MASK } } } });
-      await h.inject({ method: 'POST', url: '/api/settings/test-ai', headers: { cookie }, payload: { ai: { custom: { baseUrl: otherLlm.openaiUrl } } } });
-      expect(otherLlm.requests.length).toBeGreaterThan(0);
-      for (const r of otherLlm.requests) expect(JSON.stringify(r.headers)).not.toContain('sk-setup');
-      // a key entered explicitly is used, of course
-      otherLlm.clearRequests();
-      await h.inject({ method: 'POST', url: '/api/setup/models', headers: { cookie }, payload: { ai: { custom: { baseUrl: otherLlm.openaiUrl, apiKey: 'sk-other' } } } });
-      expect(otherLlm.requests[0].headers.authorization).toBe('Bearer sk-other');
-    } finally {
-      await otherPaperless.close();
-      await otherLlm.close();
     }
   });
 });

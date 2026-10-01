@@ -31,14 +31,15 @@ const origin = (url: string) => {
 const sameServer = (url: string, storedUrl: string) => !storedUrl.trim() || origin(url) === origin(storedUrl);
 
 /**
- * Stored secrets are only reused for the server they belong to. A connection test against another
- * URL must bring its own key – otherwise anybody allowed to run a test could send the stored token
- * to a server of their choice.
+ * The token for a connection test: the entered one, or the stored one. Without a logged-in user
+ * (first setup, e.g. with the token preset by an environment variable) stored secrets are only
+ * reused for the server they belong to – otherwise anybody reaching the setup wizard could send
+ * them to a server of their choice.
  */
-export function storedPaperlessToken(ctx: AppContext, url: string, token: string | undefined): string {
+export function storedPaperlessToken(ctx: AppContext, url: string, token: string | undefined, trusted: boolean): string {
   if (token && token !== SECRET_MASK) return token;
   const stored = ctx.cfg.paperless;
-  return stored.token && sameServer(normalizePaperlessUrl(url), stored.url) ? stored.token : '';
+  return stored.token && (trusted || sameServer(normalizePaperlessUrl(url), stored.url)) ? stored.token : '';
 }
 
 export async function testPaperlessConnection(rawUrl: string, token: string): Promise<ConnectionTestResult> {
@@ -82,7 +83,8 @@ export async function testPaperlessConnection(rawUrl: string, token: string): Pr
 export async function testAiConnection(
   ctx: AppContext,
   ai: DeepPartial<AppConfig['ai']> | AppConfig['ai'],
-  opts: { modelsOnly?: boolean } = {},
+  /** trusted: a logged-in user runs the test (see storedPaperlessToken). */
+  opts: { modelsOnly?: boolean; trusted?: boolean } = {},
 ): Promise<ConnectionTestResult> {
   let merged: AppConfig['ai'];
   try {
@@ -90,11 +92,13 @@ export async function testAiConnection(
   } catch (err) {
     return { ok: false, message: `Invalid AI settings: ${describeError(err)}` };
   }
-  // Stored keys stay bound to their endpoint (see storedPaperlessToken).
-  const stored = ctx.cfg.ai;
-  const own = withoutMaskedSecrets(ai) as DeepPartial<AppConfig['ai']>;
-  if (!own.custom?.apiKey && !sameServer(merged.custom.baseUrl, stored.custom.baseUrl)) merged.custom.apiKey = '';
-  if (!own.azure?.apiKey && !sameServer(merged.azure.endpoint, stored.azure.endpoint)) merged.azure.apiKey = '';
+  if (opts.trusted === false) {
+    // Stored keys stay bound to their endpoint (see storedPaperlessToken).
+    const stored = ctx.cfg.ai;
+    const own = withoutMaskedSecrets(ai) as DeepPartial<AppConfig['ai']>;
+    if (!own.custom?.apiKey && !sameServer(merged.custom.baseUrl, stored.custom.baseUrl)) merged.custom.apiKey = '';
+    if (!own.azure?.apiKey && !sameServer(merged.azure.endpoint, stored.azure.endpoint)) merged.azure.apiKey = '';
+  }
   try {
     const client = createLlmClient(merged);
     let models: string[] = [];

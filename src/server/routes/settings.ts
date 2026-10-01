@@ -96,7 +96,7 @@ export const settingsRoutes =
     app.post(
       '/api/settings/test-paperless',
       { config: { auth: 'session' }, schema: { body: z.object({ url: z.string(), token: z.string().optional() }) } },
-      async (req) => testPaperlessConnection(req.body.url, storedPaperlessToken(ctx, req.body.url, req.body.token)),
+      async (req) => testPaperlessConnection(req.body.url, storedPaperlessToken(ctx, req.body.url, req.body.token, true)),
     );
 
     app.post('/api/settings/test-ai', { config: { auth: 'session' }, schema: { body: z.object({ ai: z.record(z.string(), z.unknown()) }) } }, async (req) =>
