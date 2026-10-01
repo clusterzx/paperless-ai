@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, type FastifyReply, type FastifyRequest, type FastifyServerOptions } from 'fastify';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
@@ -16,7 +16,7 @@ import { authenticate } from '../auth.js';
 import { PaperlessError } from '../paperless/client.js';
 import { AiError } from '../ai/types.js';
 import { logger } from '../logger.js';
-import { HttpProblem } from './helpers.js';
+import { endEventStreams, HttpProblem } from './helpers.js';
 import { systemRoutes } from '../routes/system.js';
 import { settingsRoutes } from '../routes/settings.js';
 import { processingRoutes } from '../routes/processing.js';
@@ -43,12 +43,28 @@ export interface AppOptions {
   staticDir?: string;
 }
 
+/**
+ * TRUST_PROXY: unset/false = use the socket address (default; X-Forwarded-For could be forged to
+ * dodge the login rate limit), a number = trusted proxy hops (recommended behind one reverse proxy:
+ * 1), true = trust every hop, otherwise a comma-separated list of proxy addresses/CIDRs.
+ */
+export function parseTrustProxy(value: string | undefined): FastifyServerOptions['trustProxy'] {
+  const v = value?.trim() ?? '';
+  if (!v || /^(false|no|0|off)$/i.test(v)) return false;
+  if (/^(true|yes|on)$/i.test(v)) return true;
+  if (/^\d+$/.test(v)) {
+    const hops = Number(v);
+    return (_address: string, hop: number) => hop < hops;
+  }
+  return v.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
 export async function buildApp(services: Services, opts: AppOptions = {}): Promise<FastifyInstance> {
   const { ctx } = services;
   const app = Fastify({
     loggerInstance: logger.child({ module: 'http' }) as unknown as FastifyBaseLogger,
     logController: new LogController({ disableRequestLogging: true }),
-    trustProxy: process.env.TRUST_PROXY !== 'false',
+    trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
     bodyLimit: 10 * 1024 * 1024,
     routerOptions: { ignoreTrailingSlash: true },
   });
@@ -87,13 +103,14 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   app.addHook('preHandler', async (req, reply) => {
     // API routes require authentication unless they opt out; static assets and docs are public.
     const url = req.routeOptions.url ?? '';
-    const level: AuthLevel = req.routeOptions.config?.auth ?? (url.startsWith('/api/') || url.startsWith('/chat/') ? 'user' : 'public');
+    let level: AuthLevel = req.routeOptions.config?.auth ?? (url.startsWith('/api/') || url.startsWith('/chat/') ? 'user' : 'public');
     req.principal = await authenticate(ctx, req);
     if (level === 'public') return;
     if (level === 'setup') {
+      // Open only on a fresh installation (nobody could log in yet); afterwards a logged-in user is
+      // required – never an API key, the setup endpoints contact arbitrary URLs.
       if (ctx.needsSetup() && ctx.repos.users.count() === 0) return;
-      if (!req.principal) return reply.code(401).send({ error: 'Authentication required' });
-      return;
+      level = 'session';
     }
     if (!req.principal) return reply.code(401).send({ error: 'Authentication required' });
     if (level === 'session' && req.principal.kind !== 'user') {
@@ -115,8 +132,11 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     if (err instanceof AiError) return reply.code(502).send({ error: err.message, code: 'ai_error' });
     if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ error: err.message });
     logger.error({ err, module: 'http', url: req.url }, 'Unhandled error');
-    return reply.code(500).send({ error: err.message || 'Internal server error' });
+    return reply.code(500).send({ error: 'Internal server error – see the logs for details' });
   });
+
+  // Long-lived event streams (logs, chat) would otherwise keep app.close() waiting forever.
+  app.addHook('preClose', async () => endEventStreams(app.server));
 
   await app.register(systemRoutes(services));
   await app.register(settingsRoutes(services));
@@ -143,14 +163,15 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   }
   const indexHtml = hasUi ? fs.readFileSync(indexFile!, 'utf8') : null;
   app.setNotFoundHandler((req, reply) => {
-    const isApi = req.url.startsWith('/api/') || req.url.startsWith('/chat/');
+    // Missing build files (e.g. an old tab after an upgrade) must fail as 404, not load index.html.
+    const isApi = req.url.startsWith('/api/') || req.url.startsWith('/chat/') || req.url.startsWith('/assets/');
     if (req.method === 'GET' && !isApi && indexHtml) {
       return reply
         .type('text/html; charset=utf-8')
         .header('Cache-Control', 'no-cache')
         .header(
           'Content-Security-Policy',
-          "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'",
+          "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'",
         )
         .send(indexHtml);
     }

@@ -81,14 +81,27 @@ async function readBody(res: Response): Promise<unknown> {
   }
 }
 
+/**
+ * The useful part of an error response: the message field of JSON APIs (OpenAI, Ollama, Django REST
+ * framework …) or the start of a text body without markup – never the complete upstream response.
+ */
+function errorDetail(body: unknown): string {
+  let detail = '';
+  if (typeof body === 'string') {
+    detail = body.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ');
+  } else if (body && typeof body === 'object') {
+    const b = body as Record<string, unknown>;
+    const nested = b.error && typeof b.error === 'object' ? (b.error as Record<string, unknown>).message : undefined;
+    const candidate = nested ?? b.error ?? b.detail ?? b.message;
+    detail = typeof candidate === 'string' ? candidate : JSON.stringify(body);
+  }
+  detail = detail.replace(/\s+/g, ' ').trim();
+  return detail.length > 300 ? `${detail.slice(0, 300)}…` : detail;
+}
+
 export function describeError(err: unknown): string {
   if (err instanceof HttpError) {
-    const detail =
-      typeof err.body === 'string'
-        ? err.body
-        : err.body && typeof err.body === 'object'
-          ? JSON.stringify(err.body).slice(0, 500)
-          : '';
+    const detail = errorDetail(err.body);
     return `${err.message}${detail ? `: ${detail}` : ''}`;
   }
   if (err instanceof Error) {

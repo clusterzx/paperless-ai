@@ -44,7 +44,7 @@ Upgrading from 3.x is automatic: your `data/.env`, user account, processing stat
 - Structured JSON output (JSON schema) with automatic fallback for providers without support
 - Process all documents or only documents with **trigger tags** (optionally removed afterwards), mark processed documents with a tag
 - Restrict the AI to existing tags / correspondents / document types, or to a fixed tag list
-- Optional context from an **external API** (e.g. your customer list) with a sandboxed transformation
+- Optional context from an **external API** (e.g. your customer list) with an optional JavaScript transformation (runs in a separate worker thread with a time limit)
 - Parallel processing, retries with back-off, failed/skipped documents visible on the dashboard
 
 **Ask your archive (RAG)**
@@ -130,7 +130,8 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `EXTERNAL_API_ENABLED`, `EXTERNAL_API_URL`, `EXTERNAL_API_METHOD`, `EXTERNAL_API_HEADERS`, `EXTERNAL_API_BODY`, `EXTERNAL_API_TIMEOUT`, `EXTERNAL_API_TRANSFORM` | external data |
 | `RAG_ENABLED` (or `RAG_SERVICE_ENABLED`), `RAG_EMBEDDING_PROVIDER`, `RAG_EMBEDDING_MODEL`, `RAG_QUERY_EXPANSION` | ask your archive |
 | `API_KEY`, `JWT_SECRET` | secrets (generated automatically when unset) |
-| `LOG_LEVEL`, `LOG_FORMAT=json`, `TRUST_PROXY=false` | operations |
+| `LOG_LEVEL`, `LOG_FORMAT=json` | operations |
+| `TRUST_PROXY` | behind a reverse proxy: number of proxy hops (usually `1`) or the proxy addresses – needed for correct client IPs (login rate limit) and secure cookies; off by default |
 
 Self-signed certificates for Paperless/AI endpoints: mount your CA and set `NODE_EXTRA_CA_CERTS=/path/ca.pem`.
 

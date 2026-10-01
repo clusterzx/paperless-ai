@@ -18,7 +18,7 @@ import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
 import { localEmbeddingsAvailable } from '../rag/localEmbedder.js';
 import { request } from '../util/http.js';
 import { logBuffer, logger, type LogEntry } from '../logger.js';
-import { testAiConnection, testPaperlessConnection, withoutMaskedSecrets } from './connectionTests.js';
+import { storedPaperlessToken, testAiConnection, testPaperlessConnection, withoutMaskedSecrets } from './connectionTests.js';
 
 const log = logger.child({ module: 'auth' });
 let dummy: Promise<string> | null = null;
@@ -102,7 +102,7 @@ export const systemRoutes =
     }));
 
     app.post('/api/setup/test-paperless', { config: { auth: 'setup' }, schema: { body: z.object({ url: z.string(), token: z.string() }) } }, async (req) =>
-      testPaperlessConnection(req.body.url, req.body.token || ctx.cfg.paperless.token),
+      testPaperlessConnection(req.body.url, storedPaperlessToken(ctx, req.body.url, req.body.token)),
     );
 
     app.post('/api/setup/test-ai', { config: { auth: 'setup' }, schema: { body: z.object({ ai: z.record(z.string(), z.unknown()) }) } }, async (req) =>
@@ -126,10 +126,10 @@ export const systemRoutes =
       // Validate the merged configuration before testing anything.
       const merged = configSchema.parse(deepMerge(structuredClone(ctx.cfg), withoutMaskedSecrets(patch)));
 
-      const pl = await testPaperlessConnection(merged.paperless.url, merged.paperless.token);
+      const pl = await testPaperlessConnection(merged.paperless.url, storedPaperlessToken(ctx, merged.paperless.url, patch.paperless?.token));
       if (!pl.ok) return reply.code(400).send({ error: pl.message, step: 'paperless' });
       if (!req.body.force) {
-        const ai = await testAiConnection(ctx, merged.ai);
+        const ai = await testAiConnection(ctx, patch.ai ?? {});
         if (!ai.ok) return reply.code(400).send({ error: ai.message, step: 'ai', canForce: true });
       }
 
@@ -189,6 +189,7 @@ export const systemRoutes =
     app.get(
       '/api/logs',
       {
+        config: { auth: 'session' },
         schema: {
           querystring: z.object({
             after: z.coerce.number().int().optional(),
@@ -201,7 +202,7 @@ export const systemRoutes =
       async (req) => ({ entries: logBuffer.list(req.query) }),
     );
 
-    app.get('/api/logs/stream', { schema: { hide: true } }, async (req, reply) => {
+    app.get('/api/logs/stream', { config: { auth: 'session' }, schema: { hide: true } }, async (req, reply) => {
       await sendEventStream<LogEntry>(req, reply, (signal) => {
         const queue: LogEntry[] = [];
         let wake: (() => void) | null = null;
@@ -224,7 +225,7 @@ export const systemRoutes =
       });
     });
 
-    app.get('/api/usage', async () => ctx.repos.usage.stats());
+    app.get('/api/usage', { config: { auth: 'session' } }, async () => ctx.repos.usage.stats());
 
     // Update check against the GitHub releases (cached, failures are silent).
     let latest: { at: number; version: string | null; url: string | null } | null = null;

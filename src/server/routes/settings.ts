@@ -13,7 +13,7 @@ import { clearExternalApiCache, fetchExternalData } from '../processing/external
 import { localEmbeddingsAvailable } from '../rag/localEmbedder.js';
 import { logger } from '../logger.js';
 import { describeError } from '../util/http.js';
-import { testAiConnection, testPaperlessConnection, withoutMaskedSecrets } from './connectionTests.js';
+import { storedPaperlessToken, testAiConnection, testPaperlessConnection, withoutMaskedSecrets } from './connectionTests.js';
 
 const log = logger.child({ module: 'settings' });
 
@@ -96,7 +96,7 @@ export const settingsRoutes =
     app.post(
       '/api/settings/test-paperless',
       { config: { auth: 'session' }, schema: { body: z.object({ url: z.string(), token: z.string().optional() }) } },
-      async (req) => testPaperlessConnection(req.body.url, withoutMaskedSecrets({ t: req.body.token }).t || ctx.cfg.paperless.token),
+      async (req) => testPaperlessConnection(req.body.url, storedPaperlessToken(ctx, req.body.url, req.body.token)),
     );
 
     app.post('/api/settings/test-ai', { config: { auth: 'session' }, schema: { body: z.object({ ai: z.record(z.string(), z.unknown()) }) } }, async (req) =>

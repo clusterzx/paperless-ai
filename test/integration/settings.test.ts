@@ -166,8 +166,8 @@ describe('settings', () => {
     const { apiKey } = res.json();
     expect(apiKey).toMatch(/^[0-9a-f]{64}$/);
     expect(apiKey).not.toBe(old);
-    expect((await h.inject({ method: 'GET', url: '/api/usage', headers: { 'x-api-key': old } })).statusCode).toBe(401);
-    expect((await h.inject({ method: 'GET', url: '/api/usage', headers: { 'x-api-key': apiKey } })).statusCode).toBe(200);
+    expect((await h.inject({ method: 'GET', url: '/api/processing/status', headers: { 'x-api-key': old } })).statusCode).toBe(401);
+    expect((await h.inject({ method: 'GET', url: '/api/processing/status', headers: { 'x-api-key': apiKey } })).statusCode).toBe(200);
     expect(savedConfig().security.apiKey).toBe(apiKey);
   });
 });
@@ -195,6 +195,6 @@ describe('settings locked by environment variables', () => {
     const legacy = await env.inject({ method: 'POST', url: '/api/key-regenerate', headers: { cookie: envCookie } });
     expect(legacy.statusCode).toBe(400);
     expect(env.ctx.cfg.security.apiKey).toBe('env-api-key');
-    expect((await env.inject({ method: 'GET', url: '/api/usage', headers: { 'x-api-key': 'env-api-key' } })).statusCode).toBe(200);
+    expect((await env.inject({ method: 'GET', url: '/api/processing/status', headers: { 'x-api-key': 'env-api-key' } })).statusCode).toBe(200);
   });
 });

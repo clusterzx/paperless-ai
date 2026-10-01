@@ -49,22 +49,42 @@ export async function sendEventStream<T>(
   raw.on('close', () => {
     if (!raw.writableFinished) ac.abort(new Error('client disconnected'));
   });
-  const keepAlive = setInterval(() => raw.write(': ping\n\n'), 15_000);
+  // Writes after a disconnect must not throw (EPIPE / write after end).
+  const write = (chunk: string) => {
+    if (raw.writableEnded || raw.destroyed) return;
+    try {
+      raw.write(chunk);
+    } catch {
+      /* client gone */
+    }
+  };
+  const streams = openStreams.get(req.server.server) ?? new Set<AbortController>();
+  openStreams.set(req.server.server, streams);
+  streams.add(ac);
+  const keepAlive = setInterval(() => write(': ping\n\n'), 15_000);
   try {
     for await (const event of produce(ac.signal)) {
       if (ac.signal.aborted) break;
-      raw.write(format(event));
+      write(format(event));
     }
-    if (onEnd && !ac.signal.aborted) raw.write(onEnd());
+    if (onEnd && !ac.signal.aborted) write(onEnd());
   } catch (err) {
     if (!ac.signal.aborted) {
       logger.warn({ module: 'http', url: req.url }, `Stream failed: ${describeError(err)}`);
-      raw.write(onError(describeError(err)));
+      write(onError(describeError(err)));
     }
   } finally {
     clearInterval(keepAlive);
-    raw.end();
+    streams.delete(ac);
+    if (!raw.writableEnded) raw.end();
   }
+}
+
+/** Open event streams per HTTP server – ended on shutdown so that closing the server does not hang. */
+const openStreams = new WeakMap<object, Set<AbortController>>();
+
+export function endEventStreams(server: object): void {
+  for (const ac of openStreams.get(server) ?? []) ac.abort(new Error('server shutting down'));
 }
 
 /** Extract a document id from a Paperless URL (".../documents/123/...") or a plain number. */

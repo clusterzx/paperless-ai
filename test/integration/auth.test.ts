@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { SESSION_COOKIE, issueSession } from '../../src/server/auth.js';
+import { parseTrustProxy } from '../../src/server/http/app.js';
 import { createHarness, TEST_PASSWORD, TEST_USER, type Harness } from '../helpers/appHarness.js';
 
 let h: Harness;
@@ -47,6 +48,10 @@ describe('authentication', () => {
       ['POST', '/api/settings/api-key/regenerate'],
       ['POST', '/api/key-regenerate'],
       ['GET', '/api/account'],
+      // diagnostics contain document titles, URLs and failed logins
+      ['GET', '/api/logs'],
+      ['GET', '/api/logs/stream'],
+      ['GET', '/api/usage'],
     ] as const) {
       const res = await h.inject({ method, url, headers: h.apiKeyHeaders() });
       expect(res.statusCode, url).toBe(403);
@@ -134,6 +139,66 @@ describe('public routes and HTTP basics', () => {
     const res = await h.inject({ method: 'GET', url: '/api/does-not-exist', headers: h.apiKeyHeaders() });
     expect(res.statusCode).toBe(404);
     expect(res.json().error).toContain('/api/does-not-exist');
+  });
+
+  it('answers missing build files with 404 instead of the web UI', async () => {
+    const res = await h.inject({ method: 'GET', url: '/assets/index-old.js' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('does not leak internal error messages', async () => {
+    const spy = vi.spyOn(h.ctx.repos.usage, 'stats').mockImplementation(() => {
+      throw new Error('SQLITE_CORRUPT: /app/data/paperless-ai.db');
+    });
+    try {
+      const res = await h.inject({ method: 'GET', url: '/api/usage', headers: { cookie } });
+      expect(res.statusCode).toBe(500);
+      expect(res.body).not.toContain('SQLITE');
+      expect(res.json().error).toMatch(/Internal server error/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('ends open event streams when the server shuts down', async () => {
+    const other = await createHarness();
+    const otherCookie = await other.login();
+    const address = await other.app.listen({ port: 0, host: '127.0.0.1' });
+    const res = await fetch(`${address}/api/logs/stream`, { headers: { cookie: otherCookie } });
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    const started = Date.now();
+    await other.close();
+    expect(Date.now() - started).toBeLessThan(3000);
+    // the client sees the end of the stream
+    await res.body?.cancel().catch(() => undefined);
+  });
+
+  it('cannot dodge the login rate limit with a forged X-Forwarded-For header', async () => {
+    const other = await createHarness();
+    try {
+      const codes: number[] = [];
+      for (let i = 0; i < 12; i++) {
+        const res = await other.inject({
+          method: 'POST',
+          url: '/api/auth/login',
+          headers: { 'x-forwarded-for': `10.0.0.${i}` },
+          payload: { username: 'nobody', password: 'wrong password' },
+        });
+        codes.push(res.statusCode);
+      }
+      expect(codes.at(-1)).toBe(429);
+    } finally {
+      await other.close();
+    }
+  });
+
+  it('only trusts proxy headers when configured', () => {
+    expect(parseTrustProxy(undefined)).toBe(false);
+    expect(parseTrustProxy('false')).toBe(false);
+    expect(parseTrustProxy('true')).toBe(true);
+    const oneHop = parseTrustProxy('1') as (address: string, hop: number) => boolean;
+    expect([oneHop('10.0.0.1', 0), oneHop('10.0.0.2', 1)]).toEqual([true, false]);
+    expect(parseTrustProxy('10.0.0.1, 172.16.0.0/12')).toEqual(['10.0.0.1', '172.16.0.0/12']);
   });
 
   it('validates request bodies', async () => {

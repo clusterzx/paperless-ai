@@ -116,7 +116,7 @@ export const configSchema = z.object({
       /** JSON request body for POST/PUT. */
       body: z.string().default('{}'),
       timeoutMs: z.coerce.number().int().min(100).max(120_000).default(5000),
-      /** Optional JS function body `return …` receiving `data`; runs in a sandbox with a time limit. */
+      /** Optional JS function body `return …` receiving `data`; runs in a worker thread with a time limit (trusted admin code). */
       transform: z.string().default(''),
     })
     .prefault({}),

@@ -17,42 +17,55 @@ export const processingRoutes =
 
     // ---------------------------------------------------------------- dashboard
 
-    app.get('/api/dashboard', async (): Promise<DashboardData> => {
-      const paperless: DashboardData['paperless'] = { connected: false, documents: 0, tags: 0, correspondents: 0, documentTypes: 0 };
-      if (ctx.paperlessConfigured()) {
-        try {
-          const client = ctx.paperless();
-          const info = await client.connect();
-          const [documents, meta] = await Promise.all([client.count('/documents/'), ctx.metadata().snapshot()]);
-          Object.assign(paperless, {
-            connected: true,
-            version: info.serverVersion,
-            apiVersion: info.apiVersion,
-            documents,
-            tags: meta.tags.length,
-            correspondents: meta.correspondents.length,
-            documentTypes: meta.documentTypes.length,
-          });
-        } catch (err) {
-          paperless.error = describeError(err);
-        }
-      } else paperless.error = 'Not configured';
-      return {
-        version: ctx.version,
-        paperless,
-        processing: engine.status(),
-        usage: ctx.repos.usage.stats(),
-        timeline: ctx.repos.documents.timeline(30, new Date().getTimezoneOffset()),
-        documentTypes: ctx.repos.history.documentTypeStats(8),
-        ai: ctx.aiInfo(),
-        rag: { enabled: ctx.cfg.rag.enabled },
-      };
-    });
+    app.get(
+      '/api/dashboard',
+      // tzOffset: the browser's Date#getTimezoneOffset() so the activity chart uses the viewer's days.
+      { schema: { querystring: z.object({ tzOffset: z.coerce.number().int().min(-840).max(840).optional() }) } },
+      async (req): Promise<DashboardData> => {
+        const paperless: DashboardData['paperless'] = {
+          connected: false,
+          documents: 0,
+          tags: 0,
+          correspondents: 0,
+          documentTypes: 0,
+        };
+        if (ctx.paperlessConfigured()) {
+          try {
+            const client = ctx.paperless();
+            const info = await client.connect();
+            const [documents, meta] = await Promise.all([client.count('/documents/'), ctx.metadata().snapshot()]);
+            Object.assign(paperless, {
+              connected: true,
+              version: info.serverVersion,
+              apiVersion: info.apiVersion,
+              documents,
+              tags: meta.tags.length,
+              correspondents: meta.correspondents.length,
+              documentTypes: meta.documentTypes.length,
+            });
+          } catch (err) {
+            paperless.error = describeError(err);
+          }
+        } else paperless.error = 'Not configured';
+        return {
+          version: ctx.version,
+          paperless,
+          processing: engine.status(),
+          usage: ctx.repos.usage.stats(),
+          timeline: ctx.repos.documents.timeline(30, req.query.tzOffset ?? new Date().getTimezoneOffset()),
+          documentTypes: ctx.repos.history.documentTypeStats(8),
+          ai: ctx.aiInfo(),
+          rag: { enabled: ctx.cfg.rag.enabled },
+        };
+      },
+    );
 
     app.get('/api/metadata/counts', async () => {
       const meta = await ctx.metadata().snapshot();
       const pick = (items: { id: number; name: string; document_count?: number }[]) =>
-        items.map((i) => ({ id: i.id, name: i.name, document_count: i.document_count ?? 0 })).sort((a, b) => b.document_count - a.document_count);
+        items
+          .map((i) => ({ id: i.id, name: i.name, document_count: i.document_count ?? 0 }))
+          .sort((a, b) => b.document_count - a.document_count);
       return { tags: pick(meta.tags), correspondents: pick(meta.correspondents), documentTypes: pick(meta.documentTypes) };
     });
 
@@ -77,7 +90,14 @@ export const processingRoutes =
 
     app.post(
       '/api/processing/documents',
-      { schema: { body: z.object({ ids: z.array(z.number().int().positive()).min(1).max(5000), prompt: z.string().max(20_000).optional() }) } },
+      {
+        schema: {
+          body: z.object({
+            ids: z.array(z.number().int().positive()).min(1).max(5000),
+            prompt: z.string().max(20_000).optional(),
+          }),
+        },
+      },
       async (req) => {
         let queued = 0;
         for (const id of req.body.ids) if (engine.enqueue(id, { source: 'api', force: true, prompt: req.body.prompt })) queued++;
@@ -137,11 +157,19 @@ export const processingRoutes =
       async (req, reply) => {
         const b = req.body;
         const id = documentIdFrom(b.document_id) ?? documentIdFrom(b.id) ?? documentIdFrom(b.url) ?? documentIdFrom(b.doc_url);
-        if (!id) throw badRequest('Missing or invalid document reference: send {"url": "<document url>"} or {"document_id": 123}');
+        if (!id)
+          throw badRequest('Missing or invalid document reference: send {"url": "<document url>"} or {"document_id": 123}');
         if (!ctx.isConfigured()) return reply.code(409).send({ error: 'Paperless-AI is not configured yet' });
         const accepted = engine.enqueue(id, { source: 'webhook', prompt: b.prompt, force: b.force });
         log.info(`Webhook: document ${id} ${accepted ? 'queued' : 'already queued'}`);
-        return reply.code(202).send({ message: 'Document accepted for processing', documentId: id, queued: accepted, queueLength: engine.queueLength });
+        return reply
+          .code(202)
+          .send({
+            message: 'Document accepted for processing',
+            documentId: id,
+            queued: accepted,
+            queueLength: engine.queueLength,
+          });
       },
     );
 
@@ -210,7 +238,15 @@ export const processingRoutes =
 
     app.post(
       '/api/history/reset',
-      { schema: { body: z.object({ documentIds: z.array(z.number().int().positive()).max(100_000).optional(), all: z.boolean().optional(), deleteHistory: z.boolean().optional() }) } },
+      {
+        schema: {
+          body: z.object({
+            documentIds: z.array(z.number().int().positive()).max(100_000).optional(),
+            all: z.boolean().optional(),
+            deleteHistory: z.boolean().optional(),
+          }),
+        },
+      },
       async (req) => {
         if (req.body.all) {
           const n = ctx.repos.documents.resetAll();
@@ -239,19 +275,34 @@ export const processingRoutes =
       const s = engine.status();
       const cur = s.current[0];
       return {
-        currentlyProcessing: cur ? { documentId: cur.documentId, title: cur.title, startTime: new Date(cur.startedAt).toISOString(), status: 'processing' } : null,
+        currentlyProcessing: cur
+          ? {
+              documentId: cur.documentId,
+              title: cur.title,
+              startTime: new Date(cur.startedAt).toISOString(),
+              status: 'processing',
+            }
+          : null,
         lastProcessed: s.lastProcessed
-          ? { documentId: s.lastProcessed.documentId, title: s.lastProcessed.title, processed_at: new Date(s.lastProcessed.processedAt).toISOString() }
+          ? {
+              documentId: s.lastProcessed.documentId,
+              title: s.lastProcessed.title,
+              processed_at: new Date(s.lastProcessed.processedAt).toISOString(),
+            }
           : null,
         processedToday: s.processedToday,
         isProcessing: s.running,
       };
     });
 
-    app.post('/api/reset-documents', { schema: { hide: true, body: z.object({ ids: z.array(z.coerce.number().int()) }) } }, async (req) => {
-      ctx.repos.documents.reset(req.body.ids);
-      return { success: true };
-    });
+    app.post(
+      '/api/reset-documents',
+      { schema: { hide: true, body: z.object({ ids: z.array(z.coerce.number().int()) }) } },
+      async (req) => {
+        ctx.repos.documents.reset(req.body.ids);
+        return { success: true };
+      },
+    );
 
     app.post('/api/reset-all-documents', { schema: { hide: true } }, async () => {
       ctx.repos.documents.resetAll();

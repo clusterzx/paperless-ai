@@ -19,6 +19,28 @@ export function withoutMaskedSecrets<T>(value: T): T {
   return out as T;
 }
 
+const origin = (url: string) => {
+  try {
+    return new URL(url).origin.toLowerCase();
+  } catch {
+    return url.trim().replace(/\/+$/, '').toLowerCase();
+  }
+};
+
+/** Whether a stored secret may be sent to `url` (it belongs to that server, or no server is stored yet). */
+const sameServer = (url: string, storedUrl: string) => !storedUrl.trim() || origin(url) === origin(storedUrl);
+
+/**
+ * Stored secrets are only reused for the server they belong to. A connection test against another
+ * URL must bring its own key – otherwise anybody allowed to run a test could send the stored token
+ * to a server of their choice.
+ */
+export function storedPaperlessToken(ctx: AppContext, url: string, token: string | undefined): string {
+  if (token && token !== SECRET_MASK) return token;
+  const stored = ctx.cfg.paperless;
+  return stored.token && sameServer(normalizePaperlessUrl(url), stored.url) ? stored.token : '';
+}
+
 export async function testPaperlessConnection(rawUrl: string, token: string): Promise<ConnectionTestResult> {
   const url = normalizePaperlessUrl(rawUrl ?? '');
   if (!/^https?:\/\/[^/]+/i.test(url)) return { ok: false, message: 'Please enter a valid URL, e.g. http://paperless:8000' };
@@ -68,6 +90,11 @@ export async function testAiConnection(
   } catch (err) {
     return { ok: false, message: `Invalid AI settings: ${describeError(err)}` };
   }
+  // Stored keys stay bound to their endpoint (see storedPaperlessToken).
+  const stored = ctx.cfg.ai;
+  const own = withoutMaskedSecrets(ai) as DeepPartial<AppConfig['ai']>;
+  if (!own.custom?.apiKey && !sameServer(merged.custom.baseUrl, stored.custom.baseUrl)) merged.custom.apiKey = '';
+  if (!own.azure?.apiKey && !sameServer(merged.azure.endpoint, stored.azure.endpoint)) merged.azure.apiKey = '';
   try {
     const client = createLlmClient(merged);
     let models: string[] = [];
