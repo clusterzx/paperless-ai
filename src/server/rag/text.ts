@@ -2,6 +2,7 @@
  * Lexical helpers: tokenisation, stop words, FTS5 query construction and
  * snippet extraction.
  */
+import { MONTHS } from '../processing/dates.js';
 
 // Small multilingual stop word list (de, en, fr, es, it, nl) – enough to keep
 // FTS queries focused on the meaningful words of a question.
@@ -48,15 +49,34 @@ export function queryTerms(text: string, max = 24): string[] {
   return out;
 }
 
+// Inflection endings (German/English) removed before prefix search, longest first.
+const SUFFIXES = ['ungen', 'ung', 'ern', 'en', 'er', 'es', 'em', 'e', 'n', 's'];
+
+/**
+ * Very light stemming for prefix queries: "Rechnungen" → "rechn", "Versicherungen" →
+ * "versicher", "invoices" → "invoic". Only applied when a stem of ≥ 4 letters remains.
+ */
+export function stem(term: string): string {
+  if (term.length < 6 || /\d/.test(term)) return term;
+  for (const suffix of SUFFIXES) {
+    if (term.endsWith(suffix) && term.length - suffix.length >= 4) return term.slice(0, -suffix.length);
+  }
+  return term;
+}
+
 /**
  * Build a safe FTS5 MATCH expression: every term quoted (no syntax injection),
  * prefix search for longer words (helps with German compounds and inflections).
  */
 export function buildFtsQuery(terms: string[]): string | null {
-  const parts = terms
-    .map((t) => t.replace(/"/g, ''))
-    .filter(Boolean)
-    .map((t) => (t.length >= 4 && !/^\d+$/.test(t) ? `"${t}"*` : `"${t}"`));
+  const parts = [
+    ...new Set(
+      terms
+        .map((t) => t.replace(/"/g, ''))
+        .filter(Boolean)
+        .map((t) => (t.length >= 4 && !/^\d+$/.test(t) ? `"${stem(t)}"*` : `"${t}"`)),
+    ),
+  ];
   return parts.length ? parts.join(' OR ') : null;
 }
 
@@ -122,4 +142,23 @@ export function mentionedYears(question: string): number[] {
   const years = new Set<number>();
   for (const m of question.matchAll(/\b(19[7-9]\d|20\d\d)\b/g)) years.add(Number(m[1]));
   return [...years];
+}
+
+/**
+ * Months mentioned together with a year, e.g. "März 2024", "March 2024", "Mar. 2024",
+ * "03/2024", "2024-03" → [{ year: 2024, month: 3 }].
+ */
+export function mentionedMonths(question: string): { year: number; month: number }[] {
+  const out = new Map<string, { year: number; month: number }>();
+  const add = (year: number, month: number) => {
+    if (month >= 1 && month <= 12 && year >= 1970 && year <= 2099) out.set(`${year}-${month}`, { year, month });
+  };
+  const q = question.toLowerCase();
+  for (const m of q.matchAll(/(?<!\p{L})(\p{L}{3,10})\.?\s+(19[7-9]\d|20\d\d)\b/gu)) {
+    const month = MONTHS[m[1]];
+    if (month) add(Number(m[2]), month);
+  }
+  for (const m of q.matchAll(/\b(0?[1-9]|1[0-2])[/.](19[7-9]\d|20\d\d)\b/g)) add(Number(m[2]), Number(m[1]));
+  for (const m of q.matchAll(/\b(19[7-9]\d|20\d\d)-(0[1-9]|1[0-2])\b/g)) add(Number(m[1]), Number(m[2]));
+  return [...out.values()];
 }

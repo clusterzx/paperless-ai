@@ -5,9 +5,11 @@ import {
   asksForRecency,
   buildFtsQuery,
   makeSnippet,
+  mentionedMonths,
   mentionedYears,
   overlapScore,
   queryTerms,
+  stem,
   tokenize,
 } from '../../src/server/rag/text.js';
 
@@ -46,9 +48,30 @@ describe('tokenize / queryTerms', () => {
   });
 });
 
+describe('stem', () => {
+  it('strips common German/English inflection suffixes from longer words', () => {
+    expect(stem('rechnungen')).toBe('rechn');
+    expect(stem('versicherung')).toBe('versicher');
+    expect(stem('verträge')).toBe('verträg');
+    expect(stem('invoices')).toBe('invoic');
+    expect(stem('kosten')).toBe('kost');
+  });
+
+  it('keeps short words and numbers untouched', () => {
+    expect(stem('miete')).toBe('miete');
+    expect(stem('tax')).toBe('tax');
+    expect(stem('sr-2024-0315')).toBe('sr-2024-0315');
+    expect(stem('20245')).toBe('20245');
+  });
+});
+
 describe('buildFtsQuery', () => {
-  it('quotes every term and uses prefix search for longer words', () => {
-    expect(buildFtsQuery(['invoice', 'acme', 'tax', '2024', '12345'])).toBe('"invoice"* OR "acme"* OR "tax" OR "2024" OR "12345"');
+  it('quotes every term and uses (stemmed) prefix search for longer words', () => {
+    expect(buildFtsQuery(['invoice', 'acme', 'tax', '2024', '12345'])).toBe('"invoic"* OR "acme"* OR "tax" OR "2024" OR "12345"');
+  });
+
+  it('deduplicates terms that share a stem', () => {
+    expect(buildFtsQuery(['rechnung', 'rechnungen'])).toBe('"rechn"*');
   });
 
   it('returns null without terms', () => {
@@ -132,5 +155,20 @@ describe('overlapScore / recency / years', () => {
   it('extracts years', () => {
     expect(mentionedYears('Steuer 2023 und 2024, nicht 1850 oder 12024')).toEqual([2023, 2024]);
     expect(mentionedYears('no year')).toEqual([]);
+  });
+
+  it('extracts months in several languages and numeric forms', () => {
+    expect(mentionedMonths('Stromrechnung März 2024')).toEqual([{ year: 2024, month: 3 }]);
+    expect(mentionedMonths('invoice from Sept. 2023 and dec 2022')).toEqual([
+      { year: 2023, month: 9 },
+      { year: 2022, month: 12 },
+    ]);
+    expect(mentionedMonths('Abrechnung 03/2024, 2024-11 und 3.2024')).toEqual([
+      { year: 2024, month: 3 },
+      { year: 2024, month: 11 },
+    ]);
+    // a year alone, unknown words or impossible months are no month mention
+    expect(mentionedMonths('Steuer 2024')).toEqual([]);
+    expect(mentionedMonths('Rechnung 2024 13/2024 2024-13')).toEqual([]);
   });
 });

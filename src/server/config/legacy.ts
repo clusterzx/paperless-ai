@@ -147,6 +147,7 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'RAG_ENABLED', path: 'rag.enabled', parse: b },
   { env: 'RAG_EMBEDDING_PROVIDER', path: 'rag.embeddingProvider', parse: (v) => v.trim().toLowerCase() },
   { env: 'RAG_EMBEDDING_MODEL', path: 'rag.embeddingModel', parse: s },
+  { env: 'RAG_QUERY_EXPANSION', path: 'rag.queryExpansion', parse: b },
 
   { env: 'API_KEY', path: 'security.apiKey', parse: s },
   { env: 'JWT_SECRET', path: 'security.jwtSecret', parse: s },

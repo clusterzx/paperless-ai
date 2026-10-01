@@ -204,7 +204,14 @@ export class RagStore {
   }
 
   /** Documents matching metadata filters (used for soft boosts and hard filters). */
-  documentsWhere(filter: { correspondents?: string[]; documentTypes?: string[]; years?: number[]; from?: string; to?: string }): { id: number; created: string | null }[] {
+  documentsWhere(filter: {
+    correspondents?: string[];
+    documentTypes?: string[];
+    years?: number[];
+    months?: { year: number; month: number }[];
+    from?: string;
+    to?: string;
+  }): { id: number; created: string | null }[] {
     const where: string[] = [];
     const params: unknown[] = [];
     if (filter.correspondents?.length) {
@@ -216,8 +223,13 @@ export class RagStore {
       params.push(...filter.documentTypes);
     }
     if (filter.years?.length) {
-      where.push(`substr(created, 1, 4) IN (${filter.years.map(() => '?').join(',')})`);
-      params.push(...filter.years.map(String));
+      // Created in that year, or about that year ("Lohnsteuerbescheinigung 2023" is issued in 2024).
+      where.push(`(substr(created, 1, 4) IN (${filter.years.map(() => '?').join(',')}) OR ${filter.years.map(() => 'title LIKE ?').join(' OR ')})`);
+      params.push(...filter.years.map(String), ...filter.years.map((y) => `%${y}%`));
+    }
+    if (filter.months?.length) {
+      where.push(`substr(created, 1, 7) IN (${filter.months.map(() => '?').join(',')})`);
+      params.push(...filter.months.map((m) => `${m.year}-${String(m.month).padStart(2, '0')}`));
     }
     if (filter.from) {
       where.push('created >= ?');
@@ -231,6 +243,16 @@ export class RagStore {
     return this.db
       .prepare(`SELECT id, created FROM rag_documents WHERE ${where.join(' AND ')} ORDER BY created DESC LIMIT 500`)
       .all(...params) as { id: number; created: string | null }[];
+  }
+
+  /** A few document titles (helps the AI to guess the language of the archive). */
+  sampleTitles(limit: number): string[] {
+    return (this.db.prepare('SELECT title FROM rag_documents ORDER BY created DESC LIMIT ?').all(limit) as { title: string }[]).map((r) => r.title);
+  }
+
+  createdDates(ids: number[]): Map<number, string | null> {
+    const stmt = this.db.prepare('SELECT created FROM rag_documents WHERE id = ?');
+    return new Map(ids.map((id) => [id, (stmt.get(id) as { created: string | null } | undefined)?.created ?? null]));
   }
 
   /** Most recent documents (for "latest …" questions). */

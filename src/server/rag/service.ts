@@ -23,7 +23,7 @@ import { normalizeName } from '../paperless/metadata.js';
 import { chunkText } from './chunker.js';
 import { LocalEmbedder, localEmbeddingsAvailable } from './localEmbedder.js';
 import { metaLine, RagStore, type ChunkWithMeta, type RagDocumentMeta } from './store.js';
-import { asksForRecency, buildFtsQuery, makeSnippet, mentionedYears, queryTerms } from './text.js';
+import { asksForRecency, buildFtsQuery, makeSnippet, mentionedMonths, mentionedYears, queryTerms, stem } from './text.js';
 import { VectorIndex } from './vectorIndex.js';
 
 const log = logger.child({ module: 'rag' });
@@ -32,6 +32,9 @@ const RRF_K = 60;
 const CANDIDATES = 80;
 const FETCH_BATCH = 25;
 const EMBED_BATCH = 64;
+
+/** Remove [n] citation markers (and the space before them) from earlier answers. */
+const stripCitations = (text: string) => text.replace(/\s*\[\d+\](\[\d+\])*/g, '');
 
 export interface SearchFilters {
   from?: string;
@@ -387,10 +390,14 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     });
   }
 
-  async search(question: string, opts: { filters?: SearchFilters; limit?: number; signal?: AbortSignal } = {}): Promise<SearchResult> {
+  async search(
+    question: string,
+    opts: { filters?: SearchFilters; limit?: number; keywords?: string[]; signal?: AbortSignal } = {},
+  ): Promise<SearchResult> {
     const started = Date.now();
     if (this.enabled) this.ensureVectors();
-    const terms = queryTerms(question);
+    const keywords = opts.keywords ?? [];
+    const terms = queryTerms(keywords.length ? `${question} ${keywords.join(' ')}` : question, 32);
     const limit = opts.limit ?? this.cfg.rag.topK;
     const f = opts.filters ?? {};
 
@@ -409,15 +416,34 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
       );
     }
 
-    const lists: { weight: number; ids: number[] }[] = [];
+    const lists: { weight: number; ids: number[]; factors?: number[] }[] = [];
     const chunkDoc = new Map<number, number>();
 
-    // 1. BM25 keyword search
+    // 1. BM25 keyword search. Hits that contain only some of the query terms (e.g. only a year or
+    //    a generic word) are ranked behind complete matches and contribute less.
     const match = buildFtsQuery(terms);
     if (match) {
       const hits = this.store.ftsSearch(match, CANDIDATES * 2).filter((h) => !allowDocs || allowDocs.has(h.documentId)).slice(0, CANDIDATES);
-      for (const h of hits) chunkDoc.set(h.id, h.documentId);
-      lists.push({ weight: 1, ids: hits.map((h) => h.id) });
+      const toStem = (t: string) => (t.length >= 4 && !/^\d+$/.test(t) ? stem(t) : t);
+      const qStems = queryTerms(question).map(toStem);
+      const kStems = queryTerms(keywords.join(' ')).map(toStem).filter((k) => !qStems.includes(k));
+      const texts = this.store.chunksWithMeta(hits.map((h) => h.id));
+      const coverage = new Map(
+        hits.map((h) => {
+          const c = texts.get(h.id);
+          const text = c ? `${metaLine(c)} ${c.text}`.toLowerCase() : '';
+          let cov = qStems.length ? qStems.filter((st) => text.includes(st)).length / qStems.length : 0;
+          // Matching AI keywords (synonyms/translations) counts like matching the question.
+          const kHits = kStems.filter((st) => text.includes(st)).length;
+          if (kHits) cov = Math.max(cov, 0.25 + (0.5 * kHits) / kStems.length);
+          return [h.id, qStems.length || kStems.length ? cov : 1];
+        }),
+      );
+      const ordered = hits
+        .map((h, rank) => ({ ...h, rank, cov: coverage.get(h.id) ?? 0 }))
+        .sort((a, b) => b.cov - a.cov || a.rank - b.rank);
+      for (const h of ordered) chunkDoc.set(h.id, h.documentId);
+      lists.push({ weight: 1, ids: ordered.map((h) => h.id), factors: ordered.map((h) => Math.max(0.25, h.cov)) });
     }
 
     // 2. Vector search
@@ -426,10 +452,17 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
       try {
         const embedder = await this.getEmbedder();
         if (embedder) {
-          const [qv] = await embedder.embed([question], 'query', opts.signal);
+          const inputs = keywords.length ? [question, keywords.join(', ')] : [question];
+          const [qv, kv] = await embedder.embed(inputs, 'query', opts.signal);
           const hits = this.vectors.search(qv, CANDIDATES, allowDocs);
           for (const h of hits) chunkDoc.set(h.id, h.documentId);
           lists.push({ weight: 1, ids: hits.map((h) => h.id) });
+          if (kv) {
+            // AI keywords (synonyms, translations) as a second, weaker semantic query.
+            const khits = this.vectors.search(kv, CANDIDATES, allowDocs);
+            for (const h of khits) chunkDoc.set(h.id, h.documentId);
+            lists.push({ weight: 0.5, ids: khits.map((h) => h.id) });
+          }
           mode = 'hybrid';
         }
       } catch (err) {
@@ -437,45 +470,58 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
       }
     }
 
-    // 3. Soft boosts from the question (mentioned correspondent / type / year, recency).
-    const docBoosts: { weight: number; docs: number[] }[] = [];
-    const corr = this.mentioned(question, 'correspondent');
-    if (corr.length) docBoosts.push({ weight: 0.6, docs: this.store.documentsWhere({ correspondents: corr }).map((d) => d.id) });
-    const types = this.mentioned(question, 'document_type');
-    if (types.length) docBoosts.push({ weight: 0.4, docs: this.store.documentsWhere({ documentTypes: types }).map((d) => d.id) });
-    const years = mentionedYears(question);
-    if (years.length) docBoosts.push({ weight: 0.4, docs: this.store.documentsWhere({ years }).map((d) => d.id) });
-    if (asksForRecency(question)) {
-      const scope = corr.length || types.length ? docBoosts.flatMap((b) => b.docs) : this.store.recentDocuments(50).map((d) => d.id);
-      docBoosts.push({ weight: 0.5, docs: scope });
-    }
-
     // Reciprocal rank fusion over passages.
     const scores = new Map<number, number>();
     for (const list of lists) {
-      list.ids.forEach((id, rank) => scores.set(id, (scores.get(id) ?? 0) + list.weight / (RRF_K + rank + 1)));
+      list.ids.forEach((id, rank) => scores.set(id, (scores.get(id) ?? 0) + (list.weight * (list.factors?.[rank] ?? 1)) / (RRF_K + rank + 1)));
     }
-    if (docBoosts.length) {
-      const docRank = new Map<number, number>();
-      for (const b of docBoosts) {
-        b.docs.forEach((doc, rank) => docRank.set(doc, (docRank.get(doc) ?? 0) + b.weight / (RRF_K + rank + 1)));
+
+    // 3. Soft boosts derived from the question. Membership boosts are uniform (they must not
+    //    favour recent documents); only an explicit "latest …" question boosts by date.
+    const UNIT = 1 / (RRF_K + 1); // score of a first-ranked hit in one list
+    const membership = new Map<number, number>();
+    const addMembership = (docIds: number[], weight: number) => {
+      for (const d of docIds) membership.set(d, (membership.get(d) ?? 0) + weight * UNIT);
+    };
+    const corr = this.mentioned(question, 'correspondent');
+    const corrDocs = corr.length ? this.store.documentsWhere({ correspondents: corr }) : [];
+    addMembership(corrDocs.map((d) => d.id), 0.5);
+    const types = this.mentioned(question, 'document_type');
+    const typeDocs = types.length ? this.store.documentsWhere({ documentTypes: types }) : [];
+    addMembership(typeDocs.map((d) => d.id), 0.3);
+    const months = mentionedMonths(question);
+    const monthDocs = months.length ? this.store.documentsWhere({ months }) : [];
+    addMembership(monthDocs.map((d) => d.id), 0.6);
+    const years = mentionedYears(question);
+    if (years.length && !months.length) addMembership(this.store.documentsWhere({ years }).map((d) => d.id), 0.2);
+
+    const docScore = (id: number) => membership.get(chunkDoc.get(id)!) ?? 0;
+    for (const [id, s] of scores) scores.set(id, s + docScore(id));
+
+    // Documents matching a specific correspondent/type/month without any passage hit still get
+    // their first passage (e.g. "latest invoice from X" when the wording does not match).
+    const specific = [...new Set([...corrDocs, ...typeDocs, ...monthDocs].map((d) => d.id))];
+    if (specific.length && specific.length <= limit * 3) {
+      const hitDocs = new Set(chunkDoc.values());
+      for (const doc of specific) {
+        if (hitDocs.has(doc) || (allowDocs && !allowDocs.has(doc))) continue;
+        const first = this.store.documentChunks(doc)[0];
+        if (!first) continue;
+        chunkDoc.set(first.id, doc);
+        scores.set(first.id, membership.get(doc) ?? 0);
       }
-      for (const [id, s] of scores) {
-        const boost = docRank.get(chunkDoc.get(id)!);
-        if (boost) scores.set(id, s + boost);
-      }
-      // Boosted documents without any passage hit (e.g. "latest invoice from X") still get their first passage.
-      if (scores.size < limit * 3) {
-        for (const [doc, boost] of [...docRank.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit)) {
-          if ([...chunkDoc.values()].includes(doc)) continue;
-          if (allowDocs && !allowDocs.has(doc)) continue;
-          const first = this.store.documentChunks(doc)[0];
-          if (first) {
-            scores.set(first.id, boost);
-            chunkDoc.set(first.id, doc);
-          }
-        }
-      }
+    }
+
+    if (asksForRecency(question)) {
+      // Among the relevant candidates (or the documents of the mentioned correspondent/type),
+      // prefer newer documents.
+      const candidateDocs = specific.length
+        ? specific
+        : [...new Set([...scores.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([id]) => chunkDoc.get(id)!))];
+      const created = this.store.createdDates(candidateDocs);
+      const byDate = [...candidateDocs].sort((a, b) => (created.get(b) ?? '').localeCompare(created.get(a) ?? ''));
+      const recency = new Map(byDate.map((doc, rank) => [doc, 0.8 / (RRF_K + rank + 1)]));
+      for (const [id, s] of scores) scores.set(id, s + (recency.get(chunkDoc.get(id)!) ?? 0));
     }
 
     const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]);
@@ -555,32 +601,44 @@ Rules:
 - Use Markdown (lists, bold, tables) when it improves readability.`;
   }
 
-  /** Turn a follow-up question into a standalone search query. */
-  private async condense(history: ChatTurn[], question: string, signal?: AbortSignal): Promise<string> {
+  /**
+   * Let the AI turn the question into a standalone query plus search keywords (synonyms and
+   * translations into the language of the archive). For follow-up questions this also resolves
+   * references to the conversation. Falls back to the original question on any problem.
+   */
+  async analyzeQuery(question: string, history: ChatTurn[] = [], signal?: AbortSignal): Promise<{ query: string; keywords: string[] }> {
+    const fallback = { query: question, keywords: [] as string[] };
     try {
       const llm = this.ctx.llm();
+      const titles = this.store.sampleTitles(12);
       const convo = history
         .slice(-6)
-        .map((t) => `${t.role === 'user' ? 'User' : 'Assistant'}: ${truncateToTokens(t.content.replace(/\[\d+\]/g, ''), 300).text}`)
+        .map((t) => `${t.role === 'user' ? 'User' : 'Assistant'}: ${truncateToTokens(stripCitations(t.content), 250).text}`)
         .join('\n');
+      const system = `You prepare searches in a personal document archive (scanned letters, invoices, contracts …).
+Example document titles from the archive: ${titles.join(' | ') || '(none yet)'}
+Return JSON {"query": string, "keywords": string[]}:
+- "query": the question as a standalone question${history.length ? ' (resolve references to the conversation: names, dates, topics)' : ''}, in the language of the question.
+- "keywords": 3–8 short search terms that are likely to appear in matching documents: important nouns, names, synonyms and – if the archive language differs from the question – translations into the archive language. No dates in natural language, no filler words.`;
+      const user = history.length ? `Conversation:\n${convo}\n\nQuestion: ${question}` : `Question: ${question}`;
       const res = await llm.complete(
         [
-          {
-            role: 'system',
-            content:
-              'Rewrite the follow-up question into a standalone question that can be understood without the conversation. Keep the language of the question. Include names, dates and topics referenced from the conversation. Reply as JSON: {"query": "..."}',
-          },
-          { role: 'user', content: `Conversation:\n${convo}\n\nFollow-up question: ${question}` },
+          { role: 'system', content: system },
+          { role: 'user', content: user },
         ],
-        { json: true, temperature: 0, maxTokens: 200, signal, timeoutMs: 60_000 },
+        { json: true, temperature: 0, maxTokens: 250, signal, timeoutMs: 30_000 },
       );
       this.ctx.recordUsage('rag', res);
-      const q = extractJsonObject<{ query?: string }>(res.text).query?.trim();
-      return q || question;
+      const parsed = extractJsonObject<{ query?: unknown; keywords?: unknown }>(res.text);
+      const query = typeof parsed.query === 'string' && parsed.query.trim() ? parsed.query.trim() : question;
+      const keywords = Array.isArray(parsed.keywords)
+        ? parsed.keywords.filter((k): k is string => typeof k === 'string' && k.trim().length > 1).map((k) => k.trim().slice(0, 60)).slice(0, 10)
+        : [];
+      return { query, keywords };
     } catch (err) {
       if (signal?.aborted) throw err;
-      log.debug(`Query rewriting failed, using the original question: ${describeError(err)}`);
-      return question;
+      log.debug(`Query analysis failed, using the original question: ${describeError(err)}`);
+      return fallback;
     }
   }
 
@@ -599,12 +657,17 @@ Rules:
       this.requestSync();
     }
     let query = question;
-    if (cleanHistory.length) {
+    let keywords: string[] = [];
+    if (cleanHistory.length || this.cfg.rag.queryExpansion) {
       yield { type: 'status', message: 'Understanding the question…' };
-      query = await this.condense(cleanHistory, question, signal);
+      const analysis = await this.analyzeQuery(question, cleanHistory, signal);
+      // Follow-up questions need the rewritten (standalone) query; for first questions the user's
+      // own wording stays authoritative and the AI keywords only complement it.
+      if (cleanHistory.length) query = analysis.query;
+      keywords = analysis.keywords;
     }
     yield { type: 'status', message: 'Searching documents…' };
-    const result = await this.search(query, { filters: opts.filters, signal });
+    const result = await this.search(query, { filters: opts.filters, keywords, signal });
     const sources = this.toSources(result);
     yield { type: 'sources', sources };
 
@@ -614,7 +677,7 @@ Rules:
     let historyBudget = Math.min(3000, Math.floor(cfg.ai.tokenLimit * 0.15));
     const historyMsgs: ChatMessage[] = [];
     for (const turn of [...cleanHistory].reverse()) {
-      const content = turn.content.replace(/\s*\[\d+\](\[\d+\])*/g, '');
+      const content = stripCitations(turn.content);
       const t = estimateTokens(content);
       if (t > historyBudget) break;
       historyBudget -= t;

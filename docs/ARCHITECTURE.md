@@ -81,8 +81,10 @@ Paperless ──list (id, modified, metadata)──▶ diff ──▶ fetch cont
                        SQLite: rag_documents, rag_chunks, rag_fts (FTS5, contentless)
                                                                          │
                                embed pending passages (batches) ──▶ BLOB + in-memory int8 index
-question ─▶ (follow-up? condense with LLM) ─▶ BM25 + vector search ─▶ reciprocal rank fusion
-        ─▶ boosts (mentioned correspondent/type/year, “latest”) ─▶ group by document (≤ 3 passages)
+question ─▶ query analysis with the LLM (standalone query for follow-ups + search keywords)
+        ─▶ BM25 (stemmed prefix terms, coverage-weighted) + vector search (question, keywords)
+        ─▶ reciprocal rank fusion ─▶ boosts (mentioned correspondent/type/month/year, “latest”)
+        ─▶ group by document (best passage decides, ≤ 3 passages)
         ─▶ context within token budget (short documents completely) ─▶ streamed answer with [n] citations
 ```
 
@@ -92,6 +94,12 @@ question ─▶ (follow-up? condense with LLM) ─▶ BM25 + vector search ─�
   processing; deleted documents are removed. Keyword search works immediately, vectors follow.
 * The vector index stores normalised vectors as int8 with a per-vector scale and is searched brute
   force with a bounded heap – milliseconds for archives with hundreds of thousands of passages.
+* Query analysis (`rag.queryExpansion`) is one short JSON call (temperature 0) that also receives a
+  few document titles, so the model can translate terms into the language of the archive. Any
+  failure falls back to the original question. For first questions the user's wording stays the
+  query; the keywords only add a second BM25/vector signal with half the weight.
+* Boosts are uniform per mentioned attribute (all documents of the mentioned correspondent get the
+  same bonus) so that they never prefer newer documents; only “latest …” questions add a recency bonus.
 * Local embeddings run in a worker thread (`transformers.js`/ONNX, limited threads) that is stopped
   after 5 minutes of inactivity.
 

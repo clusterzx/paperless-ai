@@ -128,7 +128,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `RESTRICT_TO_EXISTING_TAGS`, `RESTRICT_TO_EXISTING_CORRESPONDENTS`, `RESTRICT_TO_EXISTING_DOCUMENT_TYPES` | restrictions |
 | `CUSTOM_FIELDS` | custom fields (JSON, format of 3.x) |
 | `EXTERNAL_API_ENABLED`, `EXTERNAL_API_URL`, `EXTERNAL_API_METHOD`, `EXTERNAL_API_HEADERS`, `EXTERNAL_API_BODY`, `EXTERNAL_API_TIMEOUT`, `EXTERNAL_API_TRANSFORM` | external data |
-| `RAG_ENABLED` (or `RAG_SERVICE_ENABLED`), `RAG_EMBEDDING_PROVIDER`, `RAG_EMBEDDING_MODEL` | ask your archive |
+| `RAG_ENABLED` (or `RAG_SERVICE_ENABLED`), `RAG_EMBEDDING_PROVIDER`, `RAG_EMBEDDING_MODEL`, `RAG_QUERY_EXPANSION` | ask your archive |
 | `API_KEY`, `JWT_SECRET` | secrets (generated automatically when unset) |
 | `LOG_LEVEL`, `LOG_FORMAT=json`, `TRUST_PROXY=false` | operations |
 
@@ -144,6 +144,17 @@ Self-signed certificates for Paperless/AI endpoints: mount your CA and set `NODE
 | None | keyword search only (BM25) – smallest footprint |
 
 Changing the embedding model re-embeds the passages automatically; the keyword search keeps working meanwhile.
+
+**Smart search terms** (on by default, `RAG_QUERY_EXPANSION=false` to disable): before searching, the AI adds a few search terms to the question – synonyms, names and translations into the language of your archive. This costs one short extra AI call per question and noticeably improves the hit rate, especially when you ask in a different language than your documents are written in.
+
+Retrieval quality, measured with `npx tsx e2e/rag-eval/run.ts` (49 German/English documents, 27 questions in both languages; “hit@k” = the right document is among the first k sources the AI sees):
+
+| Retrieval | hit@1 | hit@3 | hit@5 |
+| --- | --- | --- | --- |
+| 3.x (emulated) | 52 % | 56 % | 63 % |
+| 4.0 keyword only | 56 % | 70 % | 70 % |
+| 4.0 hybrid, local model | 81 % | 89 % | 93 % |
+| 4.0 hybrid, local model + smart search terms (`qwen2.5:3b` via Ollama) | 85 % | **100 %** | **100 %** |
 
 ## 🔌 API
 

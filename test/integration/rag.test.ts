@@ -37,11 +37,17 @@ function seed(h: Harness) {
   p.addDocument({ id: 4, title: 'Rental agreement', content: LONG_CONTENT, document_type: 21, created: '2022-09-01' });
 }
 
-/** Chat replies: condensing returns a standalone query, streaming answers cite source 1. */
+/** Chat replies: the query analysis returns a standalone query + keywords, streaming answers cite source 1. */
 function chatHandler(req: ChatRequestInfo) {
-  if (req.system.includes('Rewrite the follow-up question')) return JSON.stringify({ query: 'electricity bill amount March 2024' });
+  if (req.system.startsWith('You prepare searches')) {
+    return { content: JSON.stringify({ query: 'electricity bill amount March 2024', keywords: ['electricity', 'invoice'] }), usage: { prompt_tokens: 80, completion_tokens: 10 } };
+  }
   return { content: 'The electricity bill was 89.50 EUR [1].', chunkSize: 6, usage: { prompt_tokens: 400, completion_tokens: 12 } };
 }
+
+type Msgs = { messages: { role: string; content: string }[] };
+const messagesOf = (req: { body: unknown }) => (req.body as Msgs).messages;
+const systemOf = (req: { body: unknown }) => messagesOf(req).find((m) => m.role === 'system')?.content ?? '';
 
 const search = async (h: Harness, body: Record<string, unknown>) => {
   const res = await h.inject({ method: 'POST', url: '/api/rag/search', headers: h.apiKeyHeaders(), payload: body });
@@ -147,13 +153,55 @@ describe('RAG with embeddings (hybrid search)', () => {
     expect(answer).toBe('The electricity bill was 89.50 EUR [1].');
     expect(events.at(-1)).toEqual({ type: 'done', usage: { promptTokens: 400, completionTokens: 12, totalTokens: 412 }, model: 'test-model' });
 
-    // the prompt contains the numbered excerpts
-    const [chatReq] = h.llm.chatRequests();
-    const msgs = (chatReq.body as { messages: { role: string; content: string }[] }).messages;
+    // first the query analysis (JSON, deterministic), then the answer with the numbered excerpts
+    const [analysis, chatReq] = h.llm.chatRequests();
+    expect(systemOf(analysis)).toMatch(/^You prepare searches/);
+    expect(analysis.body).toMatchObject({ response_format: { type: 'json_object' }, temperature: 0 });
+    expect(systemOf(analysis)).toContain('Electricity bill'); // example titles from the index
+    const msgs = messagesOf(chatReq);
     expect(msgs[0].content).toContain('Cite the excerpts');
+    // the user's own wording stays authoritative for first questions
     expect(msgs.at(-1)!.content).toContain('Question: How much was the electricity bill?');
     expect(msgs.at(-1)!.content).toContain('[1] Title: Electricity bill | From: City Power');
-    expect(h.ctx.repos.usage.stats().byFeature).toContainEqual({ feature: 'rag', calls: 1, tokens: 412 });
+    expect(h.ctx.repos.usage.stats().byFeature).toContainEqual({ feature: 'rag', calls: 2, tokens: 502 });
+  });
+
+  it('skips the query analysis when smart search terms are disabled', async () => {
+    h.ctx.config.update({ rag: { queryExpansion: false } });
+    try {
+      h.llm.clearRequests();
+      const res = await h.inject({ method: 'POST', url: '/api/rag/chat', headers: h.apiKeyHeaders(), payload: { question: 'How much was the electricity bill?' } });
+      const events = parseSsePayload(res.payload) as ChatStreamEvent[];
+      expect(events.at(-1)!.type).toBe('done');
+      expect(h.llm.chatRequests()).toHaveLength(1);
+      expect(systemOf(h.llm.chatRequests()[0])).toContain('Cite the excerpts');
+    } finally {
+      h.ctx.config.update({ rag: { queryExpansion: true } });
+    }
+  });
+
+  it('finds documents through the keywords of the query analysis', async () => {
+    // "power costs" alone does not match the bill by keyword; the AI keywords do
+    const plain = await h.rag.search('Stromkosten', { limit: 4 });
+    const expanded = await h.rag.search('Stromkosten', { limit: 4, keywords: ['electricity', 'invoice'] });
+    expect(expanded.documents[0].documentId).toBe(1);
+    expect(expanded.documents[0].score).toBeGreaterThan(plain.documents.find((d) => d.documentId === 1)?.score ?? 0);
+  });
+
+  it('falls back to the original question when the query analysis fails', async () => {
+    h.llm.reply((req) => (req.system.startsWith('You prepare searches') ? 'this is not json' : chatHandler(req)));
+    try {
+      expect(await h.rag.analyzeQuery('How much was the electricity bill?')).toEqual({ query: 'How much was the electricity bill?', keywords: [] });
+      h.llm.reply((req) => (req.system.startsWith('You prepare searches') ? { status: 500, error: { error: { message: 'boom' } } } : chatHandler(req)));
+      expect(await h.rag.analyzeQuery('Q?')).toEqual({ query: 'Q?', keywords: [] });
+      // invalid keyword entries are dropped
+      h.llm.reply((req) =>
+        req.system.startsWith('You prepare searches') ? JSON.stringify({ query: ' ', keywords: ['ok', 3, '', 'x', 'invoice'] }) : chatHandler(req),
+      );
+      expect(await h.rag.analyzeQuery('Q?')).toEqual({ query: 'Q?', keywords: ['ok', 'invoice'] });
+    } finally {
+      h.llm.reply(chatHandler);
+    }
   });
 
   it('rewrites follow-up questions using the history', async () => {
@@ -174,7 +222,9 @@ describe('RAG with embeddings (hybrid search)', () => {
     expect(events.filter((e) => e.type === 'status').map((e) => (e as { message: string }).message)).toContain('Understanding the question…');
     const [condense, answer] = h.llm.chatRequests();
     expect(condense.body).toMatchObject({ response_format: { type: 'json_object' }, temperature: 0 });
-    const msgs = (answer.body as { messages: { role: string; content: string }[] }).messages;
+    expect(messagesOf(condense).at(-1)!.content).toContain('Assistant: You have an electricity bill from City Power.');
+    expect(messagesOf(condense).at(-1)!.content).toContain('Question: And in March?');
+    const msgs = (answer.body as Msgs).messages;
     expect(msgs.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user']);
     // citations are removed from the history sent to the model
     expect(msgs[2].content).toBe('You have an electricity bill from City Power.');

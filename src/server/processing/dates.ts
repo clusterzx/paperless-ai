@@ -3,7 +3,7 @@
  * made-up fallback date (the old implementation used 1990-01-01).
  */
 
-const MONTHS: Record<string, number> = {
+export const MONTHS: Record<string, number> = {
   jan: 1, january: 1, januar: 1, jänner: 1, janvier: 1, enero: 1, gennaio: 1,
   feb: 2, february: 2, februar: 2, février: 2, fevrier: 2, febrero: 2, febbraio: 2,
   mar: 3, march: 3, märz: 3, maerz: 3, mars: 3, marzo: 3,

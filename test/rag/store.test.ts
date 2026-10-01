@@ -121,12 +121,23 @@ describe('RagStore', () => {
     expect(ids({ correspondents: ['Acme'] })).toEqual([2, 1]);
     expect(ids({ documentTypes: ['invoice'] })).toEqual([3, 1]);
     expect(ids({ years: [2024] })).toEqual([3, 2]);
+    expect(ids({ months: [{ year: 2024, month: 7 }, { year: 2023, month: 5 }] })).toEqual([3, 1]);
+    expect(ids({ months: [{ year: 2024, month: 3 }] })).toEqual([]);
     expect(ids({ from: '2024-01-01', to: '2024-03-01' })).toEqual([2]);
     expect(ids({ correspondents: ['ACME'], documentTypes: ['Invoice'] })).toEqual([1]);
     expect(ids({})).toEqual([]);
     expect(store.recentDocuments(2).map((d) => d.id)).toEqual([3, 2]);
+    expect(store.createdDates([1, 4, 99])).toEqual(new Map([[1, '2023-05-01'], [4, null], [99, null]]));
     expect(store.distinctValues('correspondent').sort()).toEqual(['ACME', 'Other', 'acme']);
     expect(store.distinctValues('document_type').sort()).toEqual(['Contract', 'Invoice']);
+  });
+
+  it('matches a year in the title (documents about a year issued later)', () => {
+    store.upsertDocument(meta(1, { title: 'Lohnsteuerbescheinigung 2023', created: '2024-02-10' }), ['a']);
+    store.upsertDocument(meta(2, { title: 'Rechnung', created: '2023-06-01' }), ['b']);
+    store.upsertDocument(meta(3, { title: 'Rechnung', created: '2022-06-01' }), ['c']);
+    expect(store.documentsWhere({ years: [2023] }).map((d) => d.id)).toEqual([1, 2]);
+    expect(store.sampleTitles(2)).toEqual(['Lohnsteuerbescheinigung 2023', 'Rechnung']);
   });
 });
 

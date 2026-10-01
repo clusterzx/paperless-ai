@@ -656,6 +656,13 @@ export function RagSection({ draft, set, locked, localEmbeddings }: SectionProps
               <Switch label="Keep index up to date automatically" checked={r.autoSync} locked={locked['rag.autoSync']} onChange={(v) => set('rag.autoSync', v)} />
             </div>
           </FormGrid>
+          <Switch
+            label="Smart search terms"
+            description="One short additional AI request per question extracts keywords, synonyms and translations (e.g. “rental agreement” → “Mietvertrag”). Noticeably better results; turn off for very slow local models."
+            checked={r.queryExpansion}
+            locked={locked['rag.queryExpansion']}
+            onChange={(v) => set('rag.queryExpansion', v)}
+          />
         </>
       )}
     </div>

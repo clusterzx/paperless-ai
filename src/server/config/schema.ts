@@ -128,6 +128,8 @@ export const configSchema = z.object({
       embeddingModel: str(),
       /** Keep the index in sync automatically. */
       autoSync: bool(true),
+      /** Let the AI extract search keywords/synonyms/translations from each question. */
+      queryExpansion: bool(true),
       /** Number of document passages handed to the model. */
       topK: z.coerce.number().int().min(2).max(40).default(10),
       /** Token budget for retrieved passages. */
