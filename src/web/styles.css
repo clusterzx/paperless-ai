@@ -1,0 +1,210 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* Semantic design tokens (light) */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f1f3f6;
+  --surface-3: #e7eaef;
+  --border: #e3e6eb;
+  --border-strong: #cfd4dc;
+  --text: #111827;
+  --muted: #5b6474;
+  --faint: #8a93a3;
+  --accent: #0f9f6e;
+  --accent-strong: #0b815a;
+  --accent-soft: #e3f6ee;
+  --accent-text: #076646;
+  --danger: #d43c3c;
+  --danger-soft: #fdeceb;
+  --warn: #c27c0e;
+  --warn-soft: #fdf3e1;
+  --info: #2f6fdb;
+  --info-soft: #e8f0fd;
+  --ring: rgb(15 159 110 / 0.35);
+  --shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06);
+  --shadow-lg: 0 12px 32px -8px rgb(16 24 40 / 0.18), 0 4px 8px -4px rgb(16 24 40 / 0.08);
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bg: #0d1117;
+  --surface: #141a22;
+  --surface-2: #1a212b;
+  --surface-3: #232c38;
+  --border: #252e3a;
+  --border-strong: #354152;
+  --text: #e6eaf0;
+  --muted: #9aa5b4;
+  --faint: #6c7788;
+  --accent: #2dc58f;
+  --accent-strong: #4fd6a5;
+  --accent-soft: #10342a;
+  --accent-text: #6ee7b7;
+  --danger: #f06a6a;
+  --danger-soft: #3a1717;
+  --warn: #f0b04a;
+  --warn-soft: #382a10;
+  --info: #6aa1ff;
+  --info-soft: #13233f;
+  --ring: rgb(45 197 143 / 0.4);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 16px 40px -12px rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --font-sans: 'Inter', 'InterVariable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace;
+  --shadow-card: var(--shadow);
+  --shadow-pop: var(--shadow-lg);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg shadow-card transition outline-none placeholder:text-faint;
+    @apply focus:border-accent focus:ring-4 focus:ring-[var(--ring)];
+    @apply disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  textarea.input {
+    @apply leading-relaxed;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-fg;
+  }
+  .hint {
+    @apply mt-1.5 text-xs text-muted;
+  }
+  .kbd {
+    @apply rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-muted;
+  }
+}
+
+/* Markdown answers */
+.prose-chat {
+  @apply text-[0.94rem] leading-relaxed;
+}
+.prose-chat p {
+  @apply my-2;
+}
+.prose-chat p:first-child {
+  @apply mt-0;
+}
+.prose-chat p:last-child {
+  @apply mb-0;
+}
+.prose-chat ul {
+  @apply my-2 list-disc pl-5;
+}
+.prose-chat ol {
+  @apply my-2 list-decimal pl-5;
+}
+.prose-chat li {
+  @apply my-0.5;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3 {
+  @apply mt-3 mb-1.5 font-semibold;
+}
+.prose-chat code {
+  @apply rounded bg-surface-3 px-1 py-0.5 font-mono text-[0.85em];
+}
+.prose-chat pre {
+  @apply my-2 overflow-x-auto rounded-lg bg-surface-3 p-3 text-xs;
+}
+.prose-chat pre code {
+  @apply bg-transparent p-0;
+}
+.prose-chat table {
+  @apply my-2 w-full border-collapse text-sm;
+}
+.prose-chat th,
+.prose-chat td {
+  @apply border border-border px-2 py-1 text-left;
+}
+.prose-chat th {
+  @apply bg-surface-2 font-semibold;
+}
+.prose-chat a {
+  @apply text-accent-text underline underline-offset-2;
+}
+.prose-chat blockquote {
+  @apply my-2 border-l-2 border-border-strong pl-3 text-muted;
+}
+.prose-chat .cite {
+  @apply ml-0.5 inline-flex h-[1.15rem] min-w-[1.15rem] -translate-y-1 cursor-pointer items-center justify-center rounded-md bg-accent-soft px-1 align-baseline text-[0.68rem] font-semibold text-accent-text no-underline transition hover:bg-accent hover:text-white;
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+.typing-caret::after {
+  content: '▍';
+  @apply ml-0.5 text-accent;
+  animation: caret 1s steps(1) infinite;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-in {
+  animation: fade-in 0.18s ease-out;
+}

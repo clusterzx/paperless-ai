@@ -1,68 +1,84 @@
 {
   "name": "paperless-ai",
-  "version": "1.0.0",
-  "description": "AI based Tag, correspondent and meta data generation",
-  "main": "server.js",
-  "scripts": {
-    "test": "nodemon server.js"
-  },
+  "version": "4.0.0",
+  "description": "AI-powered document classification, tagging and RAG chat for Paperless-ngx",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "author": "Clusterzx",
   "keywords": [
     "paperless-ngx",
     "ai",
-    "paperless",
-    "artificial",
-    "intelligence"
+    "rag",
+    "ollama",
+    "openai",
+    "document-management"
   ],
-  "nodemonConfig": {
-    "ignore": [
-      "test/*",
-      "docs/*",
-      "node_modules/*",
-      ".git/*",
-      "*.log",
-      "public/*",
-      "views/*",
-      "document.json",
-      "OPENAPI/openapi.json"
-    ]
+  "engines": {
+    "node": ">=22.12.0"
   },
-  "author": "Clusterzx",
-  "license": "MIT",
+  "main": "dist/server/index.js",
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch --clear-screen=false src/server/index.ts",
+    "dev:web": "vite",
+    "build": "npm run build:web && npm run build:server",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build:web": "vite build",
+    "start": "node dist/server/index.js",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "demo": "tsx e2e/demo-server.ts"
+  },
   "dependencies": {
-    "axios": "^1.8.2",
-    "bcryptjs": "^3.0.2",
-    "better-sqlite3": "^11.8.1",
-    "body-parser": "^1.20.3",
-    "cheerio": "^1.0.0",
-    "cookie-parser": "^1.4.7",
-    "cors": "^2.8.5",
-    "date-fns": "^4.1.0",
-    "dockerode": "^4.0.6",
-    "dotenv": "^16.4.7",
-    "ejs": "^3.1.10",
-    "express": "^4.21.2",
-    "jsonwebtoken": "^9.0.2",
-    "node-cron": "^3.0.3",
-    "nodemon": "^3.1.9",
-    "openai": "^4.86.2",
-    "rimraf": "^6.0.1",
-    "sqlite3": "^5.1.7",
-    "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1",
-    "tiktoken": "^1.0.20"
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/static": "^10.1.5",
+    "@fastify/swagger": "^9.9.1",
+    "@fastify/swagger-ui": "^6.1.1",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^13.0.3",
+    "croner": "^10.0.1",
+    "dotenv": "^17.2.3",
+    "fastify": "^5.12.5",
+    "fastify-type-provider-zod": "^7.0.0",
+    "jose": "^6.2.12",
+    "pino": "^10.3.1",
+    "zod": "^4.6.5"
+  },
+  "optionalDependencies": {
+    "@huggingface/transformers": "^4.3.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.22.0",
-    "eslint": "^9.22.0",
-    "eslint-config-prettier": "^10.1.1",
-    "eslint-plugin-jsdoc": "^50.6.3",
-    "globals": "^16.0.0",
-    "prettier": "^3.5.3"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@scarf/scarf",
-      "better-sqlite3"
-    ]
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.20.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^9.2.1",
+    "dompurify": "^3.4.16",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^16.5.0",
+    "lucide-react": "^1.49.0",
+    "marked": "^18.0.14",
+    "prettier": "^3.6.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.0",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3",
+    "wouter": "^3.13.0"
   }
 }

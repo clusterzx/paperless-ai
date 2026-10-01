@@ -1,23 +1,28 @@
 services:
   paperless-ai:
-    image: clusterzx/paperless-ai
+    image: clusterzx/paperless-ai:latest
     container_name: paperless-ai
-    network_mode: bridge
     restart: unless-stopped
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges=true
     environment:
-      - PUID=1000
-      - PGID=1000
-      - PAPERLESS_AI_PORT=${PAPERLESS_AI_PORT:-3000}
-      - RAG_SERVICE_URL=http://localhost:8000
-      - RAG_SERVICE_ENABLED=true
+      - PAPERLESS_AI_PORT=3000
+      # Everything else is configured in the web interface (setup wizard).
+      # Settings can also be pinned with environment variables, e.g.:
+      # - PAPERLESS_API_URL=http://paperless:8000
+      # - PAPERLESS_API_TOKEN=...
+      # - AI_PROVIDER=ollama
+      # - OLLAMA_API_URL=http://host.docker.internal:11434
+      # - OLLAMA_MODEL=qwen3:8b
     ports:
-      - "3000:${PAPERLESS_AI_PORT:-3000}"
+      - "3000:3000"
     volumes:
       - paperless-ai_data:/app/data
+    # Needed to reach Ollama running on the Docker host via host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   paperless-ai_data:

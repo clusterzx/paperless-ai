@@ -1,0 +1,153 @@
+/**
+ * End-to-end test of the complete user journey against the demo server
+ * (fake Paperless-ngx + fake LLM, real Paperless-AI backend and UI).
+ * Tests run in order and share the server state.
+ */
+import { expect, test, type Page } from '@playwright/test';
+
+test.describe.configure({ mode: 'serial' });
+
+const USER = 'admin';
+const PASSWORD = 'e2e-password-123';
+
+async function login(page: Page) {
+  await page.goto('/login');
+  await page.fill('#username', USER);
+  await page.fill('#password', PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+}
+
+test('setup wizard configures Paperless-AI', async ({ page, request }) => {
+  const info = (await (await request.get('/__demo/info')).json()) as { paperlessUrl: string; paperlessToken: string; llmUrl: string };
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+
+  await page.goto('/');
+  await expect(page).toHaveURL(/\/setup$/);
+  await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible();
+  await page.getByLabel('Username').fill(USER);
+  await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
+  await page.getByLabel('Confirm password').fill(PASSWORD);
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  // Wrong token → error, then fix it.
+  await page.getByPlaceholder('http://paperless-ngx:8000').fill(`${info.paperlessUrl}/api/`);
+  await page.getByPlaceholder('Token of the Paperless user').fill('wrong-token');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByText(/rejected the API token/)).toBeVisible();
+  await page.getByPlaceholder('Token of the Paperless user').fill(info.paperlessToken);
+  await page.getByRole('button', { name: 'Test connection' }).click();
+  await expect(page.getByText(/Connected to Paperless-ngx 3\.2\.1 \(API v10\)/)).toBeVisible();
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  await page.getByRole('radio', { name: /OpenAI-compatible/ }).click();
+  await page.getByPlaceholder('https://api.example.com/v1').fill(info.llmUrl);
+  await page.getByPlaceholder('deepseek-chat').fill('mock-gpt');
+  await page.getByRole('button', { name: 'Test AI connection' }).click();
+  await expect(page.getByText(/model "mock-gpt" is available/)).toBeVisible();
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  await expect(page.getByText('All documents of your archive will be analyzed')).toBeVisible();
+  // Keep automatic processing off for a deterministic test; documents are processed via "Scan now".
+  await page.getByRole('switch', { name: 'Process new documents automatically' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await page.getByRole('button', { name: 'Finish setup' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('scan processes documents and the dashboard updates', async ({ page }) => {
+  await login(page);
+  await page.getByRole('button', { name: 'Scan now' }).click();
+  await expect(page.getByText(/queued for analysis/)).toBeVisible();
+  // 8 sample documents, one without text content is skipped.
+  await expect(page.getByText('88% of all documents')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('button', { name: '1 skipped' })).toBeVisible();
+  await page.getByRole('button', { name: '1 skipped' }).click();
+  await expect(page.getByText('No text content (OCR not finished or failed)')).toBeVisible();
+});
+
+test('history lists changes and can undo them', async ({ page }) => {
+  await login(page);
+  await page.getByRole('link', { name: 'History', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'History' })).toBeVisible();
+  const row = page.getByRole('row').filter({ hasText: 'Mietvertrag Leopoldstraße 12' });
+  await expect(row).toBeVisible();
+  await row.getByRole('button', { name: 'Details' }).click();
+  await expect(page.getByRole('dialog').getByText('Mietvertrag', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await row.getByRole('button', { name: 'Undo' }).click();
+  await page.getByRole('button', { name: 'Undo changes' }).click();
+  await expect(page.getByText('1 document(s) restored')).toBeVisible();
+  await expect(row).toHaveCount(0);
+  await page.getByRole('switch', { name: 'Show reverted' }).click();
+  await expect(page.getByRole('row').filter({ hasText: 'Mietvertrag Leopoldstraße 12' }).getByText('reverted')).toBeVisible();
+});
+
+test('ask your archive answers with cited sources', async ({ page }) => {
+  await login(page);
+  await page.getByRole('link', { name: 'Ask your archive', exact: true }).click();
+  await expect(page.getByText('What would you like to know?')).toBeVisible();
+  await page.getByPlaceholder('Ask about your documents…').fill('Wie hoch war die letzte Stromrechnung der Stadtwerke?');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText(/finden sich die gesuchten Angaben/)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/cited source/)).toBeVisible();
+  const cite = page.locator('button.cite').first();
+  await expect(cite).toBeVisible();
+  await cite.click();
+  // The conversation is kept in the history.
+  await page.getByRole('button', { name: 'Conversations' }).click();
+  await expect(page.getByRole('dialog').getByText('Wie hoch war die letzte Stromrechnung der Stadtwerke?')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('radio', { name: 'Search' }).or(page.getByRole('button', { name: 'Search', exact: true })).first().click();
+  await page.getByPlaceholder(/Search documents by meaning/).fill('Kfz Versicherung');
+  await page.getByRole('button', { name: 'Search', exact: true }).last().click();
+  await expect(page.getByText(/documents · (hybrid|keyword) search/)).toBeVisible();
+  await expect(page.getByRole('link', { name: /HUK-COBURG|Kfz-Versicherung/ }).first()).toBeVisible();
+});
+
+test('document chat streams an answer', async ({ page }) => {
+  await login(page);
+  await page.goto('/chat?doc=4');
+  await expect(page.getByRole('heading', { level: 2 })).toContainText(/Allianz|Krankenversicherung/);
+  await page.getByRole('button', { name: 'Summarize this document.' }).click();
+  await expect(page.getByText('kurze Zusammenfassung')).toBeVisible();
+});
+
+test('manual review analyses and saves a document', async ({ page }) => {
+  await login(page);
+  await page.goto('/review?doc=3');
+  await page.getByRole('button', { name: 'Analyze with AI' }).click();
+  await expect(page.getByText(/AI suggestion by mock-gpt/)).toBeVisible();
+  await page.getByLabel('Title').fill('Mietvertrag Leopoldstraße (geprüft)');
+  await page.getByRole('button', { name: 'Save to Paperless' }).click();
+  await expect(page.getByText(/Saved: /)).toBeVisible();
+});
+
+test('settings validate and save without restart', async ({ page }) => {
+  await login(page);
+  await page.goto('/settings?tab=processing');
+  const cron = page.locator('input.font-mono').first();
+  await cron.fill('not a cron');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText(/Invalid scan interval/)).toBeVisible();
+  await cron.fill('*/10 * * * *');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText(/Settings saved/)).toBeVisible();
+
+  await page.goto('/settings?tab=integrations');
+  await expect(page.locator('input[value$="/api/webhook/document"]')).toBeVisible();
+});
+
+test('logs page streams log entries and sign out works', async ({ page }) => {
+  await login(page);
+  await page.getByRole('link', { name: 'Logs & diagnostics', exact: true }).click();
+  await expect(page.getByText('Streaming')).toBeVisible();
+  await expect(page.getByText(/Processed document \d+/).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+});
