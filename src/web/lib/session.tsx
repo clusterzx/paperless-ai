@@ -46,6 +46,22 @@ type ThemeContextValue = [ThemePref, (t: ThemePref) => void];
 
 const ThemeContext = createContext<ThemeContextValue>(['system', () => undefined]);
 
+export const ACCENTS = [
+  { id: 'iris', label: 'Iris', swatch: '#5b3ff3' },
+  { id: 'ocean', label: 'Ocean', swatch: '#1d5fe0' },
+  { id: 'emerald', label: 'Emerald', swatch: '#04805a' },
+  { id: 'amber', label: 'Amber', swatch: '#c2570c' },
+  { id: 'rose', label: 'Rose', swatch: '#d1204f' },
+] as const;
+export type Accent = (typeof ACCENTS)[number]['id'];
+
+const AccentContext = createContext<[Accent, (a: Accent) => void]>(['iris', () => undefined]);
+
+function applyAccent(accent: Accent) {
+  if (accent === 'iris') delete document.documentElement.dataset.accent;
+  else document.documentElement.dataset.accent = accent;
+}
+
 /** One theme state for the whole app; keeps "system" in sync with the OS. */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [pref, setPref] = useState<ThemePref>(() => {
@@ -72,10 +88,36 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setPref(t);
   }, []);
   const value = useMemo<ThemeContextValue>(() => [pref, set], [pref, set]);
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+
+  const [accent, setAccentState] = useState<Accent>(() => {
+    try {
+      const saved = localStorage.getItem('pai-accent');
+      return ACCENTS.some((a) => a.id === saved) ? (saved as Accent) : 'iris';
+    } catch {
+      return 'iris';
+    }
+  });
+  useEffect(() => applyAccent(accent), [accent]);
+  const setAccent = useCallback((a: Accent) => {
+    try {
+      localStorage.setItem('pai-accent', a);
+    } catch {
+      /* ignore */
+    }
+    setAccentState(a);
+  }, []);
+  const accentValue = useMemo<[Accent, (a: Accent) => void]>(() => [accent, setAccent], [accent, setAccent]);
+
+  return (
+    <ThemeContext.Provider value={value}>
+      <AccentContext.Provider value={accentValue}>{children}</AccentContext.Provider>
+    </ThemeContext.Provider>
+  );
 }
 
 export const useTheme = () => useContext(ThemeContext);
+/** Accent colour of the interface (kept in this browser). */
+export const useAccent = () => useContext(AccentContext);
 
 // ------------------------------------------------------------------ sign-out
 

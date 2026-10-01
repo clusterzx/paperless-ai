@@ -6,7 +6,7 @@ import { Page } from '../components/Layout';
 import { Alert, Badge, Button, Card, EmptyState, Input, LinkButton, Modal, PageHeader, Pagination, Select, Skeleton, Switch, useConfirm, useToast } from '../components/ui';
 import { errorMessage, get, post, qs } from '../lib/api';
 import { useAsync, useDebounced } from '../lib/hooks';
-import { cn, formatDate, formatNumber } from '../lib/format';
+import { cn, formatDate, formatNumber, timeAgo } from '../lib/format';
 import { useMetadata } from '../lib/metadata';
 
 type Item = HistoryPageData['items'][number];
@@ -17,7 +17,7 @@ function SortHead({ k, sort, onSort, children, className }: { k: SortKey; sort: 
   const active = sort.key === k;
   return (
     <th className={cn('px-3 py-2.5 font-medium', className)} aria-sort={active ? (sort.order === 'asc' ? 'ascending' : 'descending') : undefined}>
-      <button className="inline-flex items-center gap-1 hover:text-fg" onClick={() => onSort(k)}>
+      <button className="inline-flex items-center gap-1 tracking-wide uppercase hover:text-fg" onClick={() => onSort(k)}>
         {children}
         {active && (sort.order === 'desc' ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />)}
       </button>
@@ -178,7 +178,7 @@ export default function HistoryPage() {
         }
       />
       <Card bodyClassName="p-0">
-        <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
+        <div className="flex flex-wrap items-center gap-2 p-4">
           <div className="relative min-w-[14rem] flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-faint" />
             <Input
@@ -211,8 +211,8 @@ export default function HistoryPage() {
         </div>
 
         {selectedDocs.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-accent-soft/50 px-3 py-2 text-sm">
-            <span className="font-medium">{selectedDocs.length} document(s) selected</span>
+          <div className="animate-pop fixed inset-x-0 bottom-5 z-30 mx-auto flex w-fit max-w-[calc(100vw-2rem)] flex-wrap items-center gap-2 rounded-full border border-border bg-surface/90 py-2 pr-2 pl-5 text-sm shadow-pop backdrop-blur-xl lg:ml-[calc(50%+126px)] lg:-translate-x-1/2">
+            <span className="mr-1 font-medium">{selectedDocs.length} document(s) selected</span>
             <Button size="sm" variant="danger" icon={<Undo2 className="size-3.5" />} onClick={() => revert(selectedDocs)} loading={busy}>
               Undo AI changes
             </Button>
@@ -228,7 +228,7 @@ export default function HistoryPage() {
         {data.error && <Alert tone="danger" className="m-3">{data.error}</Alert>}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[56rem] text-sm">
-            <thead className="border-b border-border bg-surface-2/60 text-left text-xs text-muted">
+            <thead className="border-y border-border bg-surface-2/70 text-left text-[11px] tracking-wide text-faint uppercase">
               <tr>
                 <th className="w-10 px-3 py-2.5">
                   <input
@@ -265,8 +265,8 @@ export default function HistoryPage() {
                     </tr>
                   ))
                 : items.map((i: Item) => (
-                    <tr key={i.id} className={cn('align-top transition hover:bg-surface-2/50', i.revertedAt && 'opacity-60', selected.has(i.id) && 'bg-accent-soft/30')}>
-                      <td className="px-3 py-3">
+                    <tr key={i.id} className={cn('group align-top transition hover:bg-surface-2/60', i.revertedAt && 'opacity-60', selected.has(i.id) && 'bg-accent-soft/40')}>
+                      <td className="px-3 py-3.5">
                         <input
                           type="checkbox"
                           className="accent-[var(--accent)]"
@@ -282,24 +282,26 @@ export default function HistoryPage() {
                           }
                         />
                       </td>
-                      <td className="px-3 py-3 text-muted tabular-nums">#{i.documentId}</td>
-                      <td className="max-w-[22rem] px-3 py-3">
+                      <td className="px-3 py-3.5 font-mono text-xs text-faint">#{i.documentId}</td>
+                      <td className="max-w-[22rem] px-3 py-3.5">
                         <div className="font-medium text-fg">{i.title ?? '–'}</div>
                         <div className="mt-1 flex flex-wrap gap-1">
-                          {i.documentType && <Badge tone="info">{i.documentType}</Badge>}
+                          {i.documentType && <Badge tone="accent">{i.documentType}</Badge>}
                           <Badge>{i.source}</Badge>
                           {i.revertedAt && <Badge tone="warn">reverted</Badge>}
                         </div>
                       </td>
-                      <td className="max-w-[18rem] px-3 py-3">
+                      <td className="max-w-[18rem] px-3 py-3.5">
                         <div className="flex flex-wrap gap-1">
                           {i.tagNames.length ? i.tagNames.map((t) => <Badge key={t}>{t}</Badge>) : <span className="text-faint">–</span>}
                         </div>
                       </td>
-                      <td className="px-3 py-3">{i.correspondent ?? <span className="text-faint">–</span>}</td>
-                      <td className="px-3 py-3 text-xs text-muted">{formatDate(i.createdAt, true)}</td>
+                      <td className="px-3 py-3.5">{i.correspondent ?? <span className="text-faint">–</span>}</td>
+                      <td className="px-3 py-3.5 text-xs text-muted" title={formatDate(i.createdAt, true)}>
+                        {timeAgo(i.createdAt)}
+                      </td>
                       <td className="px-3 py-2.5">
-                        <div className="flex justify-end gap-0.5">
+                        <div className="flex justify-end gap-0.5 opacity-70 transition group-focus-within:opacity-100 group-hover:opacity-100">
                           <Button size="sm" variant="ghost" aria-label="Details" title="Details" onClick={() => setDetail(i)}>
                             <Eye className="size-4" />
                           </Button>
@@ -327,7 +329,7 @@ export default function HistoryPage() {
           )}
         </div>
         {data.data && data.data.filtered > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
             <Select className="h-8 w-28 py-0 text-xs" value={pageSize} onChange={(e) => (setPageSize(Number(e.target.value)), setPage(1))} aria-label="Page size">
               {[10, 25, 50, 100].map((n) => (
                 <option key={n} value={n}>

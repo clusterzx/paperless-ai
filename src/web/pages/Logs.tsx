@@ -11,7 +11,7 @@ import { useSession } from '../lib/session';
 const LEVEL_TONE: Record<string, string> = {
   trace: 'text-faint',
   debug: 'text-info',
-  info: 'text-accent-text',
+  info: 'text-success',
   warn: 'text-warn',
   error: 'text-danger',
   fatal: 'text-danger',
@@ -119,7 +119,7 @@ function LiveLogs() {
       icon={<Activity className="size-4" />}
       description={
         <span className="inline-flex items-center gap-1.5">
-          <span className={cn('size-2 rounded-full', connected ? 'bg-accent' : 'bg-border-strong')} /> {connected ? 'Streaming' : 'Disconnected'} · {shown.length} entries
+          <span className={cn('status-dot', connected ? 'live bg-success' : 'bg-border-strong')} /> {connected ? 'Streaming' : 'Disconnected'} · {shown.length} entries
         </span>
       }
       actions={
@@ -144,9 +144,10 @@ function LiveLogs() {
           </Button>
         </>
       }
+      className="overflow-hidden"
       bodyClassName="p-0"
     >
-      <div className="flex flex-wrap gap-2 border-b border-border p-3">
+      <div className="flex flex-wrap gap-2 px-5 pt-4 pb-4">
         <div className="relative min-w-[12rem] flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-faint" />
           <Input className="pl-9" placeholder="Filter…" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -165,10 +166,12 @@ function LiveLogs() {
           const el = e.currentTarget;
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
         }}
-        className="h-[60vh] overflow-y-auto bg-surface-2/40 p-3 font-mono text-[11.5px] leading-relaxed"
+        // A terminal: always dark.
+        data-theme="dark"
+        className="h-[60vh] overflow-y-auto border-t border-border bg-canvas px-4 py-3 font-mono text-[11.5px] leading-relaxed text-fg"
       >
         {shown.map((e) => (
-          <div key={e.id} className="flex gap-2 border-b border-border/40 py-0.5 hover:bg-surface-2">
+          <div key={e.id} className="-mx-2 flex gap-2.5 rounded-md px-2 py-[3px] hover:bg-surface-2">
             <span className="shrink-0 text-faint">{new Date(e.time).toLocaleTimeString()}</span>
             <span className={cn('w-11 shrink-0 font-semibold uppercase', LEVEL_TONE[e.level])}>{e.level}</span>
             {e.module && <span className="shrink-0 text-muted">[{e.module}]</span>}
@@ -260,7 +263,7 @@ function Diagnostics() {
         }
       >
         {error && <Alert tone="danger">{error}</Alert>}
-        {json ? <pre className="max-h-[60vh] overflow-auto rounded-lg bg-surface-2 p-3 text-xs">{json}</pre> : !error && <p className="text-sm text-muted">Select an endpoint and click “Fetch”.</p>}
+        {json ? <pre data-theme="dark" className="max-h-[60vh] overflow-auto rounded-xl bg-canvas p-4 font-mono text-xs text-fg">{json}</pre> : !error && <p className="text-sm text-muted">Select an endpoint and click “Fetch”.</p>}
       </Card>
     </div>
   );

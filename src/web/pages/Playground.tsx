@@ -238,7 +238,7 @@ export default function PlaygroundPage() {
                     className={cn(
                       'relative flex flex-col overflow-hidden rounded-xl border bg-surface transition',
                       isSel ? 'border-accent' : 'border-border opacity-80 hover:opacity-100',
-                      r?.status === 'running' && 'ring-4 ring-[var(--ring)]',
+                      r?.status === 'running' && 'ring-4 ring-accent/15',
                     )}
                   >
                     <button
@@ -263,7 +263,7 @@ export default function PlaygroundPage() {
                         }}
                       />
                       <FileText className="absolute top-1/2 left-1/2 -z-0 size-8 -translate-x-1/2 -translate-y-1/2 text-border-strong" />
-                      <span className={cn('absolute top-2 right-2 flex size-5 items-center justify-center rounded-md border', isSel ? 'border-accent bg-accent text-white' : 'border-border-strong bg-surface/80')}>
+                      <span className={cn('absolute top-2 right-2 flex size-5 items-center justify-center rounded-md border', isSel ? 'border-accent bg-accent text-on-accent' : 'border-border-strong bg-surface/80')}>
                         {isSel && <Check className="size-3.5" />}
                       </span>
                       {r?.status === 'running' && <span className="absolute inset-x-0 bottom-0 h-1 animate-pulse bg-accent" />}

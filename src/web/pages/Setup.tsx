@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, Rocket } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Bot, Check, Plug, Rocket, Sparkles, Workflow } from 'lucide-react';
 import type { ConnectionTestResult } from '@shared/api';
 import { AuthShell } from './Login';
 import { AiSection, ConnectionSection, FunctionsSection, ProcessingSection, type Config, type Locked } from '../components/settingsForms';
-import { Alert, Button, Field, Input, Spinner } from '../components/ui';
+import { Alert, Button, Field, IconChip, Input, Spinner } from '../components/ui';
 import { ApiError, errorMessage, get, post } from '../lib/api';
 import { useDraft } from '../lib/draft';
 import { cn } from '../lib/format';
@@ -120,30 +120,57 @@ function Wizard({ defaults, onDone }: { defaults: Defaults; onDone: () => Promis
     }
   };
 
-  return (
-    <AuthShell title="Set up Paperless-AI" subtitle="Connect Paperless-ngx and your AI provider – it only takes a minute." wide>
-      <ol className="mb-5 flex items-center gap-2 overflow-x-auto px-1 text-xs">
+  const titles: Record<StepId, string> = {
+    account: 'Create your account',
+    paperless: 'Connect Paperless-ngx',
+    ai: 'Choose your AI provider',
+    processing: 'Processing',
+    finish: 'Ready to go',
+  };
+  const descriptions: Record<StepId, string> = {
+    account: 'Protects the web interface',
+    paperless: 'URL and API token',
+    ai: 'Cloud, compatible API or local',
+    processing: 'What the AI may change',
+    finish: 'Review and start',
+  };
+  const stepper = (
+    <div className="max-w-sm">
+      <h2 className="text-[30px] leading-[1.1] font-semibold tracking-[-0.035em] text-fg">
+        Let&apos;s get you <span className="text-gradient">set up.</span>
+      </h2>
+      <p className="mt-3 text-[15px] text-muted">A few steps and Paperless-AI starts organising your documents – no restart needed.</p>
+      <ol className="mt-10">
         {steps.map((s, i) => (
-          <li key={s.id} className="flex items-center gap-2">
+          <li key={s.id} className="relative flex gap-4 pb-7 last:pb-0">
+            {i < steps.length - 1 && <span className={cn('absolute top-8 bottom-1 left-[13px] w-px', i < index ? 'bg-accent' : 'bg-white/12')} />}
             <span
               className={cn(
-                'flex size-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold',
-                i < index ? 'border-accent bg-accent text-white dark:text-[#04140e]' : i === index ? 'border-accent text-accent' : 'border-border text-faint',
+                'relative flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ring-1 transition',
+                i < index ? 'bg-accent text-on-accent ring-accent' : i === index ? 'bg-accent-soft text-accent-text ring-accent/60' : 'text-faint ring-white/15',
               )}
             >
-              {i < index ? <Check className="size-3.5" /> : i + 1}
+              {i < index ? <Check className="size-3.5" strokeWidth={3} /> : i + 1}
             </span>
-            <span className={cn('whitespace-nowrap font-medium', i === index ? 'text-fg' : 'text-muted')}>{s.label}</span>
-            {i < steps.length - 1 && <span className="mx-1 h-px w-6 bg-border" />}
+            <div className="pt-0.5">
+              <div className={cn('text-sm font-medium', i <= index ? 'text-fg' : 'text-faint')}>{s.label}</div>
+              <div className="text-xs text-faint">{descriptions[s.id]}</div>
+            </div>
           </li>
         ))}
       </ol>
+    </div>
+  );
 
-      <div className="rounded-2xl border border-border bg-surface p-6 shadow-pop">
+  return (
+    <AuthShell title={titles[step]} subtitle={`Step ${index + 1} of ${steps.length} · ${descriptions[step]}`} wide aside={stepper}>
+      <div className="mb-8 h-1 overflow-hidden rounded-full bg-surface-3 lg:hidden">
+        <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${((index + 1) / steps.length) * 100}%` }} />
+      </div>
+
+      <div>
         {step === 'account' && (
-          <div className="mx-auto max-w-md space-y-4">
-            <h2 className="text-lg font-semibold">Create your account</h2>
-            <p className="text-sm text-muted">This account protects the Paperless-AI web interface.</p>
+          <div className="max-w-md space-y-4">
             <Field label="Username">
               <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus />
             </Field>
@@ -163,8 +190,7 @@ function Wizard({ defaults, onDone }: { defaults: Defaults; onDone: () => Promis
         {step === 'paperless' && (
           <div className="space-y-4">
             <div>
-              <h2 className="text-lg font-semibold">Connect Paperless-ngx</h2>
-              <p className="mt-1 text-sm text-muted">Works with Paperless-ngx 2.x and 3.x. The API user needs permission to view and change documents, tags, correspondents, document types and custom fields.</p>
+              <p className="text-sm text-muted">Works with Paperless-ngx 2.x and 3.x. The API user needs permission to view and change documents, tags, correspondents, document types and custom fields.</p>
             </div>
             <ConnectionSection draft={draft} set={set} locked={locked} apiBase="setup" />
           </div>
@@ -172,8 +198,7 @@ function Wizard({ defaults, onDone }: { defaults: Defaults; onDone: () => Promis
         {step === 'ai' && (
           <div className="space-y-4">
             <div>
-              <h2 className="text-lg font-semibold">Choose your AI provider</h2>
-              <p className="mt-1 text-sm text-muted">Use a local model with Ollama for full privacy, or any OpenAI-compatible service.</p>
+              <p className="text-sm text-muted">Use a local model with Ollama for full privacy, or any OpenAI-compatible service.</p>
             </div>
             <AiSection draft={draft} set={set} locked={locked} apiBase="setup" />
           </div>
@@ -181,8 +206,7 @@ function Wizard({ defaults, onDone }: { defaults: Defaults; onDone: () => Promis
         {step === 'processing' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-lg font-semibold">Processing</h2>
-              <p className="mt-1 text-sm text-muted">Decide which documents are analyzed and what the AI may change. You can refine everything later in the settings.</p>
+              <p className="text-sm text-muted">Decide which documents are analyzed and what the AI may change. You can refine everything later in the settings.</p>
             </div>
             <ProcessingSection draft={draft} set={set} locked={locked} />
             <div className="border-t border-border pt-6">
@@ -192,23 +216,32 @@ function Wizard({ defaults, onDone }: { defaults: Defaults; onDone: () => Promis
           </div>
         )}
         {step === 'finish' && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Ready to go</h2>
-            <ul className="space-y-2 text-sm">
-              <li>
-                <span className="text-muted">Paperless-ngx:</span> {draft.paperless.url}
-              </li>
-              <li>
-                <span className="text-muted">AI provider:</span> {draft.ai.provider} –{' '}
-                {draft.ai.provider === 'openai' ? draft.ai.openai.model : draft.ai.provider === 'ollama' ? draft.ai.ollama.model : draft.ai.provider === 'custom' ? draft.ai.custom.model : draft.ai.azure.deployment}
-              </li>
-              <li>
-                <span className="text-muted">Automatic processing:</span>{' '}
-                {draft.processing.automatic ? `on (${draft.processing.scanInterval})${draft.processing.onlyTagged ? `, only documents tagged ${draft.processing.tags.join(', ') || '–'}` : ', all documents'}` : 'off'}
-              </li>
-              <li>
-                <span className="text-muted">Ask your archive (RAG):</span> {draft.rag.enabled ? `on – embeddings: ${draft.rag.embeddingProvider}` : 'off'}
-              </li>
+          <div className="space-y-5">
+            <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface shadow-card">
+              {[
+                { icon: <Plug />, label: 'Paperless-ngx', value: draft.paperless.url },
+                {
+                  icon: <Bot />,
+                  label: 'AI provider',
+                  value: `${draft.ai.provider} · ${draft.ai.provider === 'openai' ? draft.ai.openai.model : draft.ai.provider === 'ollama' ? draft.ai.ollama.model : draft.ai.provider === 'custom' ? draft.ai.custom.model : draft.ai.azure.deployment}`,
+                },
+                {
+                  icon: <Workflow />,
+                  label: 'Automatic processing',
+                  value: draft.processing.automatic
+                    ? `On (${draft.processing.scanInterval})${draft.processing.onlyTagged ? ` · only documents tagged ${draft.processing.tags.join(', ') || '–'}` : ' · all documents'}`
+                    : 'Off',
+                },
+                { icon: <Sparkles />, label: 'Ask your archive', value: draft.rag.enabled ? `On · embeddings: ${draft.rag.embeddingProvider}` : 'Off' },
+              ].map((r) => (
+                <li key={r.label} className="flex items-center gap-3.5 px-4 py-3.5">
+                  <IconChip tone="accent">{r.icon}</IconChip>
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted">{r.label}</div>
+                    <div className="truncate text-sm font-medium text-fg">{r.value}</div>
+                  </div>
+                </li>
+              ))}
             </ul>
             <p className="text-sm text-muted">No restart required – processing and indexing start right after saving.</p>
           </div>
@@ -220,7 +253,7 @@ function Wizard({ defaults, onDone }: { defaults: Defaults; onDone: () => Promis
           </Alert>
         )}
 
-        <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-5">
+        <div className="mt-8 flex items-center justify-between gap-3 border-t border-border pt-6">
           <Button variant="ghost" icon={<ArrowLeft className="size-4" />} disabled={index === 0 || busy} onClick={() => setIndex((i) => i - 1)}>
             Back
           </Button>
@@ -231,12 +264,12 @@ function Wizard({ defaults, onDone }: { defaults: Defaults; onDone: () => Promis
                   Save anyway
                 </Button>
               )}
-              <Button variant="primary" icon={<Rocket className="size-4" />} loading={busy} onClick={() => finish(false)}>
+              <Button variant="primary" size="lg" icon={<Rocket className="size-4" />} loading={busy} onClick={() => finish(false)}>
                 Finish setup
               </Button>
             </div>
           ) : (
-            <Button variant="primary" loading={busy} onClick={next}>
+            <Button variant="primary" size="lg" loading={busy} onClick={next}>
               Continue <ArrowRight className="size-4" />
             </Button>
           )}

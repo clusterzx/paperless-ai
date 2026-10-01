@@ -3,19 +3,34 @@
  * (fake Paperless-ngx + fake LLM, real Paperless-AI backend and UI).
  * Tests run in order and share the server state.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Cookie, type Page } from '@playwright/test';
 
 test.describe.configure({ mode: 'serial' });
 
 const USER = 'admin';
 const PASSWORD = 'e2e-password-123';
 
+/** The dashboard greets the user ("Good morning, admin"). */
+const dashboardHeading = (page: Page) => page.getByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening|night)/ });
+
+/** Session cookies of the last login – reused so the tests stay below the login rate limit. */
+let session: Cookie[] | null = null;
+
 async function login(page: Page) {
-  await page.goto('/login');
+  if (session) {
+    await page.context().addCookies(session);
+    await page.goto('/');
+    const username = page.locator('#username');
+    await expect(dashboardHeading(page).or(username)).toBeVisible();
+    if (!(await username.count())) return;
+  } else {
+    await page.goto('/login');
+  }
   await page.fill('#username', USER);
   await page.fill('#password', PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await expect(dashboardHeading(page)).toBeVisible();
+  session = await page.context().cookies();
 }
 
 test('setup wizard configures Paperless-AI', async ({ page, request }) => {
@@ -54,7 +69,7 @@ test('setup wizard configures Paperless-AI', async ({ page, request }) => {
   await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByRole('button', { name: 'Finish setup' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await expect(dashboardHeading(page)).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -63,9 +78,11 @@ test('scan processes documents and the dashboard updates', async ({ page }) => {
   await page.getByRole('button', { name: 'Scan now' }).click();
   await expect(page.getByText(/queued for analysis/)).toBeVisible();
   // 8 sample documents, one without text content is skipped.
-  await expect(page.getByText('88% of all documents')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole('button', { name: '1 skipped' })).toBeVisible();
-  await page.getByRole('button', { name: '1 skipped' }).click();
+  await expect(page.getByText('7 of 8 documents')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('88%', { exact: true })).toBeVisible();
+  const skipped = page.getByRole('button', { name: /^Skipped\s*1$/ });
+  await expect(skipped).toBeVisible();
+  await skipped.click();
   await expect(page.getByText('No text content (OCR not finished or failed)')).toBeVisible();
 });
 
@@ -91,7 +108,7 @@ test('history lists changes and can undo them', async ({ page }) => {
 
 test('ask your archive answers with cited sources', async ({ page }) => {
   await login(page);
-  await page.getByRole('link', { name: 'Ask your archive', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Ask your archive' }).click();
   await expect(page.getByText('What would you like to know?')).toBeVisible();
   await page.getByPlaceholder('Ask about your documents…').fill('Wie hoch war die letzte Stromrechnung der Stadtwerke?');
   await page.keyboard.press('Enter');
@@ -150,6 +167,7 @@ test('logs page streams log entries and sign out works', async ({ page }) => {
   await page.getByRole('link', { name: 'Logs & diagnostics', exact: true }).click();
   await expect(page.getByText('Streaming')).toBeVisible();
   await expect(page.getByText(/Processed document \d+/).first()).toBeVisible();
+  await page.getByRole('button', { name: /Account & appearance/ }).click();
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 });
@@ -159,7 +177,8 @@ test('ask survives "New" during an answer and reports interrupted answers', asyn
   page.on('pageerror', (e) => errors.push(e.message));
   await login(page);
   await page.goto('/ask');
-  const composer = page.getByPlaceholder('Ask about your documents…');
+  // Empty conversation: "Ask about your documents…", afterwards "Ask a follow-up…".
+  const composer = page.getByPlaceholder(/^(Ask about your documents…|Ask a follow-up…)$/);
 
   // A stream that stops without a final event is reported instead of looking complete.
   await page.route('**/api/rag/chat', (route) =>
@@ -211,6 +230,33 @@ test('modals keep the focus while typing and trap Tab', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   await expect(page.getByRole('heading', { name: 'Prompt playground' })).toBeVisible();
   expect(await page.locator('main').evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+});
+
+test('command menu jumps to pages and asks the archive', async ({ page }) => {
+  await login(page);
+  await page.keyboard.press('Control+k');
+  const menu = page.getByRole('dialog', { name: 'Command menu' });
+  await expect(menu).toBeVisible();
+  await menu.getByRole('combobox').fill('history');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/history$/);
+
+  await page.keyboard.press('Control+k');
+  await menu.getByRole('combobox').fill('Wie hoch war die letzte Stromrechnung der Stadtwerke?');
+  await expect(menu.getByRole('option', { name: /Wie hoch war/ })).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/ask$/);
+  await expect(page.getByText(/finden sich die gesuchten Angaben/)).toBeVisible({ timeout: 20_000 });
+
+  // Appearance: accent colour from the account menu, kept after a reload.
+  await page.getByRole('button', { name: /Account & appearance/ }).click();
+  await page.getByRole('radio', { name: 'Emerald' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-accent', 'emerald');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-accent', 'emerald');
+  await page.getByRole('button', { name: /Account & appearance/ }).click();
+  await page.getByRole('radio', { name: 'Iris' }).click();
+  await expect(page.locator('html')).not.toHaveAttribute('data-accent', /.+/);
 });
 
 test('settings form controls are labelled and keep typed numbers', async ({ page }) => {

@@ -187,7 +187,7 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" role="radiogroup" aria-label="AI provider">
+      <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4" role="radiogroup" aria-label="AI provider">
         {PROVIDERS.map((p) => (
           <button
             key={p.id}
@@ -202,7 +202,7 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
             }}
             className={cn(
               'flex items-start gap-3 rounded-xl border p-3.5 text-left transition disabled:cursor-not-allowed',
-              provider === p.id ? 'border-accent bg-accent-soft/60 ring-4 ring-[var(--ring)]' : 'border-border bg-surface hover:border-border-strong',
+              provider === p.id ? 'border-accent bg-accent-soft/60 ring-4 ring-accent/15' : 'border-border bg-surface hover:border-border-strong',
             )}
           >
             <span className={cn('mt-0.5', provider === p.id ? 'text-accent' : 'text-faint')}>{p.icon}</span>

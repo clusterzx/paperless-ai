@@ -1,6 +1,22 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useSearch } from 'wouter';
-import { Bot, Braces, Copy, Eye, EyeOff, FileCog, KeyRound, Link2, ListChecks, MessageSquareQuote, RefreshCw, Save, Sparkles, UserCog, Workflow } from 'lucide-react';
+import {
+  Bot,
+  Braces,
+  Copy,
+  Eye,
+  EyeOff,
+  FileCog,
+  KeyRound,
+  Link2,
+  ListChecks,
+  MessageSquareQuote,
+  RefreshCw,
+  Save,
+  Sparkles,
+  UserCog,
+  Workflow,
+} from 'lucide-react';
 import { Page } from '../components/Layout';
 import {
   AiSection,
@@ -14,7 +30,19 @@ import {
   type Config,
   type Locked,
 } from '../components/settingsForms';
-import { Alert, Button, Card, Field, Input, PageHeader, Skeleton, Tabs, tabPanelProps, useConfirm, useToast } from '../components/ui';
+import {
+  Alert,
+  Button,
+  Card,
+  Field,
+  Input,
+  PageHeader,
+  Skeleton,
+  Tabs,
+  tabPanelProps,
+  useConfirm,
+  useToast,
+} from '../components/ui';
 import { ApiError, errorMessage, get, post, put } from '../lib/api';
 import { changedPaths, useDraft } from '../lib/draft';
 import { useUnsavedChanges } from '../lib/hooks';
@@ -35,7 +63,12 @@ function CopyField({ value, secret }: { value: string; secret?: boolean }) {
   const [visible, setVisible] = useState(!secret);
   return (
     <div className="flex gap-2">
-      <Input readOnly value={visible ? value : '•'.repeat(Math.min(value.length, 40))} className="font-mono text-xs" onFocus={(e) => e.target.select()} />
+      <Input
+        readOnly
+        value={visible ? value : '•'.repeat(Math.min(value.length, 40))}
+        className="font-mono text-xs"
+        onFocus={(e) => e.target.select()}
+      />
       {secret && (
         <Button variant="ghost" onClick={() => setVisible((v) => !v)} aria-label={visible ? 'Hide' : 'Show'}>
           {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -71,7 +104,11 @@ function IntegrationsTab({ locked }: { locked: Locked }) {
   const origin = window.location.origin;
   return (
     <div className="space-y-6">
-      <Card title="API key" icon={<KeyRound className="size-4" />} description="Use it in the x-api-key header for the REST API, webhooks and the browser extension.">
+      <Card
+        title="API key"
+        icon={<KeyRound className="size-4" />}
+        description="Use it in the x-api-key header for the REST API, webhooks and the browser extension."
+      >
         {apiKey === null ? <Skeleton className="h-9" /> : <CopyField value={apiKey} secret />}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button
@@ -79,7 +116,15 @@ function IntegrationsTab({ locked }: { locked: Locked }) {
             loading={busy}
             disabled={Boolean(locked['security.apiKey'])}
             onClick={async () => {
-              if (!(await confirm({ title: 'Generate a new API key?', message: 'The current key stops working immediately. Update your webhooks and integrations afterwards.', confirmLabel: 'Generate', danger: true }))) return;
+              if (
+                !(await confirm({
+                  title: 'Generate a new API key?',
+                  message: 'The current key stops working immediately. Update your webhooks and integrations afterwards.',
+                  confirmLabel: 'Generate',
+                  danger: true,
+                }))
+              )
+                return;
               setBusy(true);
               try {
                 setApiKey((await post<{ apiKey: string }>('/api/settings/api-key/regenerate')).apiKey);
@@ -101,7 +146,8 @@ function IntegrationsTab({ locked }: { locked: Locked }) {
       <Card title="Process documents instantly with a Paperless workflow" icon={<Workflow className="size-4" />}>
         <ol className="list-decimal space-y-2 pl-5 text-sm text-muted">
           <li>
-            In Paperless-ngx open <b className="text-fg">Workflows</b> → <b className="text-fg">Add workflow</b>, trigger <b className="text-fg">Document Added</b>.
+            In Paperless-ngx open <b className="text-fg">Workflows</b> → <b className="text-fg">Add workflow</b>, trigger{' '}
+            <b className="text-fg">Document Added</b>.
           </li>
           <li>
             Add the action <b className="text-fg">Webhook</b> with this URL:
@@ -112,13 +158,18 @@ function IntegrationsTab({ locked }: { locked: Locked }) {
         </div>
         <ol start={3} className="list-decimal space-y-2 pl-5 text-sm text-muted">
           <li>
-            Enable <b className="text-fg">Use parameters for webhook body</b> and add the parameter <code className="kbd">url</code> = <code className="kbd">{'{doc_url}'}</code> – or send JSON <code className="kbd">{'{"url": "{doc_url}"}'}</code>.
+            Enable <b className="text-fg">Use parameters for webhook body</b> and add the parameter{' '}
+            <code className="kbd">url</code> = <code className="kbd">{'{doc_url}'}</code> – or send JSON{' '}
+            <code className="kbd">{'{"url": "{doc_url}"}'}</code>.
           </li>
           <li>
             Add the header <code className="kbd">x-api-key</code> with the API key above.
           </li>
         </ol>
-        <p className="mt-3 text-xs text-muted">Optional body fields: <code className="kbd">prompt</code> (custom prompt for this document) and <code className="kbd">force</code> (process even if already processed).</p>
+        <p className="mt-3 text-xs text-muted">
+          Optional body fields: <code className="kbd">prompt</code> (custom prompt for this document) and{' '}
+          <code className="kbd">force</code> (process even if already processed).
+        </p>
       </Card>
     </div>
   );
@@ -138,7 +189,11 @@ function AccountTab() {
     if (next && next !== confirmPw) return setError('The new passwords do not match');
     setBusy(true);
     try {
-      await post('/api/account/password', { currentPassword: current, newPassword: next, username: username.trim() || undefined });
+      await post('/api/account/password', {
+        currentPassword: current,
+        newPassword: next,
+        username: username.trim() || undefined,
+      });
       toast.success('Account updated');
       setCurrent('');
       setNext('');
@@ -233,8 +288,18 @@ export default function SettingsPage() {
     }
   };
 
-  if (loadError) return <Page><Alert tone="danger">{loadError}</Alert></Page>;
-  if (!loaded || !draft) return <Page><Skeleton className="h-96 rounded-xl" /></Page>;
+  if (loadError)
+    return (
+      <Page>
+        <Alert tone="danger">{loadError}</Alert>
+      </Page>
+    );
+  if (!loaded || !draft)
+    return (
+      <Page>
+        <Skeleton className="h-96 rounded-xl" />
+      </Page>
+    );
 
   const locked = loaded.locked;
   const tagNames = meta.tags.map((t) => t.name);
@@ -255,70 +320,91 @@ export default function SettingsPage() {
   return (
     <Page>
       <PageHeader title="Settings" description="All changes take effect immediately after saving – no restart required." />
-      <Tabs id="settings" value={tab} onChange={(t) => navigate(`/settings?tab=${t}`, { replace: true })} tabs={tabs} />
-      <div className="mt-6 pb-24" {...tabPanelProps('settings', tab)}>
-        {Object.keys(locked).length > 0 && formTab && (
-          <Alert tone="warn" className="mb-6">
-            Some settings are defined by environment variables (marked with a lock) and cannot be changed here.
-          </Alert>
-        )}
-        {tab === 'connection' && (
-          <Card title="Paperless-ngx connection" description="Compatible with Paperless-ngx 2.x and 3.x (API version is detected automatically).">
-            <ConnectionSection {...props} apiBase="settings" />
-          </Card>
-        )}
-        {tab === 'ai' && (
-          <Card title="AI provider" description="Used for document analysis and both chats.">
-            <AiSection {...props} apiBase="settings" />
-          </Card>
-        )}
-        {tab === 'processing' && (
-          <div className="space-y-6">
-            <Card title="Automatic processing">
-              <ProcessingSection {...props} tagSuggestions={tagNames} />
+      <div className="lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10">
+        <div className="lg:sticky lg:top-6 lg:self-start">
+          <Tabs
+            id="settings"
+            vertical
+            value={tab}
+            onChange={(t) => navigate(`/settings?tab=${t}`, { replace: true })}
+            tabs={tabs}
+          />
+        </div>
+        <div className="mt-6 min-w-0 pb-24 lg:mt-0" {...tabPanelProps('settings', tab)}>
+          {Object.keys(locked).length > 0 && formTab && (
+            <Alert tone="warn" className="mb-6">
+              Some settings are defined by environment variables (marked with a lock) and cannot be changed here.
+            </Alert>
+          )}
+          {tab === 'connection' && (
+            <Card
+              title="Paperless-ngx connection"
+              description="Compatible with Paperless-ngx 2.x and 3.x (API version is detected automatically)."
+            >
+              <ConnectionSection {...props} apiBase="settings" />
             </Card>
-            <Card title="What the AI may change">
-              <FunctionsSection {...props} />
+          )}
+          {tab === 'ai' && (
+            <Card title="AI provider" description="Used for document analysis and both chats.">
+              <AiSection {...props} apiBase="settings" />
             </Card>
-          </div>
-        )}
-        {tab === 'prompt' && (
-          <Card title="Prompt">
-            <PromptSection {...props} defaultPrompt={loaded.defaults.systemPrompt} tagSuggestions={tagNames} />
-          </Card>
-        )}
-        {tab === 'fields' && (
-          <Card title="Custom fields" description="Values the AI should extract into Paperless custom fields.">
-            <CustomFieldsSection {...props} />
-          </Card>
-        )}
-        {tab === 'external' && (
-          <Card title="External data">
-            <ExternalApiSection {...props} />
-          </Card>
-        )}
-        {tab === 'rag' && (
-          <Card title="Ask your archive (RAG)" description="Semantic search and question answering over all documents.">
-            <RagSection {...props} localEmbeddings={loaded.localEmbeddings} />
-          </Card>
-        )}
-        {tab === 'integrations' && <IntegrationsTab locked={locked} />}
-        {tab === 'account' && <AccountTab />}
+          )}
+          {tab === 'processing' && (
+            <div className="space-y-6">
+              <Card title="Automatic processing">
+                <ProcessingSection {...props} tagSuggestions={tagNames} />
+              </Card>
+              <Card title="What the AI may change">
+                <FunctionsSection {...props} />
+              </Card>
+            </div>
+          )}
+          {tab === 'prompt' && (
+            <Card title="Prompt">
+              <PromptSection {...props} defaultPrompt={loaded.defaults.systemPrompt} tagSuggestions={tagNames} />
+            </Card>
+          )}
+          {tab === 'fields' && (
+            <Card title="Custom fields" description="Values the AI should extract into Paperless custom fields.">
+              <CustomFieldsSection {...props} />
+            </Card>
+          )}
+          {tab === 'external' && (
+            <Card title="External data">
+              <ExternalApiSection {...props} />
+            </Card>
+          )}
+          {tab === 'rag' && (
+            <Card title="Ask your archive (RAG)" description="Semantic search and question answering over all documents.">
+              <RagSection {...props} localEmbeddings={loaded.localEmbeddings} />
+            </Card>
+          )}
+          {tab === 'integrations' && <IntegrationsTab locked={locked} />}
+          {tab === 'account' && <AccountTab />}
+        </div>
       </div>
 
       {formTab && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-4 lg:pl-64">
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-5 lg:pl-[252px]">
           <div
             // Hidden: invisible + no pointer events, so it does not block clicks on the page below.
-            className={`flex w-full max-w-3xl items-center justify-between gap-3 rounded-2xl border border-border bg-surface/95 px-4 py-3 shadow-pop backdrop-blur transition ${dirty ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none invisible translate-y-4 opacity-0'}`}
+            className={`flex w-full max-w-2xl items-center justify-between gap-3 rounded-full border border-border bg-surface/90 py-2 pr-2 pl-5 shadow-pop backdrop-blur-xl transition duration-300 ${dirty ? 'pointer-events-auto translate-y-0 opacity-100' : 'pointer-events-none invisible translate-y-4 opacity-0'}`}
             aria-hidden={!dirty}
           >
-            <span className="text-sm text-muted">You have unsaved changes</span>
+            <span className="flex items-center gap-2 text-sm text-muted">
+              <span className="status-dot live bg-warn" /> You have unsaved changes
+            </span>
             <div className="flex gap-2">
               <Button variant="ghost" disabled={!dirty || saving} onClick={() => setDraft(loaded.config)}>
                 Discard
               </Button>
-              <Button variant="primary" icon={<Save className="size-4" />} loading={saving} disabled={!dirty} onClick={() => save()}>
+              <Button
+                variant="primary"
+                icon={<Save className="size-4" />}
+                loading={saving}
+                disabled={!dirty}
+                onClick={() => save()}
+              >
                 Save changes
               </Button>
             </div>

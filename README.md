@@ -33,6 +33,7 @@ Version 4 is rebuilt from scratch with a focus on reliability, speed and low res
 | Settings | written to `.env`, container restart required | validated, **applied instantly** – no restart |
 | Paperless-ngx | 2.x | **2.x and 3.x** (API version negotiated automatically, verified against 2.14, 2.20 and 3.2) |
 | Undo | only “forget processing state” | **real undo** – restores the original values in Paperless |
+| Interface | server-rendered pages | **new design**: single-page app, command menu, light/dark + accent colours |
 
 Upgrading from 3.x is automatic: your `data/.env`, user account, processing state, history and token statistics are migrated on first start (the old files are kept untouched).
 
@@ -63,11 +64,13 @@ Upgrading from 3.x is automatic: your `data/.env`, user account, processing stat
 - **History with undo**, filters and search
 - **Dashboard** with live processing status, coverage, activity, token usage
 - **Logs & diagnostics** – live log stream, connection checks, Paperless API explorer
-- Light/dark theme, works on mobile
+- Modern interface: light/dark theme with five accent colours, **⌘K / Ctrl+K command menu** (jump to pages, open documents by number, ask a question), works on mobile
 
 | Manual review | History with undo |
 | --- | --- |
 | ![Manual review](docs/screenshots/review.png) | ![History](docs/screenshots/history.png) |
+| **Settings** | **Sign-in** |
+| ![Settings](docs/screenshots/settings.png) | ![Sign-in](docs/screenshots/login.png) |
 
 ## 🐳 Installation
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowUp, Bot, Calendar, Check, Copy, ExternalLink, FileText, Square, User } from 'lucide-react';
+import { ArrowUp, Calendar, Check, Copy, ExternalLink, FileText, Sparkles, Square } from 'lucide-react';
 import type { ChatStreamEvent, ChatTurn, RagSource } from '@shared/api';
 import { errorMessage, streamEvents } from '../lib/api';
 import { cn, formatDate } from '../lib/format';
@@ -87,19 +87,19 @@ export function SourceCard({ source, highlighted, id, muted }: { source: RagSour
       target="_blank"
       rel="noreferrer"
       className={cn(
-        'group block rounded-xl border bg-surface p-3 text-left transition hover:border-accent',
-        highlighted ? 'border-accent ring-4 ring-[var(--ring)]' : 'border-border',
+        'group block rounded-2xl border bg-surface p-3.5 text-left shadow-xs transition hover:-translate-y-0.5 hover:border-border-strong hover:shadow-card',
+        highlighted ? 'border-accent ring-4 ring-accent/15' : 'border-border',
         muted && 'opacity-70',
       )}
     >
-      <div className="flex items-start gap-2">
-        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md bg-accent-soft text-[11px] font-semibold text-accent-text">{source.n}</span>
+      <div className="flex items-start gap-2.5">
+        <SourceNumber n={source.n} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1 text-sm font-medium text-fg">
             <span className="truncate">{source.title}</span>
             <ExternalLink className="size-3 shrink-0 text-faint opacity-0 transition group-hover:opacity-100" />
           </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-muted">
             {source.correspondent && <span className="truncate">{source.correspondent}</span>}
             {source.created && (
               <span className="inline-flex items-center gap-1">
@@ -109,8 +109,41 @@ export function SourceCard({ source, highlighted, id, muted }: { source: RagSour
             )}
             {source.documentType && <span>{source.documentType}</span>}
           </div>
-          <p className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-muted">{source.snippet}</p>
+          <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted">{source.snippet}</p>
         </div>
+      </div>
+    </a>
+  );
+}
+
+function SourceNumber({ n, className }: { n: number; className?: string }) {
+  return (
+    <span className={cn('flex size-5 shrink-0 items-center justify-center rounded-full bg-accent-soft font-mono text-[10.5px] font-semibold text-accent-text ring-1 ring-accent/20', className)}>
+      {n}
+    </span>
+  );
+}
+
+/** Compact source tile for the horizontal source strip above an answer. */
+function SourceTile({ source, highlighted, muted, id }: { source: RagSource; highlighted?: boolean; muted?: boolean; id?: string }) {
+  return (
+    <a
+      id={id}
+      href={source.url}
+      target="_blank"
+      rel="noreferrer"
+      title={source.snippet}
+      className={cn(
+        'group flex w-52 shrink-0 snap-start flex-col justify-between gap-2 rounded-xl border bg-surface p-3 text-left shadow-xs transition hover:border-border-strong hover:shadow-card',
+        highlighted ? 'border-accent ring-4 ring-accent/15' : 'border-border',
+        muted && 'opacity-60 hover:opacity-100',
+      )}
+    >
+      <div className="line-clamp-2 text-[13px] leading-snug font-medium text-fg">{source.title}</div>
+      <div className="flex items-center gap-1.5 text-[11px] text-muted">
+        <SourceNumber n={source.n} className="size-4 text-[9.5px]" />
+        <span className="min-w-0 flex-1 truncate">{[source.correspondent, source.created && formatDate(source.created)].filter(Boolean).join(' · ') || source.documentType}</span>
+        <ExternalLink className="size-3 shrink-0 text-faint opacity-0 transition group-hover:opacity-100" />
       </div>
     </a>
   );
@@ -120,7 +153,7 @@ function CopyButton({ text }: { text: string }) {
   const [done, setDone] = useState(false);
   return (
     <button
-      className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-faint transition hover:bg-surface-2 hover:text-fg"
+      className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-faint transition hover:bg-surface-3/70 hover:text-fg"
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(text);
@@ -131,21 +164,56 @@ function CopyButton({ text }: { text: string }) {
         }
       }}
     >
-      {done ? <Check className="size-3" /> : <Copy className="size-3" />} {done ? 'Copied' : 'Copy'}
+      {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />} {done ? 'Copied' : 'Copy'}
     </button>
   );
 }
 
-export function MessageView({ message, onCite, compactSources }: { message: ChatMessage; onCite?: (sourceKey: string, n: number) => void; compactSources?: boolean }) {
+/** Small gradient mark for the assistant. */
+export function AssistantMark({ className }: { className?: string }) {
+  return (
+    <span className={cn('flex size-7 shrink-0 items-center justify-center rounded-[9px] bg-linear-to-br from-accent to-accent-2 text-white shadow-[var(--highlight)]', className)}>
+      <Sparkles className="size-3.5" />
+    </span>
+  );
+}
+
+function Thinking({ status }: { status: string }) {
+  return (
+    <div className="flex items-center gap-2.5 py-1 text-sm">
+      <span className="relative flex size-4 items-center justify-center">
+        <span className="absolute inset-0 animate-ping rounded-full bg-accent/30" />
+        <span className="size-2 rounded-full bg-accent" />
+      </span>
+      <span className="text-shimmer font-medium">{status}</span>
+    </div>
+  );
+}
+
+/**
+ * One message. `layout="search"` renders a question as a heading with its sources above the answer
+ * (Ask your archive); `layout="chat"` renders classic bubbles (document chat).
+ */
+export function MessageView({
+  message,
+  onCite,
+  compactSources,
+  layout = 'chat',
+}: {
+  message: ChatMessage;
+  onCite?: (sourceKey: string, n: number) => void;
+  compactSources?: boolean;
+  layout?: 'chat' | 'search';
+}) {
   const [highlight, setHighlight] = useState<number | null>(null);
   const [showAll, setShowAll] = useState(false);
   if (message.role === 'user') {
+    if (layout === 'search') {
+      return <h2 className="animate-in pt-2 text-[22px] leading-snug font-semibold tracking-[-0.02em] break-words whitespace-pre-wrap text-fg">{message.content}</h2>;
+    }
     return (
-      <div className="animate-in flex justify-end gap-3">
-        <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-accent px-4 py-2.5 text-[0.94rem] whitespace-pre-wrap text-white dark:text-[#04140e]">{message.content}</div>
-        <div className="mt-0.5 hidden size-8 shrink-0 items-center justify-center rounded-full bg-surface-3 text-muted sm:flex">
-          <User className="size-4" />
-        </div>
+      <div className="animate-in flex justify-end">
+        <div className="max-w-[85%] rounded-[20px] rounded-br-md bg-surface-3/80 px-4 py-2.5 text-[0.95rem] whitespace-pre-wrap text-fg ring-1 ring-border">{message.content}</div>
       </div>
     );
   }
@@ -154,37 +222,76 @@ export function MessageView({ message, onCite, compactSources }: { message: Chat
     setHighlight(n);
     setShowAll(true);
     onCite?.(message.id, n);
-    setTimeout(() => document.getElementById(`src-${message.id}-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+    setTimeout(() => document.getElementById(`src-${message.id}-${n}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' }), 50);
     setTimeout(() => setHighlight(null), 2500);
   };
   // Sources the answer actually cites come first; the rest were searched but not used.
   const cited = new Set([...message.content.matchAll(/\[(\d{1,2})\]/g)].map((m) => Number(m[1])));
   const primary = cited.size ? sources.filter((s) => cited.has(s.n)) : sources.slice(0, compactSources === false ? sources.length : 3);
   const others = sources.filter((s) => !primary.includes(s));
-  return (
-    <div className="animate-in flex gap-3">
-      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
-        <Bot className="size-4" />
-      </div>
-      <div className="min-w-0 flex-1">
-        {message.status && !message.content && (
-          <div className="flex items-center gap-2 py-1.5 text-sm text-muted">
-            <span className="flex gap-1">
-              {[0, 1, 2].map((i) => (
-                <span key={i} className="size-1.5 animate-bounce rounded-full bg-accent" style={{ animationDelay: `${i * 120}ms` }} />
-              ))}
+
+  const answer = (
+    <>
+      {message.status && !message.content && <Thinking status={message.status} />}
+      {message.content && <Markdown text={message.content} citations={sources.length} onCite={cite} streaming={message.streaming} />}
+      {message.error && (
+        <Alert tone="danger" className="mt-3">
+          {message.error}
+        </Alert>
+      )}
+      {!message.streaming && message.content && (
+        <div className="mt-3 flex items-center gap-2">
+          <CopyButton text={message.content} />
+          {message.model && (
+            <span className="text-[11.5px] text-faint">
+              {message.model}
+              {message.tokens ? ` · ${message.tokens} tokens` : ''}
             </span>
-            {message.status}
+          )}
+        </div>
+      )}
+    </>
+  );
+
+  if (layout === 'search') {
+    const strip = showAll ? [...primary, ...others] : primary;
+    return (
+      <div className="animate-in space-y-4">
+        {sources.length > 0 && (
+          <div>
+            <div className="mb-2.5 flex items-center gap-2 text-[13px] font-medium text-muted">
+              <FileText className="size-4" />
+              {cited.size ? `${primary.length} cited source${primary.length === 1 ? '' : 's'}` : `${sources.length} source${sources.length === 1 ? '' : 's'}`}
+              {others.length > 0 && (
+                <button className="ml-auto text-xs font-medium text-accent-text hover:underline" onClick={() => setShowAll((v) => !v)}>
+                  {showAll ? 'Show cited only' : `+${others.length} searched`}
+                </button>
+              )}
+            </div>
+            <div className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1">
+              {strip.map((s) => (
+                <SourceTile key={s.documentId} id={`src-${message.id}-${s.n}`} source={s} highlighted={highlight === s.n} muted={cited.size > 0 && !cited.has(s.n)} />
+              ))}
+            </div>
           </div>
         )}
-        {message.content && <Markdown text={message.content} citations={sources.length} onCite={cite} streaming={message.streaming} />}
-        {message.error && (
-          <Alert tone="danger" className="mt-2">
-            {message.error}
-          </Alert>
-        )}
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[13px] font-medium text-muted">
+            <AssistantMark className="size-5 rounded-md [&_svg]:size-3" /> Answer
+          </div>
+          {answer}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="animate-in flex gap-3">
+      <AssistantMark className="mt-0.5" />
+      <div className="min-w-0 flex-1">
+        {answer}
         {sources.length > 0 && (
-          <div className="mt-3">
+          <div className="mt-4">
             <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted">
               <FileText className="size-3.5" /> {cited.size ? `${primary.length} cited source${primary.length === 1 ? '' : 's'}` : `${sources.length} source${sources.length === 1 ? '' : 's'}`}
             </div>
@@ -200,17 +307,6 @@ export function MessageView({ message, onCite, compactSources }: { message: Chat
             )}
           </div>
         )}
-        {!message.streaming && message.content && (
-          <div className="mt-1.5 flex items-center gap-2">
-            <CopyButton text={message.content} />
-            {message.model && (
-              <span className="text-[11px] text-faint">
-                {message.model}
-                {message.tokens ? ` · ${message.tokens} tokens` : ''}
-              </span>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -223,6 +319,8 @@ export function Composer({
   placeholder,
   disabled,
   footer,
+  size = 'md',
+  autoFocus,
 }: {
   onSend: (text: string) => void;
   onStop?: () => void;
@@ -230,6 +328,9 @@ export function Composer({
   placeholder?: string;
   disabled?: boolean;
   footer?: ReactNode;
+  /** `lg`: the large centred input of an empty conversation. */
+  size?: 'md' | 'lg';
+  autoFocus?: boolean;
 }) {
   const [text, setText] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -245,39 +346,48 @@ export function Composer({
     setText('');
   };
   return (
-    <div className="rounded-2xl border border-border bg-surface p-2 shadow-pop focus-within:border-accent focus-within:ring-4 focus-within:ring-[var(--ring)]">
-      <div className="flex items-end gap-2">
-        <textarea
-          ref={ref}
-          rows={1}
-          value={text}
-          disabled={disabled}
-          placeholder={placeholder}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          className="max-h-56 min-h-[2.5rem] flex-1 resize-none bg-transparent px-2.5 py-2 text-[0.95rem] outline-none placeholder:text-faint disabled:opacity-60"
-        />
+    <div
+      className={cn(
+        'rounded-[22px] border border-border bg-surface p-2 shadow-pop transition focus-within:border-accent/60 focus-within:ring-4 focus-within:ring-accent/12',
+        size === 'lg' && 'p-2.5',
+      )}
+    >
+      <textarea
+        ref={ref}
+        rows={size === 'lg' ? 2 : 1}
+        value={text}
+        disabled={disabled}
+        autoFocus={autoFocus}
+        placeholder={placeholder}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        className={cn(
+          'block max-h-56 w-full resize-none bg-transparent px-3 pt-2 outline-none placeholder:text-faint disabled:opacity-60',
+          size === 'lg' ? 'min-h-[3.5rem] text-base' : 'min-h-[2.25rem] text-[0.95rem]',
+        )}
+      />
+      <div className="flex items-center gap-2 pt-1 pl-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-[11.5px] text-faint">{footer}</div>
         {busy ? (
-          <button onClick={onStop} className="mb-0.5 flex size-9 items-center justify-center rounded-xl bg-fg text-bg transition hover:opacity-80" aria-label="Stop">
+          <button onClick={onStop} className="flex size-9 shrink-0 items-center justify-center rounded-full bg-fg text-surface transition hover:opacity-80" aria-label="Stop">
             <Square className="size-3.5 fill-current" />
           </button>
         ) : (
           <button
             onClick={submit}
             disabled={!text.trim() || disabled}
-            className="mb-0.5 flex size-9 items-center justify-center rounded-xl bg-accent text-white transition hover:bg-accent-strong disabled:opacity-40 dark:text-[#04140e]"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-on-accent shadow-[var(--highlight)] transition hover:bg-accent-strong disabled:bg-surface-3 disabled:text-faint disabled:shadow-none"
             aria-label="Send"
           >
-            <ArrowUp className="size-4" />
+            <ArrowUp className="size-4" strokeWidth={2.5} />
           </button>
         )}
       </div>
-      {footer && <div className="flex flex-wrap items-center gap-2 px-2 pt-1 pb-0.5 text-[11px] text-faint">{footer}</div>}
     </div>
   );
 }

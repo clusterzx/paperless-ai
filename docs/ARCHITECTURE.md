@@ -30,6 +30,8 @@ src/
     rag/                 chunker, SQLite store (FTS5), vector index, local embedder (worker), service, document chat
     http/ routes/        Fastify app, auth levels, SSE helper, route modules
   web/                   React 19 + Tailwind 4 UI (Vite), pages are code-split
+    styles.css           design tokens (ink palette, accent presets via [data-accent], dark via [data-theme])
+    components/          ui primitives, app shell (Layout), command menu, chat, settings forms
 test/                    vitest unit & integration tests with fake Paperless/LLM servers
 e2e/                     demo server + Playwright end-to-end tests
 ```
