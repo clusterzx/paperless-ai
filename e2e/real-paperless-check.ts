@@ -4,6 +4,9 @@
  *
  *   PAPERLESS_URL=http://localhost:8000 PAPERLESS_TOKEN=… npx tsx e2e/real-paperless-check.ts
  *
+ * With OLLAMA_URL (+ OLLAMA_MODEL, OLLAMA_EMBED_MODEL) a real Ollama instance is used
+ * instead of the fake LLM; content assertions are relaxed because answers vary.
+ *
  * Runs: version negotiation, metadata loading, automatic processing of all
  * documents (tags/correspondent/type/date/custom fields), undo, RAG indexing,
  * keyword + vector search and a streamed RAG answer.
@@ -27,6 +30,8 @@ if (!url || !token) {
 }
 
 const step = (msg: string) => console.log(`\n▶ ${msg}`);
+const ollamaUrl = process.env.OLLAMA_URL;
+const realLlm = Boolean(ollamaUrl);
 const llm = await startMockLlm();
 llm.reply((req) => {
   if (req.system.includes('Return the result EXCLUSIVELY as one JSON object')) {
@@ -57,7 +62,9 @@ try {
   ctx.config.update({
     setupCompleted: true,
     paperless: { url, token },
-    ai: { provider: 'custom', custom: { baseUrl: llm.openaiUrl, model: 'mock' } },
+    ai: realLlm
+      ? { provider: 'ollama', ollama: { url: ollamaUrl!, model: process.env.OLLAMA_MODEL ?? 'qwen2.5:1.5b' }, tokenLimit: 8192 }
+      : { provider: 'custom', custom: { baseUrl: llm.openaiUrl, model: 'mock' } },
     processing: {
       automatic: false,
       addProcessedTag: true,
@@ -66,7 +73,9 @@ try {
         { name: 'Rechnungsnummer', type: 'string', description: '' },
       ],
     },
-    rag: { enabled: true, embeddingProvider: 'custom', embeddingModel: 'mock-embed' },
+    rag: realLlm
+      ? { enabled: true, embeddingProvider: 'ollama', embeddingModel: process.env.OLLAMA_EMBED_MODEL ?? 'nomic-embed-text' }
+      : { enabled: true, embeddingProvider: 'custom', embeddingModel: 'mock-embed' },
   });
   const client = ctx.paperless();
   const info = await client.connect();
@@ -75,7 +84,7 @@ try {
   step('Processing all documents');
   const engine = new ProcessingEngine(ctx);
   const queued = await engine.scan();
-  await engine.drain(120_000);
+  await engine.drain(realLlm ? 900_000 : 120_000);
   const counts = ctx.repos.documents.counts();
   console.log(`queued ${queued}, states`, counts);
   assert.ok(counts.processed > 0, 'no document processed');
@@ -88,18 +97,23 @@ try {
       `#${d.id} "${d.title}" | ${ctx.metadata().correspondentName(d.correspondent)} | ${ctx.metadata().documentTypeName(d.document_type)} | ${d.created} | tags: ${d.tags.map((t) => ctx.metadata().tagName(t)).join(', ')} | custom: ${JSON.stringify(d.custom_fields)}`,
     );
   }
-  const strom = docs.find((d) => d.title.startsWith('Stromrechnung'));
-  assert.ok(strom, 'electricity bill not renamed');
-  assert.equal(strom!.created?.slice(0, 10), '2024-03-14');
-  const betrag = meta.customFields.find((f) => f.name === 'Betrag');
-  assert.ok(betrag, 'custom field Betrag not created');
-  assert.ok(strom!.custom_fields?.some((f) => f.field === betrag!.id && String(f.value) === 'EUR84.20'), 'monetary value not stored');
   assert.ok(meta.tags.some((t) => t.name === 'ai-processed'), 'processed tag missing');
+  const strom = realLlm ? docs.find((d) => /strom|stadtwerke|electric/i.test(d.title)) ?? docs[docs.length - 1] : docs.find((d) => d.title.startsWith('Stromrechnung'));
+  assert.ok(strom, 'electricity bill not renamed');
+  if (!realLlm) {
+    assert.equal(strom!.created?.slice(0, 10), '2024-03-14');
+    const betrag = meta.customFields.find((f) => f.name === 'Betrag');
+    assert.ok(betrag, 'custom field Betrag not created');
+    assert.ok(strom!.custom_fields?.some((f) => f.field === betrag!.id && String(f.value) === 'EUR84.20'), 'monetary value not stored');
+  }
+  for (const h of ctx.repos.history.list({ pageSize: 50 }).items) {
+    console.log(`  history #${h.documentId}: ${h.totalTokens} tokens, suggestion ${JSON.stringify(h.suggestion)}`);
+  }
 
   step('Undo');
   const reverted = await revertDocument(ctx, strom!.id);
   console.log(`reverted → "${reverted.title}", created ${reverted.created}`);
-  assert.ok(!reverted.title.startsWith('Stromrechnung Stadtwerke'), 'title not restored');
+  assert.equal(reverted.title, ctx.repos.history.list({ documentId: strom!.id, includeReverted: true }).items.at(-1)?.before.title, 'title not restored');
 
   step('RAG index + search + chat');
   const rag = new RagService(ctx);
