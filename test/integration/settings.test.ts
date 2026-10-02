@@ -21,7 +21,7 @@ describe('settings', () => {
   it('returns the configuration with masked secrets', async () => {
     const body = await get();
     expect(body.config.paperless).toEqual({ url: h.paperless.url, token: SECRET_MASK, username: '', publicUrl: '' });
-    expect(body.config.ai.custom).toEqual({ baseUrl: h.llm.openaiUrl, apiKey: SECRET_MASK, model: 'test-model' });
+    expect(body.config.ai.custom).toEqual({ baseUrl: h.llm.openaiUrl, apiKey: SECRET_MASK, model: 'test-model', extraBody: '' });
     expect(body.config.ai.openai.apiKey).toBe('');
     expect(body.config.security).toMatchObject({ apiKey: SECRET_MASK, jwtSecret: SECRET_MASK });
     expect(body.locked).toEqual({});

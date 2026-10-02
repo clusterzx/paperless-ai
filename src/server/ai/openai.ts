@@ -8,7 +8,7 @@
  * max_completion_tokens, temperature …) it retries once with a compatible
  * variant and remembers what works for this endpoint/model.
  */
-import { HttpError, request, trimSlash } from '../util/http.js';
+import { HttpError, QUOTA_EXHAUSTED, request, trimSlash } from '../util/http.js';
 import { parseSse, ThinkFilter } from './stream.js';
 import {
   AiError,
@@ -35,7 +35,17 @@ export interface OpenAiCompatibleOptions {
   azure?: { apiVersion: string };
   timeoutMs?: number;
   extraHeaders?: Record<string, string>;
+  /** Additional request body parameters (e.g. chat_template_kwargs, top_k, provider routing). */
+  extraBody?: Record<string, unknown>;
 }
+
+/** Limits learned for a single request (from a context length error). */
+interface CallState {
+  maxBudget?: number;
+}
+
+/** Body fields an extra parameter must not replace. */
+const PROTECTED_FIELDS = new Set(['messages', 'model', 'stream', 'stream_options']);
 
 type ResponseFormatMode = 'json_schema' | 'json_object' | 'none';
 
@@ -114,14 +124,16 @@ export class OpenAiCompatibleClient implements LlmClient {
     return h;
   }
 
-  private buildBody(messages: ChatMessage[], opts: CompletionOptions, stream: boolean): Record<string, unknown> {
+  private buildBody(messages: ChatMessage[], opts: CompletionOptions, stream: boolean, call: CallState = {}): Record<string, unknown> {
     const caps = this.caps;
     const body: Record<string, unknown> = { messages };
     if (!this.opts.azure) body.model = this.model;
     if (opts.temperature !== undefined && caps.temperature) body.temperature = opts.temperature;
     if (opts.maxTokens && caps.tokenParam !== 'none') {
-      const budget = caps.reasoning ? opts.maxTokens + REASONING_RESERVE : opts.maxTokens;
-      body[caps.tokenParam] = caps.maxOutput ? Math.min(budget, caps.maxOutput) : budget;
+      let budget = caps.reasoning ? opts.maxTokens + REASONING_RESERVE : opts.maxTokens;
+      if (caps.maxOutput) budget = Math.min(budget, caps.maxOutput);
+      if (call.maxBudget) budget = Math.min(budget, call.maxBudget);
+      body[caps.tokenParam] = budget;
     }
     if (caps.reasoning && caps.reasoningEffort) body.reasoning_effort = caps.reasoningEffort;
     if (opts.jsonSchema || opts.json) {
@@ -134,6 +146,9 @@ export class OpenAiCompatibleClient implements LlmClient {
         body.response_format = { type: 'json_object' };
       }
     }
+    for (const [key, value] of Object.entries(this.opts.extraBody ?? {})) {
+      if (!PROTECTED_FIELDS.has(key)) body[key] = value;
+    }
     if (stream) {
       body.stream = true;
       if (caps.streamUsage) body.stream_options = { include_usage: true };
@@ -145,10 +160,29 @@ export class OpenAiCompatibleClient implements LlmClient {
    * Inspect a 400 error and downgrade the capability that caused it.
    * Returns true when a retry with adjusted parameters makes sense.
    */
-  private adapt(err: unknown, body: Record<string, unknown>): boolean {
-    if (!(err instanceof HttpError) || (err.status !== 400 && err.status !== 422)) return false;
+  private adapt(err: unknown, body: Record<string, unknown>, call: CallState): boolean {
+    if (!(err instanceof HttpError) || (err.status !== 400 && err.status !== 413 && err.status !== 422)) return false;
     const msg = JSON.stringify(err.body ?? '').toLowerCase();
     const caps = this.caps;
+    // Prompt + answer exceed the model's context window (vLLM, LiteLLM, OpenAI, Anthropic …). Must be
+    // checked first: these messages also mention max_tokens/max_completion_tokens.
+    const window = contextLimit(msg);
+    if (window) {
+      const input = inputTokens(msg);
+      const current = Number(body[caps.tokenParam] ?? 0);
+      if (input && window - input >= 256) {
+        // The prompt fits – only the requested answer is too long for this request.
+        const allowed = window - input - 16;
+        if (!current || allowed < current) {
+          call.maxBudget = allowed;
+          return true;
+        }
+      }
+      throw new AiError(
+        `The prompt does not fit into the model's context window (${window} tokens${input ? `, the prompt alone has ${input}` : ''}). ` +
+          `Set "Context window (tokens)" in Settings → AI provider → Advanced to ${window} or less.`,
+      );
+    }
     if (body.response_format && /response_format|json_schema|json_object|structured|guided/.test(msg)) {
       caps.responseFormat = caps.responseFormat === 'json_schema' ? 'json_object' : 'none';
       return true;
@@ -159,7 +193,8 @@ export class OpenAiCompatibleClient implements LlmClient {
       return true;
     }
     // "max_completion_tokens is too large: 20000. This model supports at most 16384 completion tokens"
-    const limit = /at most (\d+)/.exec(msg);
+    // "max_tokens: 64000 > 32000, which is the maximum allowed number of output tokens"
+    const limit = /at most (\d+)/.exec(msg) ?? /max_(?:completion_)?tokens: \d+ > (\d+)/.exec(msg);
     if (limit && /max_(completion_)?tokens|completion tokens|output tokens/.test(msg)) {
       const max = Number(limit[1]);
       if (max > 0 && max !== caps.maxOutput) {
@@ -188,8 +223,9 @@ export class OpenAiCompatibleClient implements LlmClient {
 
   async complete(messages: ChatMessage[], opts: CompletionOptions = {}): Promise<CompletionResult> {
     const started = Date.now();
+    const call: CallState = {};
     for (let attempt = 0; attempt < 5; attempt++) {
-      const body = this.buildBody(messages, opts, false);
+      const body = this.buildBody(messages, opts, false, call);
       try {
         const res = await request<OpenAiChatResponse>(this.url('/chat/completions'), {
           method: 'POST',
@@ -213,7 +249,7 @@ export class OpenAiCompatibleClient implements LlmClient {
         }
         return { text, usage: toUsage(res?.usage), model: res?.model ?? this.model, durationMs: Date.now() - started };
       } catch (err) {
-        if (this.adapt(err, body)) continue;
+        if (this.adapt(err, body, call)) continue;
         throw wrapError(err);
       }
     }
@@ -222,8 +258,9 @@ export class OpenAiCompatibleClient implements LlmClient {
 
   async *stream(messages: ChatMessage[], opts: CompletionOptions = {}): AsyncGenerator<StreamChunk> {
     let res: Response | undefined;
+    const call: CallState = {};
     for (let attempt = 0; attempt < 5 && !res; attempt++) {
-      const body = this.buildBody(messages, opts, true);
+      const body = this.buildBody(messages, opts, true, call);
       try {
         res = await request<Response>(this.url('/chat/completions'), {
           method: 'POST',
@@ -235,7 +272,7 @@ export class OpenAiCompatibleClient implements LlmClient {
           responseType: 'response',
         });
       } catch (err) {
-        if (this.adapt(err, body)) continue;
+        if (this.adapt(err, body, call)) continue;
         throw wrapError(err);
       }
     }
@@ -391,22 +428,51 @@ function toUsage(u?: OpenAiUsage | null): Usage {
 export function wrapError(err: unknown): Error {
   if (err instanceof AiError) return err;
   if (err instanceof HttpError) {
-    const body = err.body as { error?: { message?: string } | string; message?: string } | string | undefined;
+    const body = err.body as { error?: { message?: string; code?: string; type?: string } | string; message?: string } | string | undefined;
     let detail = '';
     if (typeof body === 'string') detail = body;
     else if (body && typeof body.error === 'object') detail = body.error?.message ?? '';
     else if (body && typeof body.error === 'string') detail = body.error;
     else if (body?.message) detail = body.message;
+    const code = typeof body === 'object' && body && typeof body.error === 'object' ? `${body.error.code ?? ''} ${body.error.type ?? ''}` : '';
+    // A 429 is either a rate limit (waiting helps) or an exhausted quota / credit balance (it does not).
+    const quota = err.status === 429 && QUOTA_EXHAUSTED.test(`${detail} ${code}`);
     const hint =
       err.status === 401 || err.status === 403
         ? ' (check the API key)'
         : err.status === 404
           ? ' (check base URL / model name)'
-          : err.status === 429
-            ? ' (rate limit or quota exceeded)'
-            : '';
-    return new AiError(`${err.message}${detail ? `: ${detail}` : ''}${hint}`, err.retryable);
+          : quota
+            ? ' (quota exhausted – check the plan and billing of your account)'
+            : err.status === 429
+              ? ' (rate limit – processing pauses and continues automatically)'
+              : '';
+    return new AiError(`${err.message}${detail ? `: ${detail}` : ''}${hint}`, err.retryable && !quota, {
+      status: err.status,
+      rateLimited: err.status === 429 && !quota,
+      retryAfterMs: err.retryAfterMs,
+    });
   }
   if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) return err;
   return new AiError(err instanceof Error ? err.message : String(err), true);
+}
+
+/** "maximum context length is 8192 tokens", "context window of 8192", "prompt is too long: 210000 tokens > 200000 maximum". */
+function contextLimit(msg: string): number | null {
+  const m =
+    /maximum context length (?:is|of) (\d+)/.exec(msg) ??
+    /context (?:window|length) (?:is |of |limit (?:is |of )?)?(\d+)/.exec(msg) ??
+    /prompt is too long: \d+ tokens > (\d+)/.exec(msg);
+  return m ? Number(m[1]) : null;
+}
+
+/** Size of the prompt as reported in a context length error. */
+function inputTokens(msg: string): number | null {
+  const m =
+    /(\d+) in the messages/.exec(msg) ??
+    /(?:request|prompt) has (\d+) input tokens/.exec(msg) ??
+    /messages resulted in (\d+) tokens/.exec(msg) ??
+    /prompt is too long: (\d+) tokens/.exec(msg) ??
+    /(\d+) (?:input|prompt) tokens/.exec(msg);
+  return m ? Number(m[1]) : null;
 }

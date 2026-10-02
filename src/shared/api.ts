@@ -136,6 +136,8 @@ export interface ProcessingStatus {
   lastScanAt: number | null;
   nextScanAt: number | null;
   lastError: string | null;
+  /** The AI provider rate-limited processing; it continues automatically at this time. */
+  rateLimitedUntil: number | null;
   lastProcessed: { documentId: number; title: string | null; processedAt: number } | null;
   processedToday: number;
   counts: { processed: number; failed: number; skipped: number };

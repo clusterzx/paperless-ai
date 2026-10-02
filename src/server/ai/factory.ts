@@ -17,6 +17,24 @@ export function azureDeploymentUrl(endpoint: string, deployment: string): string
   return `${base.replace(/\/openai$/, '')}/openai/deployments/${encodeURIComponent(deployment)}`;
 }
 
+/** Room reserved for the thinking of local models when the context size is fixed. */
+const OLLAMA_THINK_ROOM = 4096;
+
+/** num_ctx for Ollama: the fixed context size, or 0 when it is sized per request. */
+export function ollamaContextSize(ai: AppConfig['ai']): number {
+  return ai.ollama.contextSize > 0 ? Math.min(ai.ollama.contextSize, ai.tokenLimit) : 0;
+}
+
+/**
+ * Tokens a prompt and its answer may use together. Usually the configured token limit; with a
+ * fixed Ollama context size the smaller of both, minus room for thinking unless it is switched off.
+ */
+export function contextBudget(ai: AppConfig['ai']): number {
+  const fixed = ai.provider === 'ollama' ? ollamaContextSize(ai) : 0;
+  if (!fixed) return ai.tokenLimit;
+  return ai.ollama.think === 'off' ? fixed : fixed - Math.min(OLLAMA_THINK_ROOM, Math.floor(fixed / 4));
+}
+
 /** Name of the active model for display purposes. */
 export function activeModel(ai: AppConfig['ai']): string {
   switch (ai.provider) {
@@ -73,6 +91,7 @@ export function createLlmClient(ai: AppConfig['ai']): LlmClient {
         apiKey: ai.custom.apiKey || undefined,
         model: ai.custom.model,
         contextWindow: ai.tokenLimit,
+        extraBody: ai.custom.extraBody ? (JSON.parse(ai.custom.extraBody) as Record<string, unknown>) : undefined,
         timeoutMs,
       });
     case 'azure':
@@ -90,6 +109,8 @@ export function createLlmClient(ai: AppConfig['ai']): LlmClient {
         baseUrl: ai.ollama.url,
         model: ai.ollama.model,
         contextWindow: ai.tokenLimit,
+        numCtx: ollamaContextSize(ai) || undefined,
+        think: ai.ollama.think,
         keepAlive: ai.ollama.keepAlive || undefined,
         timeoutMs,
       });

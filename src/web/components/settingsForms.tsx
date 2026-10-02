@@ -144,6 +144,16 @@ const PROVIDERS: { id: Config['ai']['provider']; label: string; description: str
 // Suggestions only – "Load" lists every model of the account.
 const OPENAI_MODELS = ['gpt-5-mini', 'gpt-5-nano', 'gpt-5.5', 'gpt-5.4', 'gpt-5', 'gpt-4.1-mini', 'gpt-4o-mini'];
 
+function extraBodyError(value: string): string | null {
+  if (!value.trim()) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? null : 'Must be a JSON object';
+  } catch {
+    return 'Invalid JSON';
+  }
+}
+
 export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiBase: ApiBase }) {
   const test = useTest();
   const [models, setModels] = useState<string[]>([]);
@@ -231,9 +241,39 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
               <Input placeholder="http://localhost:11434" {...bind(draft, set, locked, 'ai.ollama.url')} />
             </Field>
             {modelInput('Model', 'llama3.2', 'Models with JSON/structured output support work best, e.g. qwen3, llama3.x, mistral, gemma3.')}
+            <Field
+              label="Context size (num_ctx)"
+              locked={locked['ai.ollama.contextSize']}
+              hint="Tokens for prompt, thinking and answer. A fixed size keeps the model loaded – Ollama reloads it whenever num_ctx changes. 0 = sized per document. Larger sizes need more (V)RAM."
+            >
+              <NumberInput min={0} step={1024} {...bindNumber(draft, set, locked, 'ai.ollama.contextSize')} />
+            </Field>
+            <Field
+              label="Thinking"
+              locked={locked['ai.ollama.think']}
+              hint="For thinking models (qwen3, gpt-oss, deepseek-r1 …). Off is much faster and gives non-thinking models the whole context window."
+            >
+              <Select value={draft.ai.ollama.think} disabled={Boolean(locked['ai.ollama.think'])} onChange={(e) => set('ai.ollama.think', e.target.value)}>
+                <option value="auto">Model default</option>
+                <option value="off">Off</option>
+                <option value="on">On</option>
+                <option value="low">Low (gpt-oss)</option>
+                <option value="medium">Medium (gpt-oss)</option>
+                <option value="high">High (gpt-oss)</option>
+              </Select>
+            </Field>
             <Field label="Keep model loaded (optional)" locked={locked['ai.ollama.keepAlive']} hint='Ollama keep_alive, e.g. "5m", "1h" or "0" to unload right after each request.'>
               <Input placeholder="Ollama default" {...bind(draft, set, locked, 'ai.ollama.keepAlive')} />
             </Field>
+            <div className="sm:col-span-2">
+              <Switch
+                label="Unload the model when the queue is empty"
+                description="Frees the GPU memory for other applications as soon as all documents are processed. The next document loads the model again."
+                checked={draft.ai.ollama.unloadWhenIdle}
+                locked={locked['ai.ollama.unloadWhenIdle']}
+                onChange={(v) => set('ai.ollama.unloadWhenIdle', v)}
+              />
+            </div>
           </>
         )}
         {provider === 'custom' && (
@@ -245,6 +285,20 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
               <SecretInput value={draft.ai.custom.apiKey} onChange={(v) => set('ai.custom.apiKey', v)} disabled={Boolean(locked['ai.custom.apiKey'])} />
             </Field>
             {modelInput('Model', 'deepseek-chat')}
+            <Field
+              className="sm:col-span-2"
+              label="Extra request parameters (optional)"
+              locked={locked['ai.custom.extraBody']}
+              error={extraBodyError(draft.ai.custom.extraBody)}
+              hint={
+                <>
+                  JSON object added to every request. Turn off thinking on vLLM / llama.cpp: <code>{'{"chat_template_kwargs": {"enable_thinking": false}}'}</code>, OpenRouter:{' '}
+                  <code>{'{"reasoning": {"effort": "low"}}'}</code>
+                </>
+              }
+            >
+              <Textarea rows={3} className="font-mono text-xs" placeholder='{"top_k": 20}' {...bind(draft, set, locked, 'ai.custom.extraBody')} />
+            </Field>
           </>
         )}
         {provider === 'azure' && (

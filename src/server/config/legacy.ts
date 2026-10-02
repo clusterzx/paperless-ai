@@ -84,6 +84,13 @@ interface Mapping {
 }
 
 const s = (v: string) => v.trim();
+/** OLLAMA_THINK: auto/off/on/low/medium/high, or a boolean. */
+function parseThink(v: string): string | undefined {
+  const value = v.trim().toLowerCase();
+  if (['auto', 'off', 'on', 'low', 'medium', 'high'].includes(value)) return value;
+  const flag = parseBool(value);
+  return flag === undefined ? undefined : flag ? 'on' : 'off';
+}
 const b = (v: string) => parseBool(v);
 const i = (v: string) => parseIntSafe(v);
 
@@ -100,9 +107,14 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'OLLAMA_API_URL', path: 'ai.ollama.url', parse: s },
   { env: 'OLLAMA_MODEL', path: 'ai.ollama.model', parse: s },
   { env: 'OLLAMA_KEEP_ALIVE', path: 'ai.ollama.keepAlive', parse: s },
+  { env: 'OLLAMA_CONTEXT_SIZE', path: 'ai.ollama.contextSize', parse: i },
+  { env: 'OLLAMA_NUM_CTX', path: 'ai.ollama.contextSize', parse: i },
+  { env: 'OLLAMA_THINK', path: 'ai.ollama.think', parse: (v) => parseThink(v) },
+  { env: 'OLLAMA_UNLOAD_WHEN_IDLE', path: 'ai.ollama.unloadWhenIdle', parse: b },
   { env: 'CUSTOM_BASE_URL', path: 'ai.custom.baseUrl', parse: s },
   { env: 'CUSTOM_API_KEY', path: 'ai.custom.apiKey', parse: s },
   { env: 'CUSTOM_MODEL', path: 'ai.custom.model', parse: s },
+  { env: 'CUSTOM_EXTRA_BODY', path: 'ai.custom.extraBody', parse: s },
   { env: 'AZURE_ENDPOINT', path: 'ai.azure.endpoint', parse: s },
   { env: 'AZURE_API_KEY', path: 'ai.azure.apiKey', parse: s },
   { env: 'AZURE_DEPLOYMENT_NAME', path: 'ai.azure.deployment', parse: s },

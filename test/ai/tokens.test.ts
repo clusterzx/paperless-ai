@@ -6,15 +6,28 @@ describe('estimateTokens', () => {
     expect(estimateTokens('')).toBe(0);
   });
 
-  it('estimates ~3.6 characters per token for latin text', () => {
-    expect(estimateTokens('a'.repeat(36))).toBe(10);
+  it('estimates ~3.4 letters per token for latin text', () => {
+    expect(estimateTokens('a'.repeat(34))).toBe(10);
     expect(estimateTokens('abcd')).toBe(2);
+    // prose: within a few tokens of real tokenizers (cl100k: 10, Llama 3: 10)
+    expect(estimateTokens('The quick brown fox jumps over the lazy dog.')).toBeGreaterThanOrEqual(10);
+    expect(estimateTokens('The quick brown fox jumps over the lazy dog.')).toBeLessThanOrEqual(12);
   });
 
-  it('counts CJK characters more expensively', () => {
+  it('counts digits, CJK characters and symbols as roughly one token each', () => {
     const cjk = '漢字かなカナ한국어'; // 9 CJK chars
-    expect(estimateTokens(cjk)).toBe(Math.ceil(9 / 1.5));
-    expect(estimateTokens(cjk)).toBeGreaterThan(estimateTokens('abcdefghi'));
+    expect(estimateTokens(cjk)).toBe(9);
+    expect(estimateTokens(cjk)).toBeGreaterThan(estimateTokens('abcdefghi') * 2);
+    // many local models split numbers into single digits
+    expect(estimateTokens('1234567890')).toBe(10);
+    expect(estimateTokens('IBAN DE89 3704 0044 0532 0130 00')).toBeGreaterThanOrEqual(22);
+    expect(estimateTokens('€€€')).toBe(3);
+    // other alphabets need more tokens than ASCII
+    expect(estimateTokens('Привет мир')).toBeGreaterThan(estimateTokens('Hello wrld'));
+  });
+
+  it('handles emoji and other astral characters', () => {
+    expect(estimateTokens('👍')).toBe(2);
   });
 
   it('is monotonic in the text length', () => {
@@ -48,6 +61,17 @@ describe('truncateToTokens', () => {
     expect(res.text.endsWith(' ')).toBe(false);
     const lastWord = res.text.split(' ').pop()!;
     expect(text.split(' ')).toContain(lastWord);
+  });
+
+  it('never splits a surrogate pair', () => {
+    const res = truncateToTokens('ab👍👍👍👍', 3);
+    expect(res.truncated).toBe(true);
+    expect(res.text).toBe('ab👍');
+  });
+
+  it('truncates CJK text by its own weight', () => {
+    const res = truncateToTokens('漢'.repeat(100), 40);
+    expect(res.text).toHaveLength(40);
   });
 
   it('returns empty text for a zero budget', () => {

@@ -6,6 +6,7 @@
  * definition produces a JSON schema for providers with structured output.
  */
 import type { AppConfig, CustomFieldConfig } from '../config/schema.js';
+import { contextBudget } from '../ai/factory.js';
 import { estimateTokens, truncateToTokens } from '../ai/tokens.js';
 import type { ChatMessage } from '../ai/types.js';
 
@@ -229,10 +230,11 @@ export function buildAnalysisPrompt(
   const system = buildSystemPrompt(cfg.processing, ctx, opts);
   const header = opts.filename ? `Original file name: ${opts.filename}\n\n` : '';
   const wrapperTokens = estimateTokens(`${header}Document content:\n"""\n\n"""`) + 16;
-  const budget = cfg.ai.tokenLimit - cfg.ai.responseTokens - estimateTokens(system) - wrapperTokens;
+  const contextWindow = contextBudget(cfg.ai);
+  const budget = contextWindow - cfg.ai.responseTokens - estimateTokens(system) - wrapperTokens;
   if (budget < 200) {
     throw new Error(
-      `The prompt does not fit into the token limit (${cfg.ai.tokenLimit}). Increase the token limit or shorten the prompt / tag lists.`,
+      `The prompt does not fit into the context window (${contextWindow} tokens). Increase the token limit (or the Ollama context size) or shorten the prompt / tag lists.`,
     );
   }
   // Keep a safety margin of 5% because token estimation is approximate.

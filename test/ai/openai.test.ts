@@ -159,6 +159,83 @@ describe('OpenAiCompatibleClient.complete', () => {
     expect(((await client().complete(messages).catch((e: unknown) => e)) as AiError).message).toContain('plain string error');
   });
 
+  it('tells rate limits (pause and retry) from an exhausted quota (fail)', async () => {
+    llm.reply({ status: 429, error: { error: { message: 'Rate limit reached for gpt-5-mini', code: 'rate_limit_exceeded' } }, headers: { 'Retry-After': '120' } });
+    const limited = (await client().complete(messages).catch((e: unknown) => e)) as AiError;
+    expect(limited.rateLimited).toBe(true);
+    expect(limited.info).toMatchObject({ status: 429, retryAfterMs: 120_000 });
+    expect(limited.message).toContain('processing pauses');
+    // a long Retry-After is not waited for inside the request
+    expect(llm.chatRequests()).toHaveLength(1);
+
+    llm.reply({ status: 429, error: { error: { message: 'You exceeded your current quota, please check your plan and billing details.', code: 'insufficient_quota' } } });
+    const quota = (await client().complete(messages).catch((e: unknown) => e)) as AiError;
+    expect(quota.rateLimited).toBe(false);
+    expect(quota.retryable).toBe(false);
+    expect(quota.message).toContain('quota exhausted');
+  });
+
+  it('reduces the answer budget when only the answer does not fit into the context (vLLM)', async () => {
+    llm.reply((req) => {
+      const max = Number(req.body.max_tokens);
+      return max > 8192 - 6500
+        ? {
+            status: 400,
+            error: {
+              error: {
+                message: `'max_tokens' or 'max_completion_tokens' is too large: ${max}. This model's maximum context length is 8192 tokens and your request has 6500 input tokens (${max} > 8192 - 6500).`,
+              },
+            },
+          }
+        : '{"title":"fits"}';
+    });
+    const c = client('Qwen/Qwen3-8B');
+    expect((await c.complete(messages, { maxTokens: 2000 })).text).toBe('{"title":"fits"}');
+    expect(chatBodies().map((b) => [b.max_tokens, b.max_completion_tokens])).toEqual([
+      [2000, undefined],
+      [8192 - 6500 - 16, undefined],
+    ]);
+    // per request only – the next (shorter) prompt gets its full budget again
+    llm.reply('ok');
+    await c.complete(messages, { maxTokens: 1000 });
+    expect(chatBodies().at(-1)!.max_tokens).toBe(1000);
+  });
+
+  it('explains a prompt that is too long for the model instead of switching parameters back and forth', async () => {
+    llm.reply({
+      status: 400,
+      error: {
+        error: {
+          message:
+            "This model's maximum context length is 8192 tokens. However, you requested 131000 tokens (130000 in the messages, 1000 in the completion). Please reduce the length of the messages or completion.",
+        },
+      },
+    });
+    const err = (await client('mistral').complete(messages, { maxTokens: 1000 }).catch((e: unknown) => e)) as AiError;
+    expect(err).toBeInstanceOf(AiError);
+    expect(err.message).toContain('context window (8192 tokens, the prompt alone has 130000)');
+    expect(err.message).toContain('to 8192 or less');
+    expect(llm.chatRequests()).toHaveLength(1);
+  });
+
+  it('learns the output limit from Anthropic-style errors', async () => {
+    llm.reply((req) =>
+      Number(req.body.max_tokens) > 4096
+        ? { status: 400, error: { error: { message: 'max_tokens: 9000 > 4096, which is the maximum allowed number of output tokens for this model' } } }
+        : 'ok',
+    );
+    expect((await client('some-model').complete(messages, { maxTokens: 9000 })).text).toBe('ok');
+    expect(chatBodies().map((b) => b.max_tokens)).toEqual([9000, 4096]);
+  });
+
+  it('merges extra body parameters without replacing the essentials', async () => {
+    const c = client('qwen3', { extraBody: { chat_template_kwargs: { enable_thinking: false }, top_k: 20, messages: [], model: 'other', stream: true } });
+    await c.complete(messages, { maxTokens: 100 });
+    expect(chatBodies()[0]).toEqual({ model: 'qwen3', messages, max_tokens: 100, chat_template_kwargs: { enable_thinking: false }, top_k: 20 });
+    await collect(c.stream(messages));
+    expect(chatBodies()[1]).toMatchObject({ model: 'qwen3', messages, stream: true, top_k: 20 });
+  });
+
   it('reports refusals and accepts empty answers', async () => {
     llm.reply({ refusal: 'I cannot help with that' });
     const err = await client().complete(messages).catch((e: unknown) => e);
@@ -296,7 +373,7 @@ describe('factory', () => {
     expect(aiConfigProblem({ ...ai, provider: 'ollama' })).toBeNull();
     expect(aiConfigProblem({ ...ai, provider: 'azure' })).toContain('Azure');
     expect(() => createLlmClient(ai)).toThrow(AiError);
-    const custom = createLlmClient({ ...ai, provider: 'custom', custom: { baseUrl: llm.openaiUrl, apiKey: '', model: 'm' } });
+    const custom = createLlmClient({ ...ai, provider: 'custom', custom: { baseUrl: llm.openaiUrl, apiKey: '', model: 'm', extraBody: '' } });
     expect(custom).toMatchObject({ provider: 'custom', model: 'm', contextWindow: 128_000 });
   });
 

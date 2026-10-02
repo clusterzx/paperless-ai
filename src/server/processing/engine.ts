@@ -9,6 +9,7 @@ import type { AppContext } from '../context.js';
 import { NotConfiguredError } from '../context.js';
 import type { AppConfig } from '../config/schema.js';
 import type { PaperlessDocument } from '../paperless/types.js';
+import { AiError } from '../ai/types.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
 import { analyzeContent } from './analyzer.js';
@@ -28,7 +29,12 @@ interface Job extends EnqueueOptions {
   documentId: number;
 }
 
-export type JobOutcome = 'processed' | 'unchanged' | 'skipped' | 'failed';
+/** `deferred`: the AI provider rate-limited the request – the document goes back into the queue. */
+export type JobOutcome = 'processed' | 'unchanged' | 'skipped' | 'failed' | 'deferred';
+
+/** First pause after a rate limit; doubles while the provider keeps refusing. */
+const RATE_LIMIT_PAUSE_MS = 30_000;
+const MAX_RATE_LIMIT_PAUSE_MS = 15 * 60_000;
 
 export function validateCron(expr: string): string | null {
   try {
@@ -49,6 +55,12 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
   private stopped = false;
   private lastScanAt: number | null = null;
   private lastError: string | null = null;
+  /** The AI model was used since the queue was last empty. */
+  private modelUsed = false;
+  /** Rate limited by the AI provider: no new analyses before this time. */
+  private cooldownUntil = 0;
+  private cooldownTimer: NodeJS.Timeout | null = null;
+  private rateLimitStreak = 0;
 
   constructor(private readonly ctx: AppContext) {
     super();
@@ -69,6 +81,8 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
     this.stopped = true;
     this.cron?.stop();
     this.cron = null;
+    if (this.cooldownTimer) clearTimeout(this.cooldownTimer);
+    this.cooldownTimer = null;
     this.queue.length = 0;
     this.queued.clear();
     const deadline = Date.now() + 15_000;
@@ -122,6 +136,7 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       lastScanAt: this.lastScanAt,
       nextScanAt: this.cron?.nextRun()?.getTime() ?? null,
       lastError: this.lastError,
+      rateLimitedUntil: this.cooldownUntil > Date.now() ? this.cooldownUntil : null,
       lastProcessed: last ? { documentId: last.id, title: last.title, processedAt: last.processed_at ?? last.updated_at } : null,
       processedToday: this.ctx.repos.documents.processedSince(startOfDay.getTime()),
       counts: this.ctx.repos.documents.counts(),
@@ -207,6 +222,15 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
 
   private pump(): void {
     if (this.paused || this.stopped) return;
+    const wait = this.cooldownUntil - Date.now();
+    if (wait > 0) {
+      this.cooldownTimer ??= setTimeout(() => {
+        this.cooldownTimer = null;
+        this.pump();
+      }, wait);
+      this.cooldownTimer.unref?.();
+      return;
+    }
     const limit = this.ctx.cfg.processing.concurrency;
     while (this.active.size < limit && this.queue.length) {
       const job = this.queue.shift()!;
@@ -214,12 +238,43 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       const info: ProcessingJob = { documentId: job.documentId, title: null, source: job.source, startedAt: Date.now(), stage: 'loading' };
       this.active.set(job.documentId, info);
       void this.run(job, info)
-        .then((outcome) => this.emit('job', job.documentId, outcome))
+        .then((outcome) => {
+          if (outcome === 'deferred') {
+            // Back to the front of the queue – it is retried after the pause, without counting an attempt.
+            if (!this.queued.has(job.documentId)) {
+              this.queue.unshift(job);
+              this.queued.add(job.documentId);
+            }
+            return;
+          }
+          if (outcome !== 'failed') this.rateLimitStreak = 0;
+          this.emit('job', job.documentId, outcome);
+        })
         .finally(() => {
           this.active.delete(job.documentId);
-          if (!this.active.size && !this.queue.length) this.emit('idle');
+          if (!this.active.size && !this.queue.length) this.onIdle();
           this.pump();
         });
+    }
+  }
+
+  private onIdle(): void {
+    this.emit('idle');
+    if (!this.modelUsed) return;
+    this.modelUsed = false;
+    const ai = this.ctx.cfg.ai;
+    if (ai.provider !== 'ollama' || !ai.ollama.unloadWhenIdle) return;
+    // Free the GPU memory for other applications until the next document arrives.
+    void this.unloadModel();
+  }
+
+  private async unloadModel(): Promise<void> {
+    try {
+      const llm = this.ctx.llm();
+      await llm.unload?.();
+      log.info(`Queue is empty – unloaded ${llm.model} from Ollama`);
+    } catch (err) {
+      log.warn(`Could not unload the Ollama model: ${describeError(err)}`);
     }
   }
 
@@ -246,6 +301,7 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
         return 'skipped';
       }
       if (info) info.stage = 'analyzing';
+      this.modelUsed = true;
       log.info(`Analyzing document ${documentId} "${doc.title}"`);
       const analysis = await analyzeContent(this.ctx, doc.content, {
         feature: 'process',
@@ -261,12 +317,27 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       );
       return 'processed';
     } catch (err) {
+      if (err instanceof AiError && err.rateLimited) {
+        const pause = this.startCooldown(err);
+        log.warn(`The AI provider rate-limited the request for document ${documentId} – pausing processing for ${Math.round(pause / 1000)}s`);
+        return 'deferred';
+      }
       const reason = describeError(err);
       const attempts = repo.markFailed(documentId, doc?.title ?? null, reason, doc?.modified ?? null);
       log.error(`Processing document ${documentId} failed (attempt ${attempts}/${this.ctx.cfg.processing.maxAttempts}): ${reason}`);
       this.lastError = `Document ${documentId}: ${reason}`;
       return 'failed';
     }
+  }
+
+  private startCooldown(err: AiError): number {
+    this.rateLimitStreak++;
+    const backoff = RATE_LIMIT_PAUSE_MS * 2 ** (this.rateLimitStreak - 1);
+    // A Retry-After of the provider wins (the HTTP layer already waited for short ones a few times).
+    const retryAfter = err.info.retryAfterMs;
+    const pause = Math.min(retryAfter !== undefined ? Math.max(retryAfter, 1000 * 2 ** (this.rateLimitStreak - 1)) : backoff, MAX_RATE_LIMIT_PAUSE_MS);
+    this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + pause);
+    return pause;
   }
 
   /** Wait until the queue is empty (used by tests and the synchronous scan endpoint). */

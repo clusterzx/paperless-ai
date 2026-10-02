@@ -5,7 +5,9 @@
  * `num_ctx` per request – otherwise Ollama silently truncates long documents
  * to its small default context – and pass a JSON schema via `format`.
  */
-import { HttpError, request, trimSlash } from '../util/http.js';
+import type { OllamaThink } from '../config/schema.js';
+import { describeError, HttpError, request, trimSlash } from '../util/http.js';
+import { extractJsonObject } from './json.js';
 import { wrapError } from './openai.js';
 import { parseNdjson, ThinkFilter } from './stream.js';
 import { estimateTokens } from './tokens.js';
@@ -26,6 +28,10 @@ export interface OllamaOptions {
   model: string;
   /** Upper bound for num_ctx. */
   contextWindow: number;
+  /** Fixed num_ctx for every request – changing it makes Ollama reload the model. Unset = sized per request. */
+  numCtx?: number;
+  /** Thinking of thinking models; "auto" leaves the model's default. */
+  think?: OllamaThink;
   timeoutMs?: number;
   /** How long Ollama keeps the model loaded after a request (e.g. "5m", "0" to unload immediately). */
   keepAlive?: string;
@@ -45,6 +51,8 @@ interface OllamaChatResponse {
 
 /** Models that think before answering (qwen3, gpt-oss, deepseek-r1 …) – learned from their responses. */
 const thinkingModels = new Set<string>();
+/** Models (or Ollama versions) that rejected the `think` parameter. */
+const thinkUnsupported = new Set<string>();
 /** Extra num_predict for the thinking of such models. */
 const THINKING_RESERVE = 8192;
 
@@ -67,24 +75,54 @@ export class OllamaClient implements LlmClient {
     return this.opts.apiKey ? { Authorization: `Bearer ${this.opts.apiKey}` } : {};
   }
 
-  /** Context size large enough for prompt + answer, rounded to 1k, capped by config. */
+  private promptTokens(messages: ChatMessage[]): number {
+    return messages.reduce((sum, m) => sum + estimateTokens(m.content) + 8, 0);
+  }
+
+  /**
+   * The fixed context size, or – without one – a size large enough for prompt + answer. Sizes
+   * are powers of two so that Ollama rarely has to reload the model for a different num_ctx.
+   */
   numCtx(messages: ChatMessage[], maxTokens = 1024): number {
-    const promptTokens = messages.reduce((sum, m) => sum + estimateTokens(m.content) + 8, 0);
-    const needed = Math.ceil((promptTokens * 1.1 + maxTokens + 256) / 1024) * 1024;
-    return Math.max(2048, Math.min(needed, this.contextWindow));
+    if (this.opts.numCtx) return this.opts.numCtx;
+    const needed = this.promptTokens(messages) * 1.1 + maxTokens + 256;
+    let size = 2048;
+    while (size < needed) size *= 2;
+    return Math.min(size, Math.max(2048, this.contextWindow));
+  }
+
+  /** Whether the model is known (or told) to think before answering. */
+  private get thinks(): boolean {
+    const think = this.opts.think ?? 'auto';
+    if (think === 'off') return false;
+    return think !== 'auto' || thinkingModels.has(this.key);
   }
 
   private buildBody(messages: ChatMessage[], opts: CompletionOptions, stream: boolean) {
     // num_predict also covers the thinking of thinking models – give them room for it.
-    const maxTokens = opts.maxTokens && thinkingModels.has(this.key) ? opts.maxTokens + THINKING_RESERVE : opts.maxTokens;
-    const options: Record<string, unknown> = { num_ctx: this.numCtx(messages, maxTokens) };
+    let maxTokens = opts.maxTokens && this.thinks ? opts.maxTokens + THINKING_RESERVE : opts.maxTokens;
+    const numCtx = this.numCtx(messages, maxTokens);
+    // …but never more than what is left of the context window.
+    if (maxTokens && opts.maxTokens) maxTokens = Math.max(opts.maxTokens, Math.min(maxTokens, numCtx - this.promptTokens(messages)));
+    const options: Record<string, unknown> = { num_ctx: numCtx };
     if (opts.temperature !== undefined) options.temperature = opts.temperature;
     if (maxTokens) options.num_predict = maxTokens;
     const body: Record<string, unknown> = { model: this.model, messages, stream, options };
     if (opts.jsonSchema) body.format = opts.jsonSchema.schema;
     else if (opts.json) body.format = 'json';
+    const think = thinkParam(this.opts.think);
+    if (think !== undefined && !thinkUnsupported.has(this.key)) body.think = think;
     if (this.opts.keepAlive) body.keep_alive = this.opts.keepAlive;
     return body;
+  }
+
+  /** A 400 because the model (or the Ollama version) does not know `think`: remember and retry without. */
+  private rejectedThink(err: unknown, body: Record<string, unknown>): boolean {
+    if (!(err instanceof HttpError) || err.status !== 400 || body.think === undefined) return false;
+    if (!/think/i.test(describeError(err))) return false;
+    thinkUnsupported.add(this.key);
+    delete body.think;
+    return true;
   }
 
   private get key(): string {
@@ -94,12 +132,20 @@ export class OllamaClient implements LlmClient {
   async complete(messages: ChatMessage[], opts: CompletionOptions = {}): Promise<CompletionResult> {
     const started = Date.now();
     let res = await this.chat(messages, opts);
-    if (!res.message?.content?.trim() && res.done_reason === 'length' && !thinkingModels.has(this.key)) {
+    if (!res.message?.content?.trim() && res.done_reason === 'length' && !this.thinks && this.opts.think !== 'off') {
       // The token limit was used up by thinking – retry once with room for it.
       thinkingModels.add(this.key);
       res = await this.chat(messages, opts);
     }
-    const text = res.message?.content ?? '';
+    let text = res.message?.content ?? '';
+    if (!text.trim() && res.message?.thinking && (opts.json || opts.jsonSchema)) {
+      // Some models (gpt-oss) occasionally put the structured answer into their thinking.
+      try {
+        text = JSON.stringify(extractJsonObject(res.message.thinking));
+      } catch {
+        /* no JSON in there */
+      }
+    }
     if (!text.trim() && res.done_reason === 'length') {
       throw new AiError(
         'The model used its whole output budget before answering – usually for thinking. Increase "Answer tokens" in Settings → AI provider → Advanced or choose a model that thinks less.',
@@ -109,19 +155,37 @@ export class OllamaClient implements LlmClient {
   }
 
   private async chat(messages: ChatMessage[], opts: CompletionOptions): Promise<OllamaChatResponse> {
-    let body = this.buildBody(messages, opts, false);
-    let res: OllamaChatResponse;
-    try {
-      res = await this.post<OllamaChatResponse>('/api/chat', body, opts);
-    } catch (err) {
-      // Ollama < 0.5 does not support JSON schemas in `format` – fall back to plain JSON mode.
-      if (err instanceof HttpError && err.status === 400 && typeof body.format === 'object') {
-        body = { ...body, format: 'json' };
+    const body = this.buildBody(messages, opts, false);
+    let res: OllamaChatResponse | undefined;
+    for (let attempt = 0; !res; attempt++) {
+      try {
         res = await this.post<OllamaChatResponse>('/api/chat', body, opts);
-      } else throw wrapOllamaError(err, this.model);
+      } catch (err) {
+        if (attempt < 2 && this.rejectedThink(err, body)) continue;
+        // Ollama < 0.5 does not support JSON schemas in `format` – fall back to plain JSON mode.
+        if (attempt < 2 && err instanceof HttpError && err.status === 400 && typeof body.format === 'object') {
+          body.format = 'json';
+          continue;
+        }
+        throw wrapOllamaError(err, this.model);
+      }
     }
     if (res.error) throw new AiError(`Ollama: ${res.error}`);
     return res;
+  }
+
+  /** Unload the model from memory right away (keep_alive 0). */
+  async unload(): Promise<void> {
+    try {
+      await request(`${this.base}/api/generate`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: { model: this.model, keep_alive: 0 },
+        timeoutMs: 30_000,
+      });
+    } catch (err) {
+      throw wrapOllamaError(err, this.model);
+    }
   }
 
   private async post<T>(path: string, body: unknown, opts: CompletionOptions): Promise<T> {
@@ -143,18 +207,22 @@ export class OllamaClient implements LlmClient {
   }
 
   async *stream(messages: ChatMessage[], opts: CompletionOptions = {}): AsyncGenerator<StreamChunk> {
-    let res: Response;
-    try {
-      res = await request<Response>(`${this.base}/api/chat`, {
-        method: 'POST',
-        headers: this.headers(),
-        body: this.buildBody(messages, opts, true),
-        timeoutMs: opts.timeoutMs ?? this.opts.timeoutMs ?? 600_000,
-        signal: opts.signal,
-        responseType: 'response',
-      });
-    } catch (err) {
-      throw wrapOllamaError(err, this.model);
+    const body = this.buildBody(messages, opts, true);
+    let res: Response | undefined;
+    for (let attempt = 0; !res; attempt++) {
+      try {
+        res = await request<Response>(`${this.base}/api/chat`, {
+          method: 'POST',
+          headers: this.headers(),
+          body,
+          timeoutMs: opts.timeoutMs ?? this.opts.timeoutMs ?? 600_000,
+          signal: opts.signal,
+          responseType: 'response',
+        });
+      } catch (err) {
+        if (attempt === 0 && this.rejectedThink(err, body)) continue;
+        throw wrapOllamaError(err, this.model);
+      }
     }
     if (!res.body) throw new AiError('Ollama returned an empty stream');
     const think = new ThinkFilter();
@@ -240,6 +308,22 @@ export class OllamaEmbeddingClient implements EmbeddingClient {
       }
     }
     return out;
+  }
+}
+
+/** The `think` request parameter for a setting (undefined = leave the model's default). */
+function thinkParam(think: OllamaThink | undefined): boolean | string | undefined {
+  switch (think) {
+    case 'off':
+      return false;
+    case 'on':
+      return true;
+    case 'low':
+    case 'medium':
+    case 'high':
+      return think;
+    default:
+      return undefined;
   }
 }
 

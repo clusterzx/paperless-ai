@@ -167,6 +167,20 @@ describe('buildAnalysisPrompt', () => {
 
   it('throws when the system prompt leaves no room for the document', () => {
     const cfg = config({ ai: { tokenLimit: 1024, responseTokens: 500 }, processing: { systemPrompt: 'x '.repeat(2000) } });
-    expect(() => buildAnalysisPrompt(cfg, content, ctx)).toThrow(/does not fit into the token limit/);
+    expect(() => buildAnalysisPrompt(cfg, content, ctx)).toThrow(/does not fit into the context window \(1024 tokens\)/);
+  });
+
+  it('plans with the fixed Ollama context size and leaves room for thinking', () => {
+    const ollama = (think: 'auto' | 'off') =>
+      config({ ai: { provider: 'ollama', tokenLimit: 128_000, responseTokens: 1000, ollama: { contextSize: 8192, think } } });
+    const total = (cfg: ReturnType<typeof config>) =>
+      buildAnalysisPrompt(cfg, content, ctx).messages.reduce((s, m) => s + estimateTokens(m.content), 0);
+    // thinking off: the whole window minus the answer
+    expect(total(ollama('off')) + 1000).toBeLessThanOrEqual(8192);
+    expect(total(ollama('off'))).toBeGreaterThan(8192 * 0.8);
+    // thinking possible: a quarter of the window stays free for it
+    expect(total(ollama('auto')) + 1000).toBeLessThanOrEqual(8192 - 2048);
+    // other providers keep using the token limit
+    expect(total(config({ ai: { tokenLimit: 16_000, responseTokens: 1000 } }))).toBeGreaterThan(8192);
   });
 });

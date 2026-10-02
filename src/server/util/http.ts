@@ -4,12 +4,17 @@
  * and a typed error that carries status code and response body.
  */
 
+/** 429 responses that waiting does not fix. */
+export const QUOTA_EXHAUSTED = /insufficient_quota|exceeded your current quota|billing|credit balance|out of credits/i;
+
 export class HttpError extends Error {
   constructor(
     message: string,
     readonly status: number,
     readonly body: unknown,
     readonly url: string,
+    /** Wait time from a Retry-After header. */
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'HttpError';
@@ -17,7 +22,8 @@ export class HttpError extends Error {
 
   /** Whether repeating the very same request may succeed. */
   get retryable(): boolean {
-    return this.status === 0 || this.status === 408 || this.status === 425 || this.status === 429 || this.status >= 500;
+    if (this.status === 429) return !QUOTA_EXHAUSTED.test(typeof this.body === 'string' ? this.body : JSON.stringify(this.body ?? ''));
+    return this.status === 0 || this.status === 408 || this.status === 425 || this.status >= 500;
   }
 }
 
@@ -61,13 +67,13 @@ export function buildUrl(url: string, query?: RequestOptions['query']): string {
   return u.toString();
 }
 
-function retryAfterMs(res: Response): number | undefined {
+function retryAfterMs(res: Response, max = 60_000): number | undefined {
   const h = res.headers.get('retry-after');
   if (!h) return undefined;
   const secs = Number(h);
-  if (Number.isFinite(secs)) return Math.min(secs * 1000, 60_000);
+  if (Number.isFinite(secs)) return Math.min(secs * 1000, max);
   const date = Date.parse(h);
-  if (Number.isFinite(date)) return Math.max(0, Math.min(date - Date.now(), 60_000));
+  if (Number.isFinite(date)) return Math.max(0, Math.min(date - Date.now(), max));
   return undefined;
 }
 
@@ -118,10 +124,36 @@ function isAbortError(err: unknown): boolean {
   return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
 }
 
+const GLOBAL_DISPATCHER = Symbol.for('undici.globalDispatcher.1');
+let dispatcherReady: Promise<void> | null = null;
+
+/**
+ * Node's fetch gives up after 300 seconds without response headers – before a slow local model
+ * has answered, whatever timeout is configured. Recreate its connection pool without those
+ * limits; every request has its own timeout (AbortSignal) anyway.
+ */
+function liftFetchTimeouts(): Promise<void> {
+  dispatcherReady ??= (async () => {
+    try {
+      await fetch('data:,'); // makes Node create its default dispatcher (no network access)
+      const g = globalThis as unknown as Record<symbol, unknown>;
+      const current = g[GLOBAL_DISPATCHER] as { constructor: new (opts: object) => unknown } | undefined;
+      // Only the built-in pools (EnvHttpProxyAgent with NODE_USE_ENV_PROXY) – never a custom dispatcher.
+      if (current && ['Agent', 'EnvHttpProxyAgent'].includes(current.constructor.name)) {
+        g[GLOBAL_DISPATCHER] = new current.constructor({ headersTimeout: 0, bodyTimeout: 0 });
+      }
+    } catch {
+      /* keep the defaults */
+    }
+  })();
+  return dispatcherReady;
+}
+
 /**
  * Perform an HTTP request. Throws HttpError for non-2xx responses and network failures.
  */
 export async function request<T = unknown>(url: string, opts: RequestOptions = {}): Promise<T> {
+  await liftFetchTimeouts();
   const {
     method = 'GET',
     headers = {},
@@ -158,10 +190,12 @@ export async function request<T = unknown>(url: string, opts: RequestOptions = {
       const res = await fetch(finalUrl, { method, headers: finalHeaders, body: payload, signal: combined });
       if (!res.ok) {
         const errBody = await readBody(res);
-        const err = new HttpError(`${method} ${redactUrl(finalUrl)} failed with HTTP ${res.status}`, res.status, errBody, finalUrl);
-        if (err.retryable && attempt < retries) {
+        const wait = retryAfterMs(res, 3_600_000);
+        const err = new HttpError(`${method} ${redactUrl(finalUrl)} failed with HTTP ${res.status}`, res.status, errBody, finalUrl, wait);
+        // Retry right here only when the server asks for a short wait – longer ones are the caller's business.
+        if (err.retryable && attempt < retries && (wait === undefined || wait <= 60_000)) {
           attempt++;
-          await sleep(retryAfterMs(res) ?? backoff(retryDelayMs, attempt), signal);
+          await sleep(wait ?? backoff(retryDelayMs, attempt), signal);
           continue;
         }
         throw err;
@@ -196,7 +230,8 @@ export async function request<T = unknown>(url: string, opts: RequestOptions = {
         undefined,
         finalUrl,
       );
-      if (attempt < retries) {
+      // After our own timeout the server is busy (or the model too slow) – trying again only doubles the wait.
+      if (attempt < retries && !timedOut) {
         attempt++;
         await sleep(backoff(retryDelayMs, attempt), signal);
         continue;

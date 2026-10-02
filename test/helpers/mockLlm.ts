@@ -29,6 +29,8 @@ export interface ChatReply {
   /** Respond with this HTTP status and error body instead. */
   status?: number;
   error?: unknown;
+  /** Extra response headers for error responses (e.g. Retry-After). */
+  headers?: Record<string, string>;
   usage?: { prompt_tokens: number; completion_tokens: number };
   /** Split streamed content into pieces of this size (default 4 chars). */
   chunkSize?: number;
@@ -38,6 +40,8 @@ export interface ChatReply {
   refusal?: string;
   /** finish_reason (OpenAI) / done_reason (Ollama), default "stop". */
   finishReason?: string;
+  /** Ollama: separate thinking text (message.thinking). */
+  thinking?: string;
 }
 
 export type ChatHandler = (req: ChatRequestInfo) => string | ChatReply | Promise<string | ChatReply>;
@@ -97,6 +101,8 @@ export interface MockLlmOptions {
   rejectJsonSchema?: boolean;
   /** Reject an object passed as Ollama `format` with HTTP 400 (Ollama < 0.5). */
   rejectOllamaSchemaFormat?: boolean;
+  /** Reject the Ollama `think` parameter like models without thinking support do. */
+  rejectOllamaThink?: boolean;
   models?: string[];
   ollamaModels?: string[];
   synonyms?: Record<string, string>;
@@ -174,8 +180,8 @@ export class MockLlm {
     const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : undefined;
     this.requests.push({ method: req.method ?? 'GET', path: u.pathname, url: `${u.pathname}${u.search}`, headers: req.headers, body });
 
-    const json = (status: number, payload: unknown) => {
-      res.writeHead(status, { 'Content-Type': 'application/json' });
+    const json = (status: number, payload: unknown, headers: Record<string, string> = {}) => {
+      res.writeHead(status, { 'Content-Type': 'application/json', ...headers });
       res.end(JSON.stringify(payload));
     };
 
@@ -216,7 +222,7 @@ export class MockLlm {
       }
       const info = this.info('openai', b);
       const r = normalizeReply(await this.handler(info));
-      if (r.status && r.status >= 400) return json(r.status, r.error ?? { error: { message: 'Mock error' } });
+      if (r.status && r.status >= 400) return json(r.status, r.error ?? { error: { message: 'Mock error' } }, r.headers);
       const content = r.content ?? '';
       const usage = r.usage ?? { prompt_tokens: 100, completion_tokens: 20 };
       const usageObj = { ...usage, total_tokens: usage.prompt_tokens + usage.completion_tokens };
@@ -256,10 +262,17 @@ export class MockLlm {
       const texts = Array.isArray(input) ? (input as string[]) : [String(input)];
       return json(200, { model: body?.model, embeddings: texts.map((t) => mockEmbedding(t, this.opts.synonyms)) });
     }
+    if (path === '/api/generate' && req.method === 'POST') {
+      // Only used to unload models (keep_alive 0, no prompt).
+      return json(200, { model: body?.model, response: '', done: true, done_reason: body?.keep_alive === 0 ? 'unload' : 'stop' });
+    }
     if (path === '/api/chat' && req.method === 'POST') {
       const b = body ?? {};
       if (this.opts.rejectOllamaSchemaFormat && b.format && typeof b.format === 'object') {
         return json(400, { error: 'invalid format: expected "json" or a valid JSON schema' });
+      }
+      if (this.opts.rejectOllamaThink && b.think !== undefined) {
+        return json(400, { error: `"${String(b.model)}" does not support thinking` });
       }
       const info = this.info('ollama', b);
       const r = normalizeReply(await this.handler(info));
@@ -270,7 +283,7 @@ export class MockLlm {
       if (!info.stream) {
         return json(200, {
           model,
-          message: { role: 'assistant', content },
+          message: { role: 'assistant', content, ...(r.thinking ? { thinking: r.thinking } : {}) },
           done: true,
           done_reason: r.finishReason ?? 'stop',
           prompt_eval_count: usage.prompt_tokens,

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { OllamaThink } from '../../src/server/config/schema.js';
 import { OllamaClient, OllamaEmbeddingClient } from '../../src/server/ai/ollama.js';
 import { estimateTokens } from '../../src/server/ai/tokens.js';
 import { AiError, type ChatMessage, type StreamChunk } from '../../src/server/ai/types.js';
@@ -32,16 +33,20 @@ describe('OllamaClient.numCtx', () => {
     expect(client().numCtx(messages)).toBe(2048);
   });
 
-  it('grows with the prompt, rounded up to 1024 and capped by the context window', () => {
+  it('grows with the prompt in powers of two, capped by the context window', () => {
     const long: ChatMessage[] = [{ role: 'user', content: 'word '.repeat(8000) }];
-    const promptTokens = estimateTokens(long[0].content) + 8;
-    const expected = Math.ceil((promptTokens * 1.1 + 1000 + 256) / 1024) * 1024;
-    expect(client().numCtx(long, 1000)).toBe(expected);
-    expect(expected % 1024).toBe(0);
-    expect(expected).toBeGreaterThan(promptTokens + 1000);
+    const needed = (estimateTokens(long[0].content) + 8) * 1.1 + 1000 + 256;
+    const size = client().numCtx(long, 1000);
+    expect(Math.log2(size) % 1).toBe(0);
+    expect(size).toBeGreaterThanOrEqual(needed);
+    expect(size / 2).toBeLessThan(needed);
     expect(client({ contextWindow: 8192 }).numCtx(long, 1000)).toBe(8192);
-    // default answer budget is 1024 tokens
-    expect(client().numCtx(long)).toBe(Math.ceil((promptTokens * 1.1 + 1024 + 256) / 1024) * 1024);
+  });
+
+  it('always uses a fixed context size, so that Ollama does not reload the model', () => {
+    const c = client({ numCtx: 16_384 });
+    expect(c.numCtx(messages)).toBe(16_384);
+    expect(c.numCtx([{ role: 'user', content: 'word '.repeat(8000) }], 1000)).toBe(16_384);
   });
 });
 
@@ -61,6 +66,17 @@ describe('OllamaClient.complete', () => {
       format: schema.schema,
       keep_alive: '10m',
     });
+  });
+
+  it('keeps num_predict within a fixed context window', async () => {
+    const c = client({ model: 'qwen3:4b', numCtx: 4096, think: 'on' });
+    const long: ChatMessage[] = [{ role: 'user', content: 'word '.repeat(2000) }];
+    await c.complete(long, { maxTokens: 500 });
+    const opts = chatBodies()[0].options as { num_ctx: number; num_predict: number };
+    expect(opts.num_ctx).toBe(4096);
+    // thinking reserve, but only what is left after the prompt
+    expect(opts.num_predict).toBe(4096 - (estimateTokens(long[0].content) + 8));
+    expect(opts.num_predict).toBeGreaterThan(500);
   });
 
   it('uses format "json" for plain JSON mode and strips an /api suffix from the URL', async () => {
@@ -88,6 +104,46 @@ describe('OllamaClient.complete', () => {
     // still nothing → a helpful error instead of an empty answer
     llm.reply({ content: '', finishReason: 'length' });
     await expect(c.complete(messages, { maxTokens: 300 })).rejects.toThrow(/whole output budget/);
+  });
+
+  it('sends the think setting', async () => {
+    const thinkOf = async (think: OllamaThink) => {
+      llm.clearRequests();
+      await client({ model: 'gpt-oss:20b', think }).complete(messages, { maxTokens: 100 });
+      return chatBodies()[0];
+    };
+    expect((await thinkOf('auto')).think).toBeUndefined();
+    expect((await thinkOf('off')).think).toBe(false);
+    expect(await thinkOf('on')).toMatchObject({ think: true, options: { num_predict: 100 + 8192 } });
+    expect((await thinkOf('low')).think).toBe('low');
+    expect((await thinkOf('high')).think).toBe('high');
+    // no thinking reserve when thinking is off
+    expect((await thinkOf('off')).options).toMatchObject({ num_predict: 100 });
+  });
+
+  it('drops the think parameter for models that do not support it', async () => {
+    await llm.close();
+    llm = await new MockLlm({ rejectOllamaThink: true }).start();
+    llm.reply('{"title":"no thinking"}');
+    const c = client({ model: 'llama3.2', think: 'off' });
+    expect((await c.complete(messages, { jsonSchema: schema })).text).toBe('{"title":"no thinking"}');
+    expect(chatBodies().map((b) => b.think)).toEqual([false, undefined]);
+    // remembered for the next requests (and streams)
+    llm.reply('Plain');
+    expect((await collect(c.stream(messages))).text).toBe('Plain');
+    expect(chatBodies()[2].think).toBeUndefined();
+  });
+
+  it('takes the JSON answer from the thinking when the content is empty', async () => {
+    llm.reply({ content: '', thinking: 'Let me see. {"title":"from thinking"}' });
+    const res = await client({ model: 'gpt-oss:20b', think: 'low' }).complete(messages, { jsonSchema: schema });
+    expect(JSON.parse(res.text)).toEqual({ title: 'from thinking' });
+  });
+
+  it('unloads the model', async () => {
+    await client({ keepAlive: '30m' }).unload();
+    const req = llm.requests.find((r) => r.path === '/api/generate');
+    expect(req?.body).toEqual({ model: 'llama3.2', keep_alive: 0 });
   });
 
   it('falls back to format "json" when the server does not support schemas', async () => {

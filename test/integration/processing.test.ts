@@ -220,6 +220,27 @@ describe('automatic processing', () => {
     expect(hh.paperless.docs.get(7)!.title).toBe('Now it works');
   });
 
+  it('pauses on rate limits without counting an attempt and continues automatically', async () => {
+    const hh = await harness({ config: { processing: { maxAttempts: 1 } } });
+    hh.paperless.addDocument({ id: 9, content: 'Rate limited document content' });
+    let calls = 0;
+    hh.llm.reply(() =>
+      ++calls <= 3
+        ? { status: 429, error: { error: { message: 'Rate limit reached', code: 'rate_limit_exceeded' } }, headers: { 'Retry-After': '0' } }
+        : analysisJson({ title: 'After the pause' }),
+    );
+    const res = await hh.inject({ method: 'POST', url: '/api/processing/scan', headers: hh.apiKeyHeaders() });
+    expect(res.json().queued).toBe(1);
+    await vi.waitFor(() => expect(hh.engine.status().rateLimitedUntil).toBeGreaterThan(Date.now()));
+    expect(hh.engine.status()).toMatchObject({ queued: 1, current: [], lastError: null });
+    expect(hh.ctx.repos.documents.get(9)).toBeUndefined();
+
+    await hh.engine.drain(10_000);
+    expect(hh.paperless.docs.get(9)!.title).toBe('After the pause');
+    expect(hh.ctx.repos.documents.get(9)!.status).toBe('processed');
+    expect(hh.engine.status().rateLimitedUntil).toBeNull();
+  });
+
   it('retries a failed document manually', async () => {
     const hh = await harness({ config: { processing: { maxAttempts: 1 } } });
     hh.paperless.addDocument({ id: 8, content: 'Some document content for retrying' });
@@ -396,6 +417,23 @@ describe('automatic processing', () => {
     expect(req.path).toBe('/api/chat');
     expect((req.body as { format: { type: string } }).format.type).toBe('object');
     expect(hh.ctx.repos.history.list({}).items[0]).toMatchObject({ provider: 'ollama', model: 'llama3.2', totalTokens: 60 });
+  });
+
+  it('uses a fixed Ollama context size and unloads the model once the queue is empty', async () => {
+    const hh = await harness({ aiProvider: 'ollama', config: { ai: { ollama: { contextSize: 8192, unloadWhenIdle: true } } } });
+    hh.paperless.addDocument({ id: 1, content: 'First document for Ollama' });
+    hh.paperless.addDocument({ id: 2, content: 'Second document for Ollama' });
+    await scan(hh);
+    await vi.waitFor(() => expect(hh.llm.requests.filter((r) => r.path === '/api/generate')).toHaveLength(1));
+    expect(hh.llm.requests.find((r) => r.path === '/api/generate')!.body).toEqual({ model: 'llama3.2', keep_alive: 0 });
+    // the model is only unloaded after the last document
+    const paths = hh.llm.requests.map((r) => r.path).filter((p) => p !== '/api/tags');
+    expect(paths).toEqual(['/api/chat', '/api/chat', '/api/generate']);
+    expect(hh.llm.chatRequests().map((r) => (r.body!.options as { num_ctx: number }).num_ctx)).toEqual([8192, 8192]);
+
+    // nothing to do → nothing to unload
+    await scan(hh);
+    expect(hh.llm.requests.filter((r) => r.path === '/api/generate')).toHaveLength(1);
   });
 
   it('works with Paperless-ngx 2.x (API v7, created_date)', async () => {

@@ -12,7 +12,7 @@ import { Cron } from 'croner';
 import type { ChatStreamEvent, ChatTurn, RagSource, RagStatus } from '../../shared/api.js';
 import type { AppContext } from '../context.js';
 import type { AppConfig } from '../config/schema.js';
-import { createRemoteEmbeddingClient, embeddingSpec } from '../ai/factory.js';
+import { contextBudget, createRemoteEmbeddingClient, embeddingSpec } from '../ai/factory.js';
 import { extractJsonObject } from '../ai/json.js';
 import { estimateTokens, normalizeContent, truncateToTokens } from '../ai/tokens.js';
 import type { ChatMessage, EmbeddingClient, Usage } from '../ai/types.js';
@@ -696,9 +696,10 @@ Return JSON {"query": string, "keywords": string[]}:
     yield { type: 'sources', sources };
 
     const cfg = this.cfg;
-    const maxAnswer = Math.min(Math.max(cfg.ai.responseTokens, 2000), Math.floor(cfg.ai.tokenLimit / 4));
+    const contextWindow = contextBudget(cfg.ai);
+    const maxAnswer = Math.min(Math.max(cfg.ai.responseTokens, 2000), Math.floor(contextWindow / 4));
     const system = this.systemPrompt();
-    let historyBudget = Math.min(3000, Math.floor(cfg.ai.tokenLimit * 0.15));
+    let historyBudget = Math.min(3000, Math.floor(contextWindow * 0.15));
     const historyMsgs: ChatMessage[] = [];
     for (const turn of [...cleanHistory].reverse()) {
       const content = stripCitations(turn.content);
@@ -707,14 +708,14 @@ Return JSON {"query": string, "keywords": string[]}:
       historyBudget -= t;
       historyMsgs.unshift({ role: turn.role, content });
     }
-    const contextBudget = Math.max(
+    const passageBudget = Math.max(
       500,
       Math.min(
         cfg.rag.contextTokens,
-        cfg.ai.tokenLimit - maxAnswer - estimateTokens(system) - historyMsgs.reduce((s, m) => s + estimateTokens(m.content), 0) - estimateTokens(question) - 300,
+        contextWindow - maxAnswer - estimateTokens(system) - historyMsgs.reduce((s, m) => s + estimateTokens(m.content), 0) - estimateTokens(question) - 300,
       ),
     );
-    const context = this.buildContext(result, contextBudget);
+    const context = this.buildContext(result, passageBudget);
     const user = context.text
       ? `Question: ${question}\n\nDocument excerpts:\n${context.text}`
       : `Question: ${question}\n\n(No matching documents were found in the archive.)`;

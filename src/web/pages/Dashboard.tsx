@@ -10,6 +10,7 @@ import {
   Coins,
   FileText,
   History,
+  Hourglass,
   Loader2,
   Pause,
   Play,
@@ -152,13 +153,35 @@ function LiveStatus({ status, onChange }: { status: ProcessingStatus; onChange: 
     }
   };
   const busy = status.running || status.scanning || status.current.length > 0;
-  const state = status.paused ? 'Paused' : status.current.length ? 'Analysing documents' : status.scanning ? 'Scanning Paperless' : 'All caught up';
+  const rateLimited = status.rateLimitedUntil !== null && status.current.length === 0;
+  const state = status.paused
+    ? 'Paused'
+    : status.current.length
+      ? 'Analysing documents'
+      : rateLimited
+        ? 'Waiting for the AI provider'
+        : status.scanning
+          ? 'Scanning Paperless'
+          : 'All caught up';
   return (
     <section className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-surface p-5 shadow-card">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className={cn('relative flex size-10 items-center justify-center rounded-xl', status.paused ? 'bg-warn-soft text-warn' : busy ? 'bg-accent-soft text-accent-text' : 'bg-success-soft text-success')}>
-            {status.paused ? <Pause className="size-[18px]" /> : busy ? <Loader2 className="size-[18px] animate-spin" /> : <CircleCheck className="size-[18px]" />}
+          <span
+            className={cn(
+              'relative flex size-10 items-center justify-center rounded-xl',
+              status.paused || rateLimited ? 'bg-warn-soft text-warn' : busy ? 'bg-accent-soft text-accent-text' : 'bg-success-soft text-success',
+            )}
+          >
+            {status.paused ? (
+              <Pause className="size-[18px]" />
+            ) : rateLimited ? (
+              <Hourglass className="size-[18px]" />
+            ) : busy ? (
+              <Loader2 className="size-[18px] animate-spin" />
+            ) : (
+              <CircleCheck className="size-[18px]" />
+            )}
           </span>
           <div>
             <div className="text-[13px] font-medium text-muted">Processing</div>
@@ -218,6 +241,12 @@ function LiveStatus({ status, onChange }: { status: ProcessingStatus; onChange: 
           </div>
         ))}
       </dl>
+      {status.rateLimitedUntil !== null && (
+        <Alert tone="warn" className="mt-4">
+          The AI provider is rate-limiting requests. Processing continues automatically at{' '}
+          {new Date(status.rateLimitedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} – no attempts are lost.
+        </Alert>
+      )}
       {status.lastError && (
         <Alert tone="warn" className="mt-4">
           {status.lastError}

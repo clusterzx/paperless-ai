@@ -44,6 +44,8 @@ export const DEFAULT_PROCESSED_TAG = 'ai-processed';
 export const DEFAULT_OPENAI_MODEL = 'gpt-5-mini';
 export const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 export const DEFAULT_OLLAMA_MODEL = 'llama3.2';
+/** Fixed num_ctx for Ollama: room for a long document, small enough for 8 GB GPUs. */
+export const DEFAULT_OLLAMA_CONTEXT = 16_384;
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21';
 export const DEFAULT_LOCAL_EMBEDDING_MODEL = 'Xenova/multilingual-e5-small';
 export const DEFAULT_OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small';

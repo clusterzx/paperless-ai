@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   DEFAULT_AZURE_API_VERSION,
+  DEFAULT_OLLAMA_CONTEXT,
   DEFAULT_OLLAMA_MODEL,
   DEFAULT_OLLAMA_URL,
   DEFAULT_OPENAI_MODEL,
@@ -11,6 +12,16 @@ import {
 import { normalizePaperlessUrl } from './url.js';
 
 const str = (def = '') => z.string().trim().default(def);
+
+function isJsonObjectOrEmpty(value: string): boolean {
+  if (!value) return true;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
+}
 const bool = (def: boolean) => z.boolean().default(def);
 const tagList = z
   .array(z.string().trim().min(1).max(128))
@@ -34,6 +45,8 @@ export const customFieldSchema = z.object({
 });
 
 export const AI_PROVIDERS = ['openai', 'ollama', 'custom', 'azure'] as const;
+/** Thinking of Ollama models: auto = the model's default, levels for models such as gpt-oss. */
+export const OLLAMA_THINK = ['auto', 'off', 'on', 'low', 'medium', 'high'] as const;
 export const EMBEDDING_PROVIDERS = ['local', 'openai', 'ollama', 'custom', 'azure', 'none'] as const;
 
 export const configSchema = z.object({
@@ -55,8 +68,36 @@ export const configSchema = z.object({
     .object({
       provider: z.enum(AI_PROVIDERS).default('openai'),
       openai: z.object({ apiKey: str(), model: str(DEFAULT_OPENAI_MODEL) }).prefault({}),
-      ollama: z.object({ url: str(DEFAULT_OLLAMA_URL), model: str(DEFAULT_OLLAMA_MODEL), keepAlive: str() }).prefault({}),
-      custom: z.object({ baseUrl: str(), apiKey: str(), model: str() }).prefault({}),
+      ollama: z
+        .object({
+          url: str(DEFAULT_OLLAMA_URL),
+          model: str(DEFAULT_OLLAMA_MODEL),
+          keepAlive: str(),
+          /**
+           * num_ctx sent with every request. Ollama reloads the model whenever num_ctx changes, so a
+           * fixed size keeps it loaded. 0 = sized per request (in powers of two).
+           */
+          contextSize: z.coerce
+            .number()
+            .int()
+            .min(0)
+            .max(1_048_576)
+            .refine((v) => v === 0 || v >= 2048, 'Use 0 (automatic) or at least 2048 tokens')
+            .default(DEFAULT_OLLAMA_CONTEXT),
+          think: z.enum(OLLAMA_THINK).default('auto'),
+          /** Unload the model from memory as soon as the processing queue is empty. */
+          unloadWhenIdle: bool(false),
+        })
+        .prefault({}),
+      custom: z
+        .object({
+          baseUrl: str(),
+          apiKey: str(),
+          model: str(),
+          /** JSON object merged into every chat request, e.g. {"chat_template_kwargs": {"enable_thinking": false}}. */
+          extraBody: z.string().trim().default('').refine(isJsonObjectOrEmpty, 'Must be a JSON object, e.g. {"top_k": 20}'),
+        })
+        .prefault({}),
       azure: z
         .object({ endpoint: str(), apiKey: str(), deployment: str(), apiVersion: str(DEFAULT_AZURE_API_VERSION) })
         .prefault({}),
@@ -148,6 +189,7 @@ export const configSchema = z.object({
 export type AppConfig = z.output<typeof configSchema>;
 export type CustomFieldConfig = z.output<typeof customFieldSchema>;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
+export type OllamaThink = (typeof OLLAMA_THINK)[number];
 export type EmbeddingProvider = (typeof EMBEDDING_PROVIDERS)[number];
 
 export type DeepPartial<T> = T extends (infer U)[]

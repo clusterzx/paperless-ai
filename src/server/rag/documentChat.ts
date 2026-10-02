@@ -5,6 +5,7 @@
  */
 import type { ChatStreamEvent, ChatTurn } from '../../shared/api.js';
 import type { AppContext } from '../context.js';
+import { contextBudget } from '../ai/factory.js';
 import { estimateTokens, normalizeContent, truncateToTokens } from '../ai/tokens.js';
 import type { ChatMessage, Usage } from '../ai/types.js';
 import { datePart } from '../processing/dates.js';
@@ -45,10 +46,11 @@ export async function* documentChat(
   const meta = ctx.metadata();
   const [doc] = await Promise.all([ctx.paperless().getDocument(documentId), meta.snapshot()]);
   const content = normalizeContent(doc.content ?? '');
-  const maxAnswer = Math.min(Math.max(cfg.ai.responseTokens, 1500), Math.floor(cfg.ai.tokenLimit / 4));
+  const contextWindow = contextBudget(cfg.ai);
+  const maxAnswer = Math.min(Math.max(cfg.ai.responseTokens, 1500), Math.floor(contextWindow / 4));
 
   const historyMsgs: ChatMessage[] = [];
-  let historyBudget = Math.min(4000, Math.floor(cfg.ai.tokenLimit * 0.2));
+  let historyBudget = Math.min(4000, Math.floor(contextWindow * 0.2));
   for (const turn of history.filter((t) => t.content?.trim()).slice(-12).reverse()) {
     const t = estimateTokens(turn.content);
     if (t > historyBudget) break;
@@ -71,7 +73,7 @@ Answer in the language of the user's question and use Markdown where helpful.
 
 ${facts}`;
   const budget =
-    cfg.ai.tokenLimit - maxAnswer - estimateTokens(systemBase) - historyMsgs.reduce((s, m) => s + estimateTokens(m.content), 0) - estimateTokens(question) - 300;
+    contextWindow - maxAnswer - estimateTokens(systemBase) - historyMsgs.reduce((s, m) => s + estimateTokens(m.content), 0) - estimateTokens(question) - 300;
   const selected = content ? selectRelevantContent(content, question, Math.max(300, budget)) : { text: '', partial: false };
   if (selected.partial) yield { type: 'status', message: 'The document is long – using the most relevant passages.' };
   const system = `${systemBase}\n\nDocument content${selected.partial ? ' (relevant excerpts)' : ''}:\n"""\n${

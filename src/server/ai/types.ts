@@ -41,6 +41,8 @@ export interface LlmClient {
   /** Lightweight connectivity/auth check. Throws on failure. */
   ping(signal?: AbortSignal): Promise<void>;
   listModels(signal?: AbortSignal): Promise<string[]>;
+  /** Free the model's memory (local providers). */
+  unload?(): Promise<void>;
 }
 
 export type EmbeddingKind = 'query' | 'passage';
@@ -55,12 +57,26 @@ export interface EmbeddingClient {
 
 export const emptyUsage = (): Usage => ({ promptTokens: 0, completionTokens: 0, totalTokens: 0 });
 
+export interface AiErrorInfo {
+  /** HTTP status of the provider's response. */
+  status?: number;
+  /** Too many requests: waiting helps (unlike an exhausted quota). */
+  rateLimited?: boolean;
+  /** Wait time requested by the provider (Retry-After). */
+  retryAfterMs?: number;
+}
+
 export class AiError extends Error {
   constructor(
     message: string,
     readonly retryable = false,
+    readonly info: AiErrorInfo = {},
   ) {
     super(message);
     this.name = 'AiError';
+  }
+
+  get rateLimited(): boolean {
+    return this.info.rateLimited === true;
   }
 }
