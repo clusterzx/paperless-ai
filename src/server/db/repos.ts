@@ -131,6 +131,11 @@ export class DocumentsRepo {
     return this.db.prepare('DELETE FROM documents').run().changes;
   }
 
+  /** IDs of documents with a stored state that are missing from `existing`. */
+  missing(existing: Set<number>): number[] {
+    return (this.db.prepare('SELECT id FROM documents').all() as { id: number }[]).map((r) => r.id).filter((id) => !existing.has(id));
+  }
+
   counts(): Record<DocumentStatus, number> {
     const rows = this.db.prepare('SELECT status, COUNT(*) AS c FROM documents GROUP BY status').all() as {
       status: DocumentStatus;

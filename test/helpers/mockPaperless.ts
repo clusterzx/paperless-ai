@@ -371,6 +371,15 @@ export class MockPaperless {
       const wanted = tagsIn.split(',').map(Number);
       docs = docs.filter((d) => d.tags.some((t) => wanted.includes(t)));
     }
+    const tagsAll = q.get('tags__id__all');
+    if (tagsAll) {
+      const wanted = tagsAll.split(',').map(Number);
+      docs = docs.filter((d) => wanted.every((t) => d.tags.includes(t)));
+    }
+    if (q.has('correspondent__id')) docs = docs.filter((d) => d.correspondent === Number(q.get('correspondent__id')));
+    if (q.has('document_type__id')) docs = docs.filter((d) => d.document_type === Number(q.get('document_type__id')));
+    if (q.has('created__year')) docs = docs.filter((d) => Number(d.created.slice(0, 4)) === Number(q.get('created__year')));
+    if (q.has('created__month')) docs = docs.filter((d) => Number(d.created.slice(5, 7)) === Number(q.get('created__month')));
     const idIn = q.get('id__in');
     if (idIn) {
       const wanted = idIn.split(',').map(Number);

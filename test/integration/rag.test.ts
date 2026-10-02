@@ -366,6 +366,24 @@ describe('RAG without embeddings (keyword only)', () => {
     expect(events.at(-1)!.type).toBe('done');
   });
 
+  it('gives the model exact numbers from Paperless for counting questions', async () => {
+    const lastUser = () => messagesOf(h.llm.chatRequests().at(-1)!).at(-1)!.content;
+    await h.inject({ method: 'POST', url: '/api/rag/chat', headers: h.apiKeyHeaders(), payload: { question: 'How many invoices from City Power do I have in 2024?' } });
+    const user = lastUser();
+    expect(user).toContain('Archive facts (exact numbers from Paperless):');
+    expect(user).toContain('- Documents in the archive: 4');
+    expect(user).toContain('- Correspondent "City Power": 1 documents');
+    expect(user).toContain('- Document type "Invoice": 1 documents');
+    expect(user).toContain('- Documents with correspondent "City Power", document type "Invoice", created in 2024: 1');
+    expect(systemOf(h.llm.chatRequests().at(-1)!)).toContain('best-matching documents only');
+
+    await h.inject({ method: 'POST', url: '/api/rag/chat', headers: h.apiKeyHeaders(), payload: { question: 'Wie viele Verträge habe ich?' } });
+    expect(lastUser()).toContain('- Documents in the archive: 4');
+    // ordinary questions get no facts
+    await h.inject({ method: 'POST', url: '/api/rag/chat', headers: h.apiKeyHeaders(), payload: { question: 'What did the electricity cost?' } });
+    expect(lastUser()).not.toContain('Archive facts');
+  });
+
   it('reports errors of the model inside the stream', async () => {
     h.llm.reply({ status: 401, error: { error: { message: 'Invalid key' } } });
     const res = await h.inject({ method: 'POST', url: '/api/rag/chat', headers: h.apiKeyHeaders(), payload: { question: 'electricity amount' } });

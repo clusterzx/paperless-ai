@@ -34,6 +34,8 @@ export type JobOutcome = 'processed' | 'unchanged' | 'skipped' | 'failed' | 'def
 
 /** First pause after a rate limit; doubles while the provider keeps refusing. */
 const RATE_LIMIT_PAUSE_MS = 30_000;
+/** With a tag filter the scan does not see every document; deleted ones are looked for separately this often. */
+const PRUNE_INTERVAL_MS = 6 * 3_600_000;
 const MAX_RATE_LIMIT_PAUSE_MS = 15 * 60_000;
 
 export function validateCron(expr: string): string | null {
@@ -61,6 +63,7 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
   private cooldownUntil = 0;
   private cooldownTimer: NodeJS.Timeout | null = null;
   private rateLimitStreak = 0;
+  private lastPruneAt = 0;
 
   constructor(private readonly ctx: AppContext) {
     super();
@@ -179,11 +182,37 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       this.lastScanAt = Date.now();
       this.lastError = null;
       log.info(`Scan finished: ${docs.length} documents checked, ${count} queued for processing`);
+      await this.pruneDeleted(tagFilter ? undefined : docs.map((d) => d.id));
       return count;
     } catch (err) {
       this.lastError = describeError(err);
       log.error(`Scan failed: ${this.lastError}`);
       throw err;
+    }
+  }
+
+  /**
+   * Forget the states of documents that were deleted in Paperless (or came with an imported 3.x
+   * database) – they inflate the statistics. Never fails the scan.
+   */
+  private async pruneDeleted(listed?: number[]): Promise<void> {
+    try {
+      if (!listed && Date.now() - this.lastPruneAt < PRUNE_INTERVAL_MS) return;
+      const ids = listed ?? (await this.ctx.paperless().listDocuments({ fields: ['id'], ordering: 'id', pageSize: 1000 })).map((d) => d.id);
+      this.lastPruneAt = Date.now();
+      if (!ids.length) return; // an empty archive is more likely missing permissions
+      const repo = this.ctx.repos.documents;
+      const missing = repo.missing(new Set(ids));
+      if (!missing.length) return;
+      const known = repo.all().size;
+      if (missing.length > 20 && missing.length > known / 2) {
+        log.warn(`${missing.length} of ${known} known documents are missing in Paperless – not forgetting them (permissions changed?)`);
+        return;
+      }
+      repo.reset(missing);
+      log.info(`Forgot the processing state of ${missing.length} document(s) deleted in Paperless`);
+    } catch (err) {
+      log.warn(`Could not check for deleted documents: ${describeError(err)}`);
     }
   }
 

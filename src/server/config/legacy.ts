@@ -95,8 +95,9 @@ const b = (v: string) => parseBool(v);
 const i = (v: string) => parseIntSafe(v);
 
 export const ENV_MAPPINGS: Mapping[] = [
-  { env: 'PAPERLESS_API_URL', path: 'paperless.url', parse: (v) => normalizePaperlessUrl(v) },
+  // Both name the internal URL; PAPERLESS_API_URL (the 3.x name) wins when both are set.
   { env: 'PAPERLESS_URL', path: 'paperless.url', parse: (v) => normalizePaperlessUrl(v) },
+  { env: 'PAPERLESS_API_URL', path: 'paperless.url', parse: (v) => normalizePaperlessUrl(v) },
   { env: 'PAPERLESS_API_TOKEN', path: 'paperless.token', parse: s },
   { env: 'PAPERLESS_USERNAME', path: 'paperless.username', parse: s },
   { env: 'PAPERLESS_PUBLIC_URL', path: 'paperless.publicUrl', parse: (v) => normalizePaperlessUrl(v) },
@@ -174,19 +175,27 @@ export interface EnvMappingResult {
   values: DeepPartial<AppConfig>;
   /** config paths that were set, with the env var that set them */
   paths: Map<string, string>;
+  /** Known variables that are present but empty – ignored (e.g. `OPENAI_API_KEY=` in a compose file). */
+  empty: string[];
 }
 
 /** Convert an environment map into a partial configuration. */
 export function configFromEnv(env: Env): EnvMappingResult {
   const values: Record<string, unknown> = {};
   const paths = new Map<string, string>();
+  const empty: string[] = [];
   for (const m of ENV_MAPPINGS) {
     const raw = env[m.env];
     if (raw === undefined) continue;
+    // An empty variable must not replace (and lock) the value configured in the web interface.
+    if (!raw.trim()) {
+      empty.push(m.env);
+      continue;
+    }
     const parsed = m.parse(raw);
     if (parsed === undefined) continue;
     set(values, m.path, parsed);
     paths.set(m.path, m.env);
   }
-  return { values: values as DeepPartial<AppConfig>, paths };
+  return { values: values as DeepPartial<AppConfig>, paths, empty };
 }

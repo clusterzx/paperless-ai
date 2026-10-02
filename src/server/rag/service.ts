@@ -21,6 +21,7 @@ import { logger } from '../logger.js';
 import { datePart } from '../processing/dates.js';
 import { normalizeName } from '../paperless/metadata.js';
 import { chunkText } from './chunker.js';
+import { archiveFacts } from './facts.js';
 import { LocalEmbedder, localEmbeddingsAvailable } from './localEmbedder.js';
 import { metaLine, RagStore, type ChunkWithMeta, type RagDocumentMeta } from './store.js';
 import { asksForRecency, buildFtsQuery, makeSnippet, mentionedMonths, mentionedYears, queryTerms, stem } from './text.js';
@@ -621,6 +622,8 @@ Rules:
 - Answer ONLY with information from the numbered document excerpts provided with the question. Do not invent facts.
 - Cite the excerpts you used with their number in square brackets directly after the statement, e.g. [1] or [2][3].
 - If the excerpts do not contain the answer, say so clearly. If they only partially answer it, answer that part and say what is missing.
+- The excerpts come from the best-matching documents only, not from the whole archive. For questions about how many documents there are, use the "Archive facts" (exact numbers from Paperless) when provided; without them, say that you can only count the documents in the excerpts and that the archive may contain more.
+- List or sum up only what the excerpts show; mention that the list may be incomplete when the question asks for all documents.
 - Answer in the language of the user's question. Be concise and precise: quote exact amounts, dates, numbers and names.
 - Use Markdown (lists, bold, tables) when it improves readability.`;
   }
@@ -691,7 +694,7 @@ Return JSON {"query": string, "keywords": string[]}:
       keywords = analysis.keywords;
     }
     yield { type: 'status', message: 'Searching documents…' };
-    const result = await this.search(query, { filters: opts.filters, keywords, signal });
+    const [result, facts] = await Promise.all([this.search(query, { filters: opts.filters, keywords, signal }), archiveFacts(this.ctx, query)]);
     const sources = this.toSources(result);
     yield { type: 'sources', sources };
 
@@ -715,10 +718,11 @@ Return JSON {"query": string, "keywords": string[]}:
         contextWindow - maxAnswer - estimateTokens(system) - historyMsgs.reduce((s, m) => s + estimateTokens(m.content), 0) - estimateTokens(question) - 300,
       ),
     );
-    const context = this.buildContext(result, passageBudget);
+    const context = this.buildContext(result, Math.max(300, passageBudget - (facts ? estimateTokens(facts) : 0)));
+    const factsText = facts ? `\n\nArchive facts (exact numbers from Paperless):\n${facts}` : '';
     const user = context.text
-      ? `Question: ${question}\n\nDocument excerpts:\n${context.text}`
-      : `Question: ${question}\n\n(No matching documents were found in the archive.)`;
+      ? `Question: ${question}${factsText}\n\nDocument excerpts:\n${context.text}`
+      : `Question: ${question}${factsText}\n\n(No matching documents were found in the archive.)`;
 
     yield { type: 'status', message: 'Writing answer…' };
     let usage: Usage | undefined;

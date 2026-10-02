@@ -353,7 +353,8 @@ export default function DashboardPage() {
 
   const total = d?.paperless.documents ?? 0;
   const processed = live?.counts.processed ?? 0;
-  const pct = total ? Math.round((processed / total) * 100) : 0;
+  // Clamped: states of documents deleted in Paperless are only cleaned up by the next scan.
+  const pct = total ? Math.min(100, Math.round((processed / total) * 100)) : 0;
   const coverage: Slice[] = useMemo(() => {
     if (!d || !live) return [];
     const { processed, failed, skipped } = live.counts;

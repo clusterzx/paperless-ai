@@ -41,17 +41,20 @@ Upgrading from 3.x is automatic: your `data/.env`, user account, processing stat
 
 **Automatic processing**
 - Detects new documents (schedule and/or instantly via a Paperless **workflow webhook**)
-- Title, tags, correspondent, document type, document date and **custom fields** (text, number, monetary, date, boolean, URL)
+- Title, tags, correspondent, document type, document date and **custom fields** (text, long text, number, monetary, date, boolean, URL, select)
+- AI providers: **OpenAI**, **Anthropic (Claude)**, **Ollama**, any **OpenAI-compatible** API (DeepSeek, OpenRouter, LiteLLM, vLLM, LM Studio, Gemini …) and **Azure OpenAI** – reasoning/thinking models included
 - Structured JSON output (JSON schema) with automatic fallback for providers without support
 - Process all documents or only documents with **trigger tags** (optionally removed afterwards), mark processed documents with a tag
 - Restrict the AI to existing tags / correspondents / document types, or to a fixed tag list
 - Optional context from an **external API** (e.g. your customer list) with an optional JavaScript transformation (runs in a separate worker thread with a time limit)
-- Parallel processing, retries with back-off, failed/skipped documents visible on the dashboard
+- Parallel processing, retries with back-off, failed/skipped documents visible on the dashboard; **rate limits** of the AI provider pause the queue instead of failing documents
+- Existing correspondents are kept unless you allow the AI to overwrite them; created tags/correspondents/types are visible to all Paperless users (configurable)
 
 **Ask your archive (RAG)**
 - Hybrid search: SQLite FTS5 (BM25) + compact in-memory vector index (int8)
 - Embeddings: built-in multilingual model (offline, CPU), Ollama, OpenAI, Azure, any OpenAI-compatible API – or keyword-only
 - Understands follow-up questions, filters (date range, correspondent, document type), “latest …” questions and mentioned years/correspondents
+- “How many …?” questions are answered with **exact numbers from Paperless** – not by counting the excerpts the AI sees
 - Answers stream in, cite their sources and link to the documents in Paperless; conversations are kept in your browser
 - Pure semantic **search mode** without AI costs
 
@@ -115,28 +118,51 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | --- | --- |
 | `PAPERLESS_AI_PORT` | HTTP port (default `3000`) |
 | `PAPERLESS_AI_DATA_DIR` | data directory (default `./data`, `/app/data` in Docker) |
-| `PAPERLESS_API_URL`, `PAPERLESS_API_TOKEN` | Paperless-ngx URL (with or without `/api`) and token |
+| `PAPERLESS_API_URL` (or `PAPERLESS_URL`), `PAPERLESS_API_TOKEN` | Paperless-ngx URL (with or without `/api`) and token – `PAPERLESS_API_URL` wins when both are set |
 | `PAPERLESS_PUBLIC_URL` | URL for links opened in the browser (optional) |
-| `AI_PROVIDER` | `openai`, `ollama`, `custom`, `azure` |
+| `AI_PROVIDER` | `openai`, `anthropic`, `ollama`, `custom`, `azure` |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | OpenAI |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL` | Anthropic (Claude); the base URL only for a gateway/proxy |
 | `OLLAMA_API_URL`, `OLLAMA_MODEL`, `OLLAMA_KEEP_ALIVE` | Ollama |
-| `CUSTOM_BASE_URL`, `CUSTOM_API_KEY`, `CUSTOM_MODEL` | OpenAI-compatible provider |
+| `OLLAMA_NUM_CTX` (or `OLLAMA_CONTEXT_SIZE`), `OLLAMA_THINK`, `OLLAMA_UNLOAD_WHEN_IDLE` | Ollama context size (`0` = per document), thinking (`auto`, `off`, `on`, `low`, `medium`, `high`), unload when the queue is empty |
+| `CUSTOM_BASE_URL`, `CUSTOM_API_KEY`, `CUSTOM_MODEL`, `CUSTOM_EXTRA_BODY` | OpenAI-compatible provider; extra request parameters as JSON |
 | `AZURE_ENDPOINT`, `AZURE_API_KEY`, `AZURE_DEPLOYMENT_NAME`, `AZURE_API_VERSION` | Azure OpenAI |
 | `TOKEN_LIMIT`, `RESPONSE_TOKENS`, `AI_TEMPERATURE`, `AI_TIMEOUT_SECONDS` | model limits |
 | `SCAN_INTERVAL`, `DISABLE_AUTOMATIC_PROCESSING`, `PROCESSING_CONCURRENCY` | scheduling |
 | `PROCESS_PREDEFINED_DOCUMENTS`, `TAGS`, `REMOVE_TRIGGER_TAGS` | only process tagged documents |
 | `ADD_AI_PROCESSED_TAG`, `AI_PROCESSED_TAG_NAME` | mark processed documents |
 | `USE_PROMPT_TAGS`, `PROMPT_TAGS`, `USE_EXISTING_DATA`, `SYSTEM_PROMPT` | prompt |
+| `OVERWRITE_CORRESPONDENT`, `SHARE_CREATED_OBJECTS` | replace existing correspondents (default off); create tags/correspondents/types without owner (default on) |
 | `ACTIVATE_TAGGING`, `ACTIVATE_CORRESPONDENTS`, `ACTIVATE_DOCUMENT_TYPE`, `ACTIVATE_TITLE`, `ACTIVATE_CUSTOM_FIELDS`, `ACTIVATE_DOCUMENT_DATE` | enabled functions |
 | `RESTRICT_TO_EXISTING_TAGS`, `RESTRICT_TO_EXISTING_CORRESPONDENTS`, `RESTRICT_TO_EXISTING_DOCUMENT_TYPES` | restrictions |
 | `CUSTOM_FIELDS` | custom fields (JSON, format of 3.x) |
 | `EXTERNAL_API_ENABLED`, `EXTERNAL_API_URL`, `EXTERNAL_API_METHOD`, `EXTERNAL_API_HEADERS`, `EXTERNAL_API_BODY`, `EXTERNAL_API_TIMEOUT`, `EXTERNAL_API_TRANSFORM` | external data |
 | `RAG_ENABLED` (or `RAG_SERVICE_ENABLED`), `RAG_EMBEDDING_PROVIDER`, `RAG_EMBEDDING_MODEL`, `RAG_QUERY_EXPANSION` | ask your archive |
-| `API_KEY`, `JWT_SECRET` | secrets (generated automatically when unset) |
+| `API_KEY`, `JWT_SECRET` | secrets (generated automatically when unset; use at least 32 random characters for `JWT_SECRET`) |
 | `LOG_LEVEL`, `LOG_FORMAT=json` | operations |
 | `TRUST_PROXY` | behind a reverse proxy: number of proxy hops (usually `1`) or the proxy addresses – needed for correct client IPs (login rate limit) and secure cookies; off by default |
 
-Self-signed certificates for Paperless/AI endpoints: mount your CA and set `NODE_EXTRA_CA_CERTS=/path/ca.pem`.
+Empty variables (e.g. `OPENAI_API_KEY=` left in a compose file) are ignored, so they never replace what you configured in the web interface.
+
+### Local models (Ollama)
+
+- **Context size:** Paperless-AI sends a fixed `num_ctx` (default 16,384 tokens). Ollama reloads the model whenever `num_ctx` changes, so a fixed size keeps it loaded between documents. Longer documents are shortened to fit; raise the size if your GPU has room, or set `0` to size it per document.
+- **Thinking:** thinking models (qwen3, gpt-oss, deepseek-r1 …) can be switched off in *Settings → AI provider*, which is much faster for metadata extraction. gpt-oss also accepts `low`/`medium`/`high`.
+- **Free the GPU:** *Unload the model when the queue is empty* releases the memory right after the last document; alternatively use *Keep model loaded* (`keep_alive`).
+- **Other local servers** (vLLM, llama.cpp, LM Studio) run as *OpenAI-compatible* provider; parameters such as `{"chat_template_kwargs": {"enable_thinking": false}}` go into *Extra request parameters*.
+
+### Self-signed certificates
+
+If Paperless-ngx or your AI server uses a certificate from your own CA, mount the CA certificate and point Node.js to it:
+
+```yaml
+    environment:
+      - NODE_EXTRA_CA_CERTS=/certs/my-ca.pem
+    volumes:
+      - ./my-ca.pem:/certs/my-ca.pem:ro
+```
+
+As a last resort, `NODE_TLS_REJECT_UNAUTHORIZED=0` turns certificate checks off completely. ⚠️ This applies to **every** connection of Paperless-AI – including the one carrying your OpenAI/Anthropic API key – so anybody in the network path could read and change the traffic. Only use it for testing in a trusted network.
 
 ### Choosing embeddings for “Ask your archive”
 

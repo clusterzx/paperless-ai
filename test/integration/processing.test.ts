@@ -219,6 +219,40 @@ describe('automatic processing', () => {
     expect(amount.id).toBeGreaterThan(0);
   });
 
+  it('forgets documents deleted in Paperless', async () => {
+    const hh = await harness();
+    for (const id of [1, 2, 3]) hh.paperless.addDocument({ id, content: `Document number ${id} with content` });
+    await scan(hh);
+    expect(hh.ctx.repos.documents.counts().processed).toBe(3);
+    hh.paperless.docs.delete(2);
+    // e.g. imported from a 3.x database
+    hh.ctx.repos.documents.markProcessed(999, 'Long gone', null);
+    expect(await scan(hh)).toBe(0);
+    expect(hh.ctx.repos.documents.get(2)).toBeUndefined();
+    expect(hh.ctx.repos.documents.get(999)).toBeUndefined();
+    expect(hh.ctx.repos.documents.counts().processed).toBe(2);
+  });
+
+  it('keeps the states when most documents seem to be gone (missing permissions)', async () => {
+    const hh = await harness();
+    hh.paperless.addDocument({ id: 1, content: 'The only visible document' });
+    for (let id = 100; id < 130; id++) hh.ctx.repos.documents.markProcessed(id, `Doc ${id}`, null);
+    await scan(hh);
+    expect(hh.ctx.repos.documents.counts().processed).toBe(31);
+  });
+
+  it('scans without permission to read correspondents and document types', async () => {
+    const hh = await harness({ paperless: { forbidden: ['correspondents', 'document_types'] } });
+    hh.paperless.addDocument({ id: 1, content: 'ACME invoice content here' });
+    hh.llm.reply(analysisJson({ title: 'ACME invoice', correspondent: 'ACME', document_type: 'Invoice', tags: ['Invoice'] }));
+    await scan(hh);
+    // title and tags are saved; nothing is created in the lists that cannot be read (they might exist already)
+    expect(hh.paperless.docs.get(1)).toMatchObject({ title: 'ACME invoice', correspondent: null, document_type: null });
+    expect(hh.paperless.calls('POST', '/api/correspondents/')).toHaveLength(0);
+    expect(hh.paperless.calls('POST', '/api/document_types/')).toHaveLength(0);
+    expect(hh.ctx.repos.documents.get(1)!.status).toBe('processed');
+  });
+
   it('does not change anything when the suggestion matches the document', async () => {
     const hh = await harness();
     hh.paperless.addTag('Invoice', 1);
@@ -371,7 +405,10 @@ describe('automatic processing', () => {
     const done = hh.paperless.tagByName('ai-done')!;
     expect(hh.paperless.patches(301)[0].body).toEqual({ tags: [51, done.id], title: 'Processed' });
     expect(hh.paperless.patches(302)).toHaveLength(0);
-    expect(hh.paperless.calls('GET', '/api/documents/').at(-1)!.query.tags__id__in).toBe('50');
+    const listings = hh.paperless.calls('GET', '/api/documents/').map((c) => c.query.tags__id__in);
+    expect(listings[0]).toBe('50');
+    // deleted documents are looked for separately (all ids), at most every few hours
+    expect(listings.slice(1)).toEqual([undefined]);
     // internal tags are not offered to the model
     const system = (hh.llm.chatRequests()[0].body as { messages: { content: string }[] }).messages[0].content;
     expect(system).toContain('Existing tags (prefer these): Finance');

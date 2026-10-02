@@ -479,7 +479,7 @@ export function ProcessingSection({ draft, set, locked, tagSuggestions = [] }: S
 const FUNCTIONS: { key: keyof Config['processing']['functions']; label: string; description: string }[] = [
   { key: 'title', label: 'Title', description: 'Generate a meaningful title' },
   { key: 'tags', label: 'Tags', description: 'Assign thematic tags (existing tags are kept)' },
-  { key: 'correspondent', label: 'Correspondent', description: 'Detect the sender (only set when empty)' },
+  { key: 'correspondent', label: 'Correspondent', description: 'Detect the sender' },
   { key: 'documentType', label: 'Document type', description: 'Classify the document' },
   { key: 'documentDate', label: 'Document date', description: 'Extract the date of the document' },
   { key: 'customFields', label: 'Custom fields', description: 'Fill the custom fields configured below' },

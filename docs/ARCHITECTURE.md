@@ -25,7 +25,7 @@ src/
     db/                  migrations, legacy import, repositories
     auth.ts              bcrypt, JWT session cookie, API key
     paperless/           Paperless-ngx client (API v7–v10), metadata cache with get-or-create
-    ai/                  OpenAI-compatible/Azure + Ollama clients, JSON extraction, token estimation
+    ai/                  OpenAI-compatible/Azure, Anthropic and Ollama clients, JSON extraction, token estimation
     processing/          prompt builder, analyzer, applier (+ undo), engine (queue/scheduler), external API
     rag/                 chunker, SQLite store (FTS5), vector index, local embedder (worker), service, document chat
     http/ routes/        Fastify app, auth levels, SSE helper, route modules
@@ -66,9 +66,16 @@ manual ──────┘                                   │
 * The output contract and a JSON schema are generated from the enabled functions (only requested
   fields are asked for; allowed values become enums when restricted).
 * `OpenAiCompatibleClient` adapts to provider quirks at runtime (json_schema → json_object → plain,
-  `max_completion_tokens`/`max_tokens`, unsupported temperature) and remembers what works.
-* `OllamaClient` uses the native API with a computed `num_ctx`, so long documents are not silently
-  truncated by Ollama's small default context.
+  `max_completion_tokens`/`max_tokens`, unsupported temperature, reasoning budget, output limits,
+  context length errors) and remembers what works.
+* `AnthropicClient` uses the official SDK (streamed Messages API, structured outputs, cached system
+  prompt) and adapts effort/sampling parameters per Claude model the same way.
+* `OllamaClient` uses the native API with a fixed `num_ctx` (Ollama reloads the model when it
+  changes), so long documents are neither truncated silently nor cause reloads; prompts are planned
+  with that window minus room for thinking. `think` is sent when configured and dropped for models
+  without thinking support.
+* Rate limits (HTTP 429, Anthropic 529) pause the queue (Retry-After or growing back-off) and put
+  the document back without counting an attempt.
 * Model output is parsed leniently (fences, `<think>` blocks, trailing commas, truncated JSON) and
   normalised (dates, custom field values per type, “unknown”-like values).
 * A document is only marked as processed after the PATCH succeeded. Failures are retried on later

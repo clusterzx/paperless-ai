@@ -56,7 +56,8 @@ interface SettingsResponse {
   localEmbeddings: boolean;
 }
 
-type TabId = 'connection' | 'ai' | 'processing' | 'prompt' | 'fields' | 'external' | 'rag' | 'integrations' | 'account';
+const TAB_IDS = ['connection', 'ai', 'processing', 'prompt', 'fields', 'external', 'rag', 'integrations', 'account'] as const;
+type TabId = (typeof TAB_IDS)[number];
 
 function CopyField({ value, secret }: { value: string; secret?: boolean }) {
   const toast = useToast();
@@ -238,7 +239,9 @@ export default function SettingsPage() {
   const meta = useMetadata();
   const search = useSearch();
   const [, navigate] = useLocation();
-  const tab = ((new URLSearchParams(search).get('tab') as TabId) || 'connection') as TabId;
+  const requested = new URLSearchParams(search).get('tab');
+  // Unknown tabs (old links, typos) show the first tab instead of an empty page.
+  const tab: TabId = TAB_IDS.find((t) => t === requested) ?? 'connection';
   const [loaded, setLoaded] = useState<SettingsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, set, setDraft] = useDraft<Config | null>(null);

@@ -119,6 +119,43 @@ describe('legacy helpers', () => {
       'processing.tags': 'TAGS',
     });
   });
+
+  it('configFromEnv ignores empty variables and prefers PAPERLESS_API_URL', () => {
+    const res = configFromEnv({
+      PAPERLESS_URL: 'http://public.example.com',
+      PAPERLESS_API_URL: 'http://paperless:8000',
+      OPENAI_API_KEY: '',
+      PAPERLESS_API_TOKEN: '   ',
+      DISABLE_AUTOMATIC_PROCESSING: '',
+    });
+    expect(res.values).toEqual({ paperless: { url: 'http://paperless:8000' } });
+    expect(res.paths.get('paperless.url')).toBe('PAPERLESS_API_URL');
+    expect(res.empty).toEqual(['PAPERLESS_API_TOKEN', 'OPENAI_API_KEY', 'DISABLE_AUTOMATIC_PROCESSING']);
+    expect(configFromEnv({ PAPERLESS_URL: 'http://only:8000' }).values).toEqual({ paperless: { url: 'http://only:8000' } });
+  });
+
+  it('configFromEnv maps the new Ollama, Anthropic and processing variables', () => {
+    const { values } = configFromEnv({
+      OLLAMA_NUM_CTX: '8192',
+      OLLAMA_THINK: 'false',
+      OLLAMA_UNLOAD_WHEN_IDLE: 'yes',
+      ANTHROPIC_API_KEY: 'sk-ant',
+      ANTHROPIC_MODEL: 'claude-sonnet-5-5',
+      CUSTOM_EXTRA_BODY: '{"top_k": 20}',
+      OVERWRITE_CORRESPONDENT: 'true',
+      SHARE_CREATED_OBJECTS: 'no',
+    });
+    expect(values).toEqual({
+      ai: {
+        ollama: { contextSize: 8192, think: 'off', unloadWhenIdle: true },
+        anthropic: { apiKey: 'sk-ant', model: 'claude-sonnet-5-5' },
+        custom: { extraBody: '{"top_k": 20}' },
+      },
+      processing: { overwriteCorrespondent: true, shareCreatedObjects: false },
+    });
+    expect(configFromEnv({ OLLAMA_THINK: 'medium' }).values).toEqual({ ai: { ollama: { think: 'medium' } } });
+    expect(configFromEnv({ OLLAMA_THINK: 'maybe' }).values).toEqual({});
+  });
 });
 
 const LEGACY_ENV = [
@@ -240,6 +277,15 @@ describe('ConfigStore', () => {
     const saved = readJson(path.join(dir, 'config.json'));
     expect(saved.paperless.url).toBe('http://ui:8000');
     expect(saved.processing.functions.title).toBe(true);
+  });
+
+  it('does not let empty environment variables replace stored values', () => {
+    const dir = tempDir();
+    ConfigStore.load(dir, {}).update({ paperless: { url: 'http://stored:8000', token: 'stored-token' }, ai: { openai: { apiKey: 'sk-stored' } } });
+    const store = ConfigStore.load(dir, { PAPERLESS_API_URL: '', PAPERLESS_API_TOKEN: '', OPENAI_API_KEY: ' ' });
+    expect(store.current.paperless).toMatchObject({ url: 'http://stored:8000', token: 'stored-token' });
+    expect(store.current.ai.openai.apiKey).toBe('sk-stored');
+    expect(store.lockedPaths).toEqual({});
   });
 
   it('ignores invalid environment overrides and keeps the stored value', () => {

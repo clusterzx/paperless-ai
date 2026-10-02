@@ -76,7 +76,12 @@ export class ConfigStore extends EventEmitter<{ change: [next: AppConfig, prev: 
     super();
     this.stored = stored;
     this.overrides = configFromEnv(env);
+    if (this.overrides.empty.length) {
+      log.warn(`Ignoring empty environment variables (the values from the web interface are used): ${this.overrides.empty.join(', ')}`);
+    }
     this.effective = this.compute();
+    const jwt = this.overrides.paths.has('security.jwtSecret') ? this.effective.security.jwtSecret : '';
+    if (jwt && jwt.length < 32) log.warn('JWT_SECRET is shorter than 32 characters – sessions could be forged by guessing it. Use a long random value or remove it.');
   }
 
   /**
