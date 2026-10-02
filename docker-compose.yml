@@ -20,7 +20,8 @@ services:
       # - OLLAMA_API_URL=http://host.docker.internal:11434
       # - OLLAMA_MODEL=qwen3:8b
     ports:
-      - "3000:3000"
+      # Host port: set PAPERLESS_AI_HOST_PORT if 3000 is taken (e.g. by another app or a 3.x instance).
+      - "${PAPERLESS_AI_HOST_PORT:-3000}:3000"
     volumes:
       - paperless-ai_data:/app/data
     # Needed to reach Ollama running on the Docker host via host.docker.internal
