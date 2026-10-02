@@ -5,6 +5,7 @@ import {
   DEFAULT_OPENAI_EMBEDDING_MODEL,
 } from '../config/defaults.js';
 import { trimSlash } from '../util/http.js';
+import { AnthropicClient } from './anthropic.js';
 import { OllamaClient, OllamaEmbeddingClient } from './ollama.js';
 import { OpenAiCompatibleClient, OpenAiEmbeddingClient } from './openai.js';
 import { AiError, type EmbeddingClient, type LlmClient } from './types.js';
@@ -40,6 +41,8 @@ export function activeModel(ai: AppConfig['ai']): string {
   switch (ai.provider) {
     case 'openai':
       return ai.openai.model;
+    case 'anthropic':
+      return ai.anthropic.model;
     case 'ollama':
       return ai.ollama.model;
     case 'custom':
@@ -55,6 +58,10 @@ export function aiConfigProblem(ai: AppConfig['ai']): string | null {
     case 'openai':
       if (!ai.openai.apiKey) return 'OpenAI API key is missing';
       if (!ai.openai.model) return 'OpenAI model is missing';
+      return null;
+    case 'anthropic':
+      if (!ai.anthropic.apiKey) return 'Anthropic API key is missing';
+      if (!ai.anthropic.model) return 'Anthropic model is missing';
       return null;
     case 'ollama':
       if (!ai.ollama.url) return 'Ollama URL is missing';
@@ -81,6 +88,14 @@ export function createLlmClient(ai: AppConfig['ai']): LlmClient {
         baseUrl: OPENAI_BASE,
         apiKey: ai.openai.apiKey,
         model: ai.openai.model,
+        contextWindow: ai.tokenLimit,
+        timeoutMs,
+      });
+    case 'anthropic':
+      return new AnthropicClient({
+        apiKey: ai.anthropic.apiKey,
+        model: ai.anthropic.model,
+        baseUrl: ai.anthropic.baseUrl || undefined,
         contextWindow: ai.tokenLimit,
         timeoutMs,
       });

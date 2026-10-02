@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Bot, Cloud, Cpu, Plug, Plus, Server, Trash2, Wand2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Bot, Cloud, Cpu, Plug, Plus, Server, Sparkle, Trash2, Wand2 } from 'lucide-react';
 import type { AppConfig } from '../../server/config/schema';
 import type { ConnectionTestResult } from '@shared/api';
 import { errorMessage, post } from '../lib/api';
@@ -136,6 +136,7 @@ export function ConnectionSection({ draft, set, locked, apiBase }: SectionProps 
 
 const PROVIDERS: { id: Config['ai']['provider']; label: string; description: string; icon: ReactNode }[] = [
   { id: 'openai', label: 'OpenAI', description: 'GPT models via api.openai.com', icon: <Bot className="size-5" /> },
+  { id: 'anthropic', label: 'Anthropic', description: 'Claude models via api.anthropic.com', icon: <Sparkle className="size-5" /> },
   { id: 'ollama', label: 'Ollama', description: 'Local models, fully private', icon: <Cpu className="size-5" /> },
   { id: 'custom', label: 'OpenAI-compatible', description: 'DeepSeek, OpenRouter, LiteLLM, vLLM, Gemini, LM Studio …', icon: <Server className="size-5" /> },
   { id: 'azure', label: 'Azure OpenAI', description: 'Deployments in Azure', icon: <Cloud className="size-5" /> },
@@ -143,6 +144,20 @@ const PROVIDERS: { id: Config['ai']['provider']; label: string; description: str
 
 // Suggestions only – "Load" lists every model of the account.
 const OPENAI_MODELS = ['gpt-5-mini', 'gpt-5-nano', 'gpt-5.5', 'gpt-5.4', 'gpt-5', 'gpt-4.1-mini', 'gpt-4o-mini'];
+const ANTHROPIC_MODELS = ['claude-haiku-4-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-sonnet-4-6'];
+
+const MODEL_PATHS: Record<Config['ai']['provider'], string> = {
+  openai: 'ai.openai.model',
+  anthropic: 'ai.anthropic.model',
+  ollama: 'ai.ollama.model',
+  custom: 'ai.custom.model',
+  azure: 'ai.azure.deployment',
+};
+
+/** The configured model (Azure: the deployment) of the selected provider. */
+export function modelOf(ai: Config['ai']): string {
+  return String(getIn({ ai }, MODEL_PATHS[ai.provider]) ?? '');
+}
 
 function extraBodyError(value: string): string | null {
   if (!value.trim()) return null;
@@ -160,7 +175,7 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
   const provider = draft.ai.provider;
-  const modelPath = provider === 'openai' ? 'ai.openai.model' : provider === 'ollama' ? 'ai.ollama.model' : provider === 'custom' ? 'ai.custom.model' : 'ai.azure.deployment';
+  const modelPath = MODEL_PATHS[provider];
 
   const loadModels = async () => {
     setLoadingModels(true);
@@ -177,7 +192,7 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
     }
   };
 
-  const suggestions = models.length ? models : provider === 'openai' ? OPENAI_MODELS : [];
+  const suggestions = models.length ? models : provider === 'openai' ? OPENAI_MODELS : provider === 'anthropic' ? ANTHROPIC_MODELS : [];
   const modelInput = (label: string, placeholder: string, hint?: ReactNode) => (
     <Field label={label} locked={locked[modelPath]} hint={modelError ? <span className="text-danger">{modelError}</span> : hint}>
       <div className="flex gap-2">
@@ -198,7 +213,7 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4" role="radiogroup" aria-label="AI provider">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5" role="radiogroup" aria-label="AI provider">
         {PROVIDERS.map((p) => (
           <button
             key={p.id}
@@ -233,6 +248,26 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
               <SecretInput value={draft.ai.openai.apiKey} onChange={(v) => set('ai.openai.apiKey', v)} disabled={Boolean(locked['ai.openai.apiKey'])} placeholder="sk-…" />
             </Field>
             {modelInput('Model', 'gpt-5-mini', 'gpt-5-mini offers the best value for document analysis. Reasoning models (GPT-5.x, o-series) work with low reasoning effort.')}
+          </>
+        )}
+        {provider === 'anthropic' && (
+          <>
+            <Field label="API key" locked={locked['ai.anthropic.apiKey']} hint="console.anthropic.com → API keys">
+              <SecretInput
+                value={draft.ai.anthropic.apiKey}
+                onChange={(v) => set('ai.anthropic.apiKey', v)}
+                disabled={Boolean(locked['ai.anthropic.apiKey'])}
+                placeholder="sk-ant-…"
+              />
+            </Field>
+            {modelInput(
+              'Model',
+              'claude-haiku-4-5',
+              'claude-haiku-4-5 is fast and inexpensive for document analysis; claude-sonnet-5-5 is more thorough for difficult documents.',
+            )}
+            <Field label="Base URL (optional)" locked={locked['ai.anthropic.baseUrl']} hint="Only for an API gateway or proxy – leave empty for api.anthropic.com.">
+              <Input placeholder="https://api.anthropic.com" {...bind(draft, set, locked, 'ai.anthropic.baseUrl')} />
+            </Field>
           </>
         )}
         {provider === 'ollama' && (

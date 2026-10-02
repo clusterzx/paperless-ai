@@ -419,6 +419,18 @@ describe('automatic processing', () => {
     expect(hh.ctx.repos.history.list({}).items[0]).toMatchObject({ provider: 'ollama', model: 'llama3.2', totalTokens: 60 });
   });
 
+  it('works with the Anthropic provider', async () => {
+    const hh = await harness({ aiProvider: 'anthropic' });
+    hh.paperless.addDocument({ id: 1, content: 'Some content to process with Claude' });
+    hh.llm.reply({ content: analysisJson({ title: 'From Claude', tags: ['Claude'] }), usage: { prompt_tokens: 70, completion_tokens: 12 } });
+    await scan(hh);
+    expect(hh.paperless.docs.get(1)!.title).toBe('From Claude');
+    const [req] = hh.llm.chatRequests();
+    expect(req.path).toBe('/v1/messages');
+    expect(req.body).toMatchObject({ model: 'claude-haiku-4-5', output_config: { format: { type: 'json_schema' } } });
+    expect(hh.ctx.repos.history.list({}).items[0]).toMatchObject({ provider: 'anthropic', model: 'claude-haiku-4-5', totalTokens: 82 });
+  });
+
   it('uses a fixed Ollama context size and unloads the model once the queue is empty', async () => {
     const hh = await harness({ aiProvider: 'ollama', config: { ai: { ollama: { contextSize: 8192, unloadWhenIdle: true } } } });
     hh.paperless.addDocument({ id: 1, content: 'First document for Ollama' });

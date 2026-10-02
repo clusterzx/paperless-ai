@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, Bot, Check, Plug, Rocket, Sparkles, Workflow } from 'lucide-react';
 import type { ConnectionTestResult } from '@shared/api';
 import { AuthShell } from './Login';
-import { AiSection, ConnectionSection, FunctionsSection, ProcessingSection, type Config, type Locked } from '../components/settingsForms';
+import { AiSection, ConnectionSection, FunctionsSection, modelOf, ProcessingSection, type Config, type Locked } from '../components/settingsForms';
 import { Alert, Button, Field, IconChip, Input, Spinner } from '../components/ui';
 import { ApiError, errorMessage, get, post } from '../lib/api';
 import { useDraft } from '../lib/draft';
@@ -223,7 +223,7 @@ function Wizard({ defaults, onDone }: { defaults: Defaults; onDone: () => Promis
                 {
                   icon: <Bot />,
                   label: 'AI provider',
-                  value: `${draft.ai.provider} · ${draft.ai.provider === 'openai' ? draft.ai.openai.model : draft.ai.provider === 'ollama' ? draft.ai.ollama.model : draft.ai.provider === 'custom' ? draft.ai.custom.model : draft.ai.azure.deployment}`,
+                  value: `${draft.ai.provider} · ${modelOf(draft.ai)}`,
                 },
                 {
                   icon: <Workflow />,

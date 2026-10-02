@@ -3,6 +3,7 @@ import type { AppContext } from '../context.js';
 import { configSchema, SECRET_MASK, type AppConfig, type DeepPartial } from '../config/schema.js';
 import { deepMerge, getPath, isPlainObject } from '../config/store.js';
 import { normalizePaperlessUrl } from '../config/legacy.js';
+import { ANTHROPIC_BASE } from '../ai/anthropic.js';
 import { createLlmClient } from '../ai/factory.js';
 import { PaperlessClient } from '../paperless/client.js';
 import { describeError } from '../util/http.js';
@@ -98,6 +99,9 @@ export async function testAiConnection(
     const own = withoutMaskedSecrets(ai) as DeepPartial<AppConfig['ai']>;
     if (!own.custom?.apiKey && !sameServer(merged.custom.baseUrl, stored.custom.baseUrl)) merged.custom.apiKey = '';
     if (!own.azure?.apiKey && !sameServer(merged.azure.endpoint, stored.azure.endpoint)) merged.azure.apiKey = '';
+    if (!own.anthropic?.apiKey && !sameServer(merged.anthropic.baseUrl || ANTHROPIC_BASE, stored.anthropic.baseUrl || ANTHROPIC_BASE)) {
+      merged.anthropic.apiKey = '';
+    }
   }
   try {
     const client = createLlmClient(merged);

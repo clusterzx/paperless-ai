@@ -1,7 +1,8 @@
 /**
  * Fake LLM server speaking the OpenAI-compatible API (/v1/models,
- * /v1/chat/completions incl. SSE streaming, /v1/embeddings) and the native
- * Ollama API (/api/tags, /api/chat incl. NDJSON streaming, /api/embed).
+ * /v1/chat/completions incl. SSE streaming, /v1/embeddings), the native
+ * Ollama API (/api/tags, /api/chat incl. NDJSON streaming, /api/embed) and
+ * Anthropic's Messages API (/v1/messages incl. SSE streaming, /v1/models).
  *
  * Replies are produced by a programmable handler; every request body is
  * captured. Embeddings are deterministic hashed bag-of-words vectors, with a
@@ -11,7 +12,7 @@ import http from 'node:http';
 import { createHash } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 
-export type LlmApi = 'openai' | 'ollama';
+export type LlmApi = 'openai' | 'ollama' | 'anthropic';
 
 export interface ChatRequestInfo {
   api: LlmApi;
@@ -40,7 +41,7 @@ export interface ChatReply {
   refusal?: string;
   /** finish_reason (OpenAI) / done_reason (Ollama), default "stop". */
   finishReason?: string;
-  /** Ollama: separate thinking text (message.thinking). */
+  /** Ollama: separate thinking text (message.thinking). Anthropic: a thinking block before the text. */
   thinking?: string;
 }
 
@@ -112,6 +113,8 @@ export interface MockLlmOptions {
   noModelsEndpoint?: boolean;
   /** Fail embedding requests (OpenAI and Ollama) with this HTTP status. */
   embeddingErrorStatus?: number;
+  /** Models of the Anthropic API. */
+  anthropicModels?: string[];
 }
 
 export class MockLlm {
@@ -161,7 +164,7 @@ export class MockLlm {
   }
 
   chatRequests(): CapturedLlmRequest[] {
-    return this.requests.filter((r) => r.path.endsWith('/chat/completions') || r.path === '/api/chat');
+    return this.requests.filter((r) => r.path.endsWith('/chat/completions') || r.path === '/api/chat' || r.path.endsWith('/v1/messages'));
   }
 
   embeddingRequests(): CapturedLlmRequest[] {
@@ -186,6 +189,7 @@ export class MockLlm {
     };
 
     const path = u.pathname;
+    if (req.headers['anthropic-version']) return this.anthropic(req, res, path, body ?? {});
     // Everything outside Ollama's /api/ prefix is treated as an OpenAI-compatible API (any base path, e.g. Azure deployments).
     const openai = !path.startsWith('/api/');
     const authorized =
@@ -305,14 +309,82 @@ export class MockLlm {
 
   private info(api: LlmApi, body: Record<string, unknown>): ChatRequestInfo {
     const messages = (body.messages as { role: string; content: string }[] | undefined) ?? [];
+    const system = Array.isArray(body.system)
+      ? (body.system as { text: string }[]).map((b) => b.text).join('\n\n')
+      : typeof body.system === 'string'
+        ? body.system
+        : messages.find((m) => m.role === 'system')?.content ?? '';
     return {
       api,
       body,
       messages,
       stream: body.stream === true,
-      system: messages.find((m) => m.role === 'system')?.content ?? '',
+      system,
       user: [...messages].reverse().find((m) => m.role === 'user')?.content ?? '',
     };
+  }
+
+  /** Anthropic Messages API (recognised by the anthropic-version header the SDK sends). */
+  private async anthropic(req: http.IncomingMessage, res: http.ServerResponse, path: string, body: Record<string, unknown>): Promise<void> {
+    const json = (status: number, payload: unknown, headers: Record<string, string> = {}) => {
+      res.writeHead(status, { 'Content-Type': 'application/json', ...headers });
+      res.end(JSON.stringify(payload));
+    };
+    const error = (status: number, type: string, message: string) => json(status, { type: 'error', error: { type, message } }, { 'x-should-retry': 'false' });
+    if (this.opts.apiKey && req.headers['x-api-key'] !== this.opts.apiKey) return error(401, 'authentication_error', 'invalid x-api-key');
+    const models = this.opts.anthropicModels ?? ['claude-haiku-4-5', 'claude-sonnet-5-5'];
+    if (req.method === 'GET' && path.endsWith('/v1/models')) {
+      const data = models.map((id) => ({ id, type: 'model', display_name: id, created_at: '2026-01-01T00:00:00Z' }));
+      return json(200, { data, has_more: false, first_id: models[0] ?? null, last_id: models.at(-1) ?? null });
+    }
+    const model = /\/v1\/models\/([^/]+)$/.exec(path)?.[1];
+    if (req.method === 'GET' && model) {
+      const id = decodeURIComponent(model);
+      if (!models.includes(id)) return error(404, 'not_found_error', `model: ${id}`);
+      return json(200, { id, type: 'model', display_name: id, created_at: '2026-01-01T00:00:00Z', max_input_tokens: 200_000, max_tokens: 64_000 });
+    }
+    if (req.method !== 'POST' || !path.endsWith('/v1/messages')) return error(404, 'not_found_error', `Unknown route ${req.method} ${path}`);
+
+    const info = this.info('anthropic', body);
+    const r = normalizeReply(await this.handler(info));
+    if (r.status && r.status >= 400) {
+      const err = r.error ?? { type: 'error', error: { type: 'api_error', message: 'Mock error' } };
+      return json(r.status, err, { 'x-should-retry': 'false', ...r.headers });
+    }
+    const content = r.content ?? '';
+    const usage = r.usage ?? { prompt_tokens: 100, completion_tokens: 20 };
+    const stopReason = r.refusal ? 'refusal' : (r.finishReason ?? 'end_turn');
+    const blocks = [...(r.thinking ? [{ type: 'thinking', thinking: r.thinking, signature: 'sig' }] : []), ...(content ? [{ type: 'text', text: content }] : [])];
+    const message = {
+      id: 'msg_mock',
+      type: 'message',
+      role: 'assistant',
+      model: String(body.model),
+      content: blocks,
+      stop_reason: stopReason,
+      stop_sequence: null,
+      usage: { input_tokens: usage.prompt_tokens, output_tokens: usage.completion_tokens, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    };
+    if (!info.stream) return json(200, message);
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+    const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify({ type: event, ...(data as object) })}\n\n`);
+    send('message_start', { message: { ...message, content: [], stop_reason: null, usage: { ...message.usage, output_tokens: 1 } } });
+    let index = 0;
+    if (r.thinking) {
+      send('content_block_start', { index, content_block: { type: 'thinking', thinking: '', signature: '' } });
+      send('content_block_delta', { index, delta: { type: 'thinking_delta', thinking: r.thinking } });
+      send('content_block_delta', { index, delta: { type: 'signature_delta', signature: 'sig' } });
+      send('content_block_stop', { index });
+      index++;
+    }
+    if (content || r.chunks) {
+      send('content_block_start', { index, content_block: { type: 'text', text: '' } });
+      for (const text of r.chunks ?? split(content, r.chunkSize ?? 4)) send('content_block_delta', { index, delta: { type: 'text_delta', text } });
+      send('content_block_stop', { index });
+    }
+    send('message_delta', { delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: usage.completion_tokens } });
+    send('message_stop', {});
+    res.end();
   }
 }
 

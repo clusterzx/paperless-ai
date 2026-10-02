@@ -143,6 +143,23 @@ describe('settings', () => {
     expect(models.json()).toEqual({ models: ['llama3.2:latest', 'nomic-embed-text:latest'] });
   });
 
+  it('tests the Anthropic provider', async () => {
+    const payload = { ai: { provider: 'anthropic', anthropic: { apiKey: 'sk-ant-new', model: 'claude-sonnet-5-5', baseUrl: h.llm.url } } };
+    const res = await h.inject({ method: 'POST', url: '/api/settings/test-ai', headers: { cookie }, payload });
+    expect(res.json()).toMatchObject({ ok: true, details: { provider: 'anthropic', model: 'claude-sonnet-5-5', models: ['claude-haiku-4-5', 'claude-sonnet-5-5'] } });
+    const messages = h.llm.requests.filter((r) => r.path === '/v1/messages');
+    expect(messages).toHaveLength(1);
+    expect(messages[0].headers['x-api-key']).toBe('sk-ant-new');
+
+    const missing = await h.inject({
+      method: 'POST',
+      url: '/api/settings/test-ai',
+      headers: { cookie },
+      payload: { ai: { ...payload.ai, anthropic: { ...payload.ai.anthropic, model: 'claude-nope' } } },
+    });
+    expect(missing.json()).toMatchObject({ ok: false, message: expect.stringContaining('"claude-nope" is not available') });
+  });
+
   it('tests the external API with a sandboxed transform', async () => {
     const res = await h.inject({
       method: 'POST',

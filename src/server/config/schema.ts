@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  DEFAULT_ANTHROPIC_MODEL,
   DEFAULT_AZURE_API_VERSION,
   DEFAULT_OLLAMA_CONTEXT,
   DEFAULT_OLLAMA_MODEL,
@@ -44,7 +45,7 @@ export const customFieldSchema = z.object({
   description: z.string().trim().max(500).default(''),
 });
 
-export const AI_PROVIDERS = ['openai', 'ollama', 'custom', 'azure'] as const;
+export const AI_PROVIDERS = ['openai', 'anthropic', 'ollama', 'custom', 'azure'] as const;
 /** Thinking of Ollama models: auto = the model's default, levels for models such as gpt-oss. */
 export const OLLAMA_THINK = ['auto', 'off', 'on', 'low', 'medium', 'high'] as const;
 export const EMBEDDING_PROVIDERS = ['local', 'openai', 'ollama', 'custom', 'azure', 'none'] as const;
@@ -68,6 +69,8 @@ export const configSchema = z.object({
     .object({
       provider: z.enum(AI_PROVIDERS).default('openai'),
       openai: z.object({ apiKey: str(), model: str(DEFAULT_OPENAI_MODEL) }).prefault({}),
+      /** Claude via Anthropic's Messages API. baseUrl: empty = api.anthropic.com (or a gateway/proxy). */
+      anthropic: z.object({ apiKey: str(), model: str(DEFAULT_ANTHROPIC_MODEL), baseUrl: str() }).prefault({}),
       ollama: z
         .object({
           url: str(DEFAULT_OLLAMA_URL),
@@ -202,6 +205,7 @@ export type DeepPartial<T> = T extends (infer U)[]
 export const SECRET_PATHS = [
   'paperless.token',
   'ai.openai.apiKey',
+  'ai.anthropic.apiKey',
   'ai.custom.apiKey',
   'ai.azure.apiKey',
   'security.apiKey',

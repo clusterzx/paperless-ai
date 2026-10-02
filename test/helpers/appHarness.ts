@@ -21,7 +21,7 @@ export interface HarnessOptions {
   paperless?: MockPaperlessOptions;
   llm?: MockLlmOptions;
   /** AI provider used for chat/analysis (default: custom OpenAI-compatible endpoint of the mock). */
-  aiProvider?: 'custom' | 'ollama';
+  aiProvider?: 'custom' | 'ollama' | 'anthropic';
   /** Embedding provider for RAG (default: none = keyword search only). */
   embedding?: 'custom' | 'ollama' | 'none';
   /** Additional configuration merged over the defaults. */
@@ -67,6 +67,7 @@ export function baseConfig(paperless: MockPaperless, llm: MockLlm, opts: Harness
       provider: opts.aiProvider ?? 'custom',
       custom: { baseUrl: llm.openaiUrl, model: 'test-model', apiKey: 'sk-test-secret' },
       ollama: { url: llm.url, model: 'llama3.2' },
+      anthropic: { apiKey: 'sk-ant-test', model: 'claude-haiku-4-5', baseUrl: llm.url },
       timeoutSeconds: 30,
     },
     // No cron jobs / background syncs in tests – everything is triggered explicitly.
