@@ -1,7 +1,8 @@
+# Builds Paperless-AI from this repository (also used by Coolify's "Docker Compose" build pack).
+# To run the published image instead, replace `build: .` with `image: clusterzx/paperless-ai:latest`.
 services:
   paperless-ai:
-    image: clusterzx/paperless-ai:latest
-    container_name: paperless-ai
+    build: .
     restart: unless-stopped
     cap_drop:
       - ALL
@@ -9,6 +10,8 @@ services:
       - no-new-privileges=true
     environment:
       - PAPERLESS_AI_PORT=3000
+      # Behind a reverse proxy (Traefik, Caddy, nginx, Coolify, …): number of proxy hops.
+      # - TRUST_PROXY=1
       # Everything else is configured in the web interface (setup wizard).
       # Settings can also be pinned with environment variables, e.g.:
       # - PAPERLESS_API_URL=http://paperless:8000
