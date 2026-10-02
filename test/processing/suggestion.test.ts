@@ -87,6 +87,23 @@ describe('normalizeSuggestion', () => {
     ]);
   });
 
+  it('keeps line breaks of long values and flattens lists and objects', () => {
+    const s = normalizeSuggestion({
+      custom_fields: [
+        { field_name: 'Notes', value: 'Line one  \n\n\n\n  Line two' },
+        { field_name: 'Items', value: ['Paper', 'Toner', ''] },
+        { field_name: 'Address', value: { street: 'Main St 1', city: 'Berlin', zip: null } },
+        { field_name: 'Long', value: 'z'.repeat(9000) },
+      ],
+    });
+    expect(s.custom_fields).toEqual([
+      { field_name: 'Notes', value: 'Line one\n\nLine two' },
+      { field_name: 'Items', value: 'Paper, Toner' },
+      { field_name: 'Address', value: 'street: Main St 1\ncity: Berlin' },
+      { field_name: 'Long', value: 'z'.repeat(5000) },
+    ]);
+  });
+
   it('drops invalid and duplicate custom field entries', () => {
     const s = normalizeSuggestion({
       custom_fields: [

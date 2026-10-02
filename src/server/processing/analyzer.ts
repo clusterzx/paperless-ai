@@ -31,6 +31,11 @@ export async function buildPromptContext(ctx: AppContext): Promise<PromptContext
     correspondents: byUsage(meta.correspondents),
     documentTypes: byUsage(meta.documentTypes),
     customFields: ctx.cfg.processing.customFields,
+    selectOptions: Object.fromEntries(
+      meta.customFields
+        .filter((f) => f.data_type === 'select')
+        .map((f) => [f.name, (f.extra_data?.select_options ?? []).map((o) => (typeof o === 'string' ? o : o.label))]),
+    ),
     externalData: await fetchExternalData(ctx.cfg.externalApi),
   };
 }

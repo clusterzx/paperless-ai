@@ -165,6 +165,60 @@ describe('automatic processing', () => {
     expect(docs.get(103)!.status).toBe('processed');
   });
 
+  it('overwrites existing correspondents when enabled and shares created objects', async () => {
+    const hh = await harness({ config: { processing: { overwriteCorrespondent: true } } });
+    seedBasic(hh);
+    hh.llm.reply(analysisFor);
+    await scan(hh);
+    const acmeCorp = hh.paperless.correspondentByName('ACME Corporation')!;
+    expect(hh.paperless.docs.get(102)!.correspondent).toBe(acmeCorp.id);
+    // created without owner → visible to every Paperless user
+    expect(acmeCorp.owner).toBeNull();
+    expect(hh.paperless.tagByName('Contract')!.owner).toBeNull();
+    expect(hh.paperless.calls('POST', '/api/correspondents/').map((c) => c.body)).toContainEqual({ name: 'ACME Corporation', matching_algorithm: 0, owner: null });
+  });
+
+  it('can leave created objects to the API user', async () => {
+    const hh = await harness({ config: { processing: { shareCreatedObjects: false } } });
+    seedBasic(hh);
+    hh.llm.reply(analysisFor);
+    await scan(hh);
+    expect(hh.paperless.tagByName('Contract')!.owner).toBe(3);
+    // the existing correspondent is kept by default
+    expect(hh.paperless.docs.get(102)!.correspondent).toBe(10);
+  });
+
+  it('ignores document dates in the future and tells the model today\'s date', async () => {
+    const hh = await harness();
+    hh.paperless.addDocument({ id: 5, content: 'Invoice, payable until 2099-12-31', created: '2024-05-01' });
+    hh.llm.reply(analysisJson({ title: 'Invoice', document_date: '2099-12-31' }));
+    await scan(hh);
+    expect(hh.paperless.docs.get(5)).toMatchObject({ title: 'Invoice', created: '2024-05-01' });
+    expect(hh.llm.chatRequests()[0].body!.messages).toContainEqual(expect.objectContaining({ content: expect.stringMatching(/^Today's date: \d{4}-\d{2}-\d{2}\n/) }));
+  });
+
+  it('saves the other changes when Paperless rejects a custom field value', async () => {
+    const hh = await harness({ config: { processing: { customFields: [{ name: 'Reference', type: 'string' }, { name: 'Amount', type: 'monetary', currency: 'EUR' }] } } });
+    const ref = hh.paperless.addCustomField('Reference', 'string');
+    const amount = hh.paperless.addCustomField('Amount', 'monetary');
+    hh.paperless.addDocument({ id: 6, content: 'Invoice R-1 over 12.50 EUR' });
+    hh.llm.reply(analysisJson({ title: 'Invoice R-1', custom_fields: [{ field_name: 'Reference', value: 'R-1' }, { field_name: 'Amount', value: '12.50' }] }));
+    let rejected = false;
+    hh.paperless.intercept = (req) => {
+      if (req.method !== 'PATCH' || rejected) return undefined;
+      rejected = true;
+      // e.g. a select option or value format this Paperless version does not accept
+      return { status: 400, body: { custom_fields: [{}, { non_field_errors: ['Value not allowed'] }] } };
+    };
+    await scan(hh);
+    const patches = hh.paperless.patches(6).map((p) => p.body as Record<string, unknown>);
+    expect(patches).toHaveLength(2);
+    expect(patches[1]).toEqual({ title: 'Invoice R-1', custom_fields: [{ field: ref.id, value: 'R-1' }] });
+    expect(hh.paperless.docs.get(6)).toMatchObject({ title: 'Invoice R-1', custom_fields: [{ field: ref.id, value: 'R-1' }] });
+    expect(hh.ctx.repos.documents.get(6)!.status).toBe('processed');
+    expect(amount.id).toBeGreaterThan(0);
+  });
+
   it('does not change anything when the suggestion matches the document', async () => {
     const hh = await harness();
     hh.paperless.addTag('Invoice', 1);

@@ -26,7 +26,7 @@ export function normalizeName(name: string): string {
   return name.normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
-type Kind = 'tag' | 'correspondent' | 'documentType' | 'customField';
+export type Kind = 'tag' | 'correspondent' | 'documentType' | 'customField';
 
 export interface ResolveResult {
   id: number | null;
@@ -34,14 +34,22 @@ export interface ResolveResult {
   created: boolean;
 }
 
+export interface MetadataOptions {
+  /** Create tags, correspondents and document types without owner (visible to all Paperless users). */
+  shareCreated?: () => boolean;
+}
+
 export class PaperlessMetadata {
   private snap: MetadataSnapshot | null = null;
   private loading: Promise<MetadataSnapshot> | null = null;
   private readonly pending = new Map<string, Promise<ResolveResult>>();
+  /** Lists the API user may not read (403): nothing is created there – it could exist already. */
+  private readonly unreadable = new Set<Kind>();
 
   constructor(
     private readonly client: PaperlessClient,
     private readonly ttlMs = 60_000,
+    private readonly opts: MetadataOptions = {},
   ) {}
 
   invalidate(): void {
@@ -51,15 +59,27 @@ export class PaperlessMetadata {
   async snapshot(force = false): Promise<MetadataSnapshot> {
     if (!force && this.snap && Date.now() - this.snap.loadedAt < this.ttlMs) return this.snap;
     this.loading ??= (async () => {
+      // Correspondents, document types and custom fields need their own view permission – don't
+      // fail everything without it (the connection test reports the missing permissions).
+      const optional = <T>(kind: Kind, label: string, load: () => Promise<T[]>) =>
+        load().then(
+          (items) => {
+            this.unreadable.delete(kind);
+            return items;
+          },
+          (err: unknown) => {
+            const forbidden = err instanceof PaperlessError && err.status === 403;
+            if (!forbidden && kind !== 'customField') throw err;
+            if (forbidden) this.unreadable.add(kind);
+            log.warn(`Could not load ${label}: ${err instanceof Error ? err.message : String(err)}`);
+            return [] as T[];
+          },
+        );
       const [tags, correspondents, documentTypes, customFields] = await Promise.all([
         this.client.tags(),
-        this.client.correspondents(),
-        this.client.documentTypes(),
-        this.client.customFields().catch((err) => {
-          // Custom fields need an extra permission – don't fail everything without it.
-          log.warn({ err }, 'Could not load custom fields');
-          return [] as PaperlessCustomField[];
-        }),
+        optional<PaperlessCorrespondent>('correspondent', 'correspondents', () => this.client.correspondents()),
+        optional<PaperlessDocumentType>('documentType', 'document types', () => this.client.documentTypes()),
+        optional<PaperlessCustomField>('customField', 'custom fields', () => this.client.customFields()),
       ]);
       this.snap = { tags, correspondents, documentTypes, customFields, loadedAt: Date.now() };
       return this.snap;
@@ -119,7 +139,7 @@ export class PaperlessMetadata {
     await this.snapshot();
     const existing = this.find(kind, name);
     if (existing) return { id: existing.id, name: existing.name, created: false };
-    if (!create) return { id: null, name, created: false };
+    if (!create || this.unreadable.has(kind)) return { id: null, name, created: false };
 
     const key = `${kind}:${normalizeName(name)}`;
     const inflight = this.pending.get(key);
@@ -144,16 +164,26 @@ export class PaperlessMetadata {
     return p;
   }
 
+  /** Body fields for created objects: without owner, Paperless makes them the API user's. */
+  private ownership(): { owner?: null } {
+    return this.opts.shareCreated?.() === false ? {} : { owner: null };
+  }
+
+  /** Whether the API user can read this list (false after a 403). */
+  readable(kind: Kind): boolean {
+    return !this.unreadable.has(kind);
+  }
+
   resolveTag(name: string, create: boolean): Promise<ResolveResult> {
-    return this.resolve('tag', name, create, (n) => this.client.createTag(n));
+    return this.resolve('tag', name, create, (n) => this.client.createTag(n, this.ownership()));
   }
 
   resolveCorrespondent(name: string, create: boolean): Promise<ResolveResult> {
-    return this.resolve('correspondent', name, create, (n) => this.client.createCorrespondent(n));
+    return this.resolve('correspondent', name, create, (n) => this.client.createCorrespondent(n, this.ownership()));
   }
 
   resolveDocumentType(name: string, create: boolean): Promise<ResolveResult> {
-    return this.resolve('documentType', name, create, (n) => this.client.createDocumentType(n));
+    return this.resolve('documentType', name, create, (n) => this.client.createDocumentType(n, this.ownership()));
   }
 
   resolveCustomField(name: string, create: boolean, type: PaperlessCustomFieldType = 'string', currency?: string): Promise<ResolveResult> {

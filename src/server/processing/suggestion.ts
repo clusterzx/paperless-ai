@@ -28,6 +28,23 @@ function cleanTags(v: unknown): string[] {
   return [...out.values()].slice(0, 25);
 }
 
+/** A custom field value as text: line breaks are kept (long text fields), lists and objects are flattened. */
+function fieldValue(v: unknown): string | null {
+  if (typeof v === 'boolean' || typeof v === 'number') return String(v);
+  if (Array.isArray(v)) return fieldValue(v.map((x) => fieldValue(x)).filter(Boolean).join(', '));
+  if (v && typeof v === 'object') {
+    const parts = Object.entries(v).map(([k, x]) => [k, fieldValue(x)] as const).filter(([, x]) => x);
+    return fieldValue(parts.map(([k, x]) => `${k}: ${x}`).join('\n'));
+  }
+  if (typeof v !== 'string') return null;
+  const s = v
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return EMPTY.test(s) ? null : s.slice(0, 5000);
+}
+
 function cleanCustomFields(v: unknown): { field_name: string; value: string }[] {
   const entries: { field_name: unknown; value: unknown }[] = [];
   if (Array.isArray(v)) {
@@ -41,8 +58,7 @@ function cleanCustomFields(v: unknown): { field_name: string; value: string }[] 
   const out: { field_name: string; value: string }[] = [];
   for (const e of entries) {
     const name = cleanString(e.field_name ?? (e as { name?: unknown }).name, 128);
-    const raw = typeof e.value === 'boolean' ? String(e.value) : e.value;
-    const value = cleanString(raw, 1000);
+    const value = fieldValue(e.value);
     if (!name || !value || /fill in the value/i.test(value)) continue;
     if (!out.some((o) => o.field_name.toLowerCase() === name.toLowerCase())) out.push({ field_name: name, value });
   }

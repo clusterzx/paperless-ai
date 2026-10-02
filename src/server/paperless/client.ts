@@ -264,12 +264,12 @@ export class PaperlessClient {
     return this.req<PaperlessTag>('/tags/', { method: 'POST', body: { name, matching_algorithm: 0, ...extra } });
   }
 
-  createCorrespondent(name: string): Promise<PaperlessCorrespondent> {
-    return this.req<PaperlessCorrespondent>('/correspondents/', { method: 'POST', body: { name, matching_algorithm: 0 } });
+  createCorrespondent(name: string, extra: Partial<PaperlessCorrespondent> = {}): Promise<PaperlessCorrespondent> {
+    return this.req<PaperlessCorrespondent>('/correspondents/', { method: 'POST', body: { name, matching_algorithm: 0, ...extra } });
   }
 
-  createDocumentType(name: string): Promise<PaperlessDocumentType> {
-    return this.req<PaperlessDocumentType>('/document_types/', { method: 'POST', body: { name, matching_algorithm: 0 } });
+  createDocumentType(name: string, extra: Partial<PaperlessDocumentType> = {}): Promise<PaperlessDocumentType> {
+    return this.req<PaperlessDocumentType>('/document_types/', { method: 'POST', body: { name, matching_algorithm: 0, ...extra } });
   }
 
   createCustomField(name: string, dataType: PaperlessCustomFieldType, currency?: string): Promise<PaperlessCustomField> {

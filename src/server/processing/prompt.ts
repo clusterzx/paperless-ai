@@ -17,6 +17,8 @@ export interface PromptContext {
   documentTypes: string[];
   /** Custom fields that may be filled. */
   customFields: CustomFieldConfig[];
+  /** Options of select fields in Paperless, by field name. */
+  selectOptions?: Record<string, string[]>;
   /** Data fetched from the external API (already transformed). */
   externalData?: unknown;
 }
@@ -24,6 +26,13 @@ export interface PromptContext {
 export interface PromptOptions {
   /** Replaces the configured system prompt (webhook `prompt`, playground). */
   customPrompt?: string;
+  /** Date the document is analysed (YYYY-MM-DD) – document dates cannot lie after it. Default: today. */
+  today?: string;
+}
+
+/** Today in the server's time zone as YYYY-MM-DD. */
+export function localDate(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 const MAX_LIST_TOKENS = 3000;
@@ -120,9 +129,12 @@ export function buildJsonSchema(p: Processing, ctx: PromptContext): Record<strin
   return { type: 'object', properties, required, additionalProperties: false };
 }
 
-function fieldHint(c: CustomFieldConfig): string {
+function fieldHint(c: CustomFieldConfig, ctx: PromptContext): string {
+  const options = Object.entries(ctx.selectOptions ?? {}).find(([name]) => name.toLowerCase() === c.name.toLowerCase())?.[1];
   const type: Record<CustomFieldConfig['type'], string> = {
-    string: 'text',
+    string: 'short text (max. 128 characters)',
+    longtext: 'text, may span several lines',
+    select: options?.length ? `exactly one of: ${options.map((o) => JSON.stringify(o)).join(', ')}` : 'one of the options of this field',
     integer: 'whole number',
     float: 'decimal number with "." as decimal separator',
     monetary: `amount as decimal number with "." as decimal separator, no currency symbol${c.currency ? ` (currency ${c.currency})` : ''}`,
@@ -152,9 +164,14 @@ export function buildOutputInstructions(p: Processing, ctx: PromptContext): stri
     '- Tags, title and document type MUST be written in the language of the document.',
     '- Use an empty string for values that cannot be determined. Never ask questions.',
   ];
+  if (f.documentDate) {
+    lines.push(
+      '- document_date: the date the document was written or issued – not a due date, payment deadline, delivery or service period. It cannot be later than today (see the date above the document).',
+    );
+  }
   if (f.customFields) {
     lines.push('- custom_fields: only include fields whose value is present in the document. Available fields:');
-    lines.push(...p.customFields.map(fieldHint));
+    lines.push(...p.customFields.map((c) => fieldHint(c, ctx)));
   }
   const allowed = allowedTags(p, ctx);
   if (f.tags && allowed) lines.push(`- tags: ONLY use tags from this list: ${joinLimited(allowed, MAX_LIST_TOKENS)}`);
@@ -228,7 +245,8 @@ export function buildAnalysisPrompt(
   opts: PromptOptions & { filename?: string | null } = {},
 ): BuiltPrompt {
   const system = buildSystemPrompt(cfg.processing, ctx, opts);
-  const header = opts.filename ? `Original file name: ${opts.filename}\n\n` : '';
+  // Today's date goes into the user message, so the system prompt stays the same (and cacheable).
+  const header = `Today's date: ${opts.today ?? localDate()}\n${opts.filename ? `Original file name: ${opts.filename}\n` : ''}\n`;
   const wrapperTokens = estimateTokens(`${header}Document content:\n"""\n\n"""`) + 16;
   const contextWindow = contextBudget(cfg.ai);
   const budget = contextWindow - cfg.ai.responseTokens - estimateTokens(system) - wrapperTokens;

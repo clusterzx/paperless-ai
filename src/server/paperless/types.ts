@@ -40,18 +40,21 @@ export interface PaperlessTag {
   is_inbox_tag?: boolean;
   parent?: number | null;
   matching_algorithm?: number;
+  owner?: number | null;
 }
 
 export interface PaperlessCorrespondent {
   id: number;
   name: string;
   document_count?: number;
+  owner?: number | null;
 }
 
 export interface PaperlessDocumentType {
   id: number;
   name: string;
   document_count?: number;
+  owner?: number | null;
 }
 
 export type PaperlessCustomFieldType =

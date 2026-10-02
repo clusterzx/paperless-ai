@@ -22,6 +22,8 @@ export interface MockPaperlessOptions {
   /** Value of the X-Version response header. */
   serverVersion?: string;
   user?: { id: number; username: string; is_superuser?: boolean };
+  /** Lists the API user may not read (HTTP 403), like without the view permission. */
+  forbidden?: ('correspondents' | 'document_types' | 'custom_fields')[];
 }
 
 export interface MockDoc {
@@ -46,6 +48,8 @@ export interface MockNamed {
   name: string;
   matching_algorithm?: number;
   color?: string;
+  /** Like Paperless: the creating user unless `owner` is sent explicitly. */
+  owner?: number | null;
 }
 
 export interface MockCustomField {
@@ -102,7 +106,11 @@ export class MockPaperless {
     this.defaultVersion = opts.defaultVersion ?? this.minVersion;
     this.serverVersion = opts.serverVersion ?? (this.maxVersion >= 10 ? '3.0.0' : this.maxVersion >= 9 ? '2.20.0' : '2.14.7');
     this.user = opts.user ?? { id: 3, username: 'paperless-ai', is_superuser: false };
+    this.forbidden = new Set(opts.forbidden ?? []);
   }
+
+  /** Lists that answer 403 (can be changed during a test). */
+  forbidden: Set<string>;
 
   // ------------------------------------------------------------------ lifecycle
 
@@ -305,6 +313,7 @@ export class MockPaperless {
     }
     if ((m = /^\/api\/(tags|correspondents|document_types|custom_fields)\/$/.exec(path))) {
       const collection = m[1] as Collection;
+      if (this.forbidden.has(collection)) return send(403, { detail: 'You do not have permission to perform this action.' });
       if (record.method === 'GET') return send(200, this.listCollection(collection, q, version, u));
       if (record.method === 'POST') return this.create(collection, body as Record<string, unknown>, send);
     }
@@ -426,9 +435,28 @@ export class MockPaperless {
       const f = this.addCustomField(name, String(body.data_type ?? 'string'), (body.extra_data as Record<string, unknown>) ?? null);
       return send(201, { ...f, document_count: 0 });
     }
-    const item: MockNamed = { id: this.nextId++, name, matching_algorithm: Number(body.matching_algorithm ?? 1) };
+    const item: MockNamed = {
+      id: this.nextId++,
+      name,
+      matching_algorithm: Number(body.matching_algorithm ?? 1),
+      owner: 'owner' in body ? (body.owner as number | null) : this.user.id,
+    };
     map.set(item.id, item);
     return send(201, { ...item, document_count: 0 });
+  }
+
+  private customFieldError(field: MockCustomField, value: unknown): Record<string, string[]> {
+    if (value === null) return {};
+    switch (field.data_type) {
+      case 'string':
+        return typeof value === 'string' && value.length <= 128 ? {} : { non_field_errors: ['Ensure this field has no more than 128 characters.'] };
+      case 'monetary':
+        return typeof value === 'string' && /^([A-Z]{3})?-?\d+(\.\d{1,2})?$/.test(value) ? {} : { non_field_errors: ['Invalid monetary value'] };
+      case 'url':
+        return typeof value === 'string' && /^[a-z][a-z0-9+.-]*:\/\/[^\s]+$/i.test(value) ? {} : { non_field_errors: ['Enter a valid URL.'] };
+      default:
+        return {};
+    }
   }
 
   private patchDocument(doc: MockDoc, body: Record<string, unknown>, version: number, send: (s: number, p: unknown) => void): void {
@@ -470,7 +498,12 @@ export class MockPaperless {
     if ('custom_fields' in body) {
       const cf = body.custom_fields as { field: number; value: unknown }[];
       if (!Array.isArray(cf) || cf.some((f) => !this.customFields.has(Number(f?.field)))) errors.custom_fields = ['Invalid custom field'];
-      else next.custom_fields = cf.map((f) => ({ field: Number(f.field), value: f.value }));
+      else {
+        // Per-field validation like Paperless: one entry per submitted field, empty when valid.
+        const fieldErrors = cf.map((f) => this.customFieldError(this.customFields.get(Number(f.field))!, f.value));
+        if (fieldErrors.some((e) => Object.keys(e).length)) (errors as Record<string, unknown>).custom_fields = fieldErrors;
+        else next.custom_fields = cf.map((f) => ({ field: Number(f.field), value: f.value }));
+      }
     }
     if (Object.keys(errors).length) return send(400, errors);
     Object.assign(doc, next, { modified: this.tick() });

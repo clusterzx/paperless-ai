@@ -137,6 +137,8 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'USE_PROMPT_TAGS', path: 'processing.usePromptTags', parse: b },
   { env: 'PROMPT_TAGS', path: 'processing.promptTags', parse: (v) => parseList(v) },
   { env: 'USE_EXISTING_DATA', path: 'processing.useExistingData', parse: b },
+  { env: 'OVERWRITE_CORRESPONDENT', path: 'processing.overwriteCorrespondent', parse: b },
+  { env: 'SHARE_CREATED_OBJECTS', path: 'processing.shareCreatedObjects', parse: b },
   { env: 'SYSTEM_PROMPT', path: 'processing.systemPrompt', parse: (v) => decodeLegacyPrompt(v) || undefined },
   { env: 'ACTIVATE_TAGGING', path: 'processing.functions.tags', parse: b },
   { env: 'ACTIVATE_CORRESPONDENTS', path: 'processing.functions.correspondent', parse: b },

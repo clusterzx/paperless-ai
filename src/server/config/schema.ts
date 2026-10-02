@@ -29,7 +29,7 @@ const tagList = z
   .default([])
   .transform((tags) => [...new Set(tags)]);
 
-export const CUSTOM_FIELD_TYPES = ['string', 'integer', 'float', 'monetary', 'date', 'boolean', 'url'] as const;
+export const CUSTOM_FIELD_TYPES = ['string', 'longtext', 'integer', 'float', 'monetary', 'date', 'boolean', 'url', 'select'] as const;
 
 export const customFieldSchema = z.object({
   name: z.string().trim().min(1).max(128),
@@ -129,6 +129,10 @@ export const configSchema = z.object({
       promptTags: tagList,
       /** Send existing tags/correspondents/document types to the AI. */
       useExistingData: bool(false),
+      /** Replace a correspondent that is already set (otherwise only empty correspondents are filled). */
+      overwriteCorrespondent: bool(false),
+      /** Tags, correspondents and document types created by the AI get no owner, so all Paperless users can use them. */
+      shareCreatedObjects: bool(true),
       systemPrompt: z.string().default(DEFAULT_SYSTEM_PROMPT),
       functions: z
         .object({

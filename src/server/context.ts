@@ -78,7 +78,8 @@ export class AppContext {
     const key = `${this.cfg.paperless.url}|${this.cfg.paperless.token}`;
     if (this.paperlessCache?.key !== key) {
       const client = new PaperlessClient({ url: this.cfg.paperless.url, token: this.cfg.paperless.token });
-      this.paperlessCache = { key, client, metadata: new PaperlessMetadata(client) };
+      const metadata = new PaperlessMetadata(client, undefined, { shareCreated: () => this.cfg.processing.shareCreatedObjects });
+      this.paperlessCache = { key, client, metadata };
     }
     return this.paperlessCache;
   }

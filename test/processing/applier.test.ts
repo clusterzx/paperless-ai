@@ -42,6 +42,8 @@ describe('convertCustomFieldValue', () => {
   it('string / longtext', () => {
     expect(convertCustomFieldValue(field('string'), '  hello ')).toBe('hello');
     expect(convertCustomFieldValue(field('string'), 'x'.repeat(200))).toHaveLength(128);
+    expect(convertCustomFieldValue(field('string'), 'two\nlines')).toBe('two lines');
+    expect(convertCustomFieldValue(field('longtext'), 'two\nlines')).toBe('two\nlines');
     expect(convertCustomFieldValue(field('longtext'), 'y'.repeat(500))).toHaveLength(500);
   });
 
@@ -49,6 +51,8 @@ describe('convertCustomFieldValue', () => {
     expect(convertCustomFieldValue(field('url'), 'https://example.com/a')).toBe('https://example.com/a');
     expect(convertCustomFieldValue(field('url'), 'www.example.com')).toBe('https://www.example.com');
     expect(convertCustomFieldValue(field('url'), 'not a url')).toBeUndefined();
+    expect(convertCustomFieldValue(field('url'), 'https://exa mple.com')).toBeUndefined();
+    expect(convertCustomFieldValue(field('url'), 'https://')).toBeUndefined();
   });
 
   it('date', () => {

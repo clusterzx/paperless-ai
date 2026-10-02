@@ -79,6 +79,16 @@ describe('enabledFields / buildJsonSchema', () => {
     expect(instructions).toContain('(currency EUR)');
     expect(instructions).toContain('"custom_fields"');
   });
+
+  it('lists the options of select fields and explains long text fields', () => {
+    const cfg = config({
+      processing: { customFields: [{ name: 'Status', type: 'select' }, { name: 'Notes', type: 'longtext' }, { name: 'Ref', type: 'string' }] },
+    });
+    const instructions = buildOutputInstructions(cfg.processing, { ...ctx, selectOptions: { status: ['Open', 'Paid'] } });
+    expect(instructions).toContain('"Status": exactly one of: "Open", "Paid"');
+    expect(instructions).toContain('"Notes": text, may span several lines');
+    expect(instructions).toContain('"Ref": short text (max. 128 characters)');
+  });
 });
 
 describe('buildSystemPrompt', () => {
@@ -144,11 +154,16 @@ describe('buildAnalysisPrompt', () => {
   const content = Array.from({ length: 20_000 }, (_, i) => `word${i}`).join(' ');
 
   it('keeps short documents complete', () => {
-    const built = buildAnalysisPrompt(config(), 'A short invoice from ACME.', ctx, { filename: 'scan.pdf' });
+    const built = buildAnalysisPrompt(config(), 'A short invoice from ACME.', ctx, { filename: 'scan.pdf', today: '2026-10-02' });
     expect(built.truncated).toBe(false);
     expect(built.messages).toHaveLength(2);
     expect(built.messages[0].role).toBe('system');
-    expect(built.messages[1].content).toBe('Original file name: scan.pdf\n\nDocument content:\n"""\nA short invoice from ACME.\n"""');
+    expect(built.messages[1].content).toBe(
+      "Today's date: 2026-10-02\nOriginal file name: scan.pdf\n\nDocument content:\n\"\"\"\nA short invoice from ACME.\n\"\"\"",
+    );
+    // the system prompt does not change from day to day (prompt caching)
+    expect(built.messages[0].content).toBe(buildAnalysisPrompt(config(), 'Other text', ctx, { today: '2027-01-01' }).messages[0].content);
+    expect(built.messages[0].content).toContain('not a due date');
     expect(built.schema).toEqual(buildJsonSchema(config().processing, ctx));
   });
 

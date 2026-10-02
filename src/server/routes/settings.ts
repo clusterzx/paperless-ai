@@ -83,7 +83,9 @@ export const settingsRoutes =
             const meta = ctx.metadata();
             await meta.snapshot(true);
             for (const f of ctx.cfg.processing.customFields) {
-              await meta.resolveCustomField(f.name, true, f.type, f.currency);
+              // Select fields need options, which are maintained in Paperless.
+              const res = await meta.resolveCustomField(f.name, f.type !== 'select', f.type, f.currency);
+              if (res.id == null) warnings.push(`Select field "${f.name}" does not exist in Paperless – create it there with its options.`);
             }
           } catch (err) {
             warnings.push(`Custom fields could not be created in Paperless: ${describeError(err)}`);

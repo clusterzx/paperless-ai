@@ -501,6 +501,22 @@ export function FunctionsSection({ draft, set, locked }: SectionProps) {
           />
         ))}
       </div>
+      <div className="grid gap-x-8 gap-y-4 border-t border-border pt-5 sm:grid-cols-2">
+        <Switch
+          label="Overwrite existing correspondents"
+          description="Off: the AI only fills in empty correspondents and keeps the ones set by you or Paperless' matching."
+          checked={p.overwriteCorrespondent}
+          locked={locked['processing.overwriteCorrespondent']}
+          onChange={(v) => set('processing.overwriteCorrespondent', v)}
+        />
+        <Switch
+          label="Share created tags, correspondents and types"
+          description="New objects get no owner, so every Paperless user can see and use them. Off: they belong to the API user."
+          checked={p.shareCreatedObjects}
+          locked={locked['processing.shareCreatedObjects']}
+          onChange={(v) => set('processing.shareCreatedObjects', v)}
+        />
+      </div>
       <div className="border-t border-border pt-5">
         <h3 className="mb-1 text-sm font-semibold text-fg">Restrict the AI to existing values</h3>
         <p className="mb-4 text-xs text-muted">The AI only uses values that already exist in Paperless instead of creating new ones.</p>
@@ -575,6 +591,8 @@ export function PromptSection({ draft, set, locked, defaultPrompt, tagSuggestion
 
 const FIELD_TYPES: { value: Config['processing']['customFields'][number]['type']; label: string }[] = [
   { value: 'string', label: 'Text' },
+  { value: 'longtext', label: 'Long text' },
+  { value: 'select', label: 'Select' },
   { value: 'integer', label: 'Integer' },
   { value: 'float', label: 'Number' },
   { value: 'monetary', label: 'Monetary' },
@@ -647,7 +665,9 @@ export function CustomFieldsSection({ draft, set, locked }: SectionProps) {
       <Button icon={<Plus className="size-4" />} disabled={disabled} onClick={() => update([...fields, { name: '', type: 'string', description: '' }])}>
         Add custom field
       </Button>
-      <p className="text-xs text-muted">Fields that do not exist in Paperless yet are created when you save.</p>
+      <p className="text-xs text-muted">
+        Fields that do not exist in Paperless yet are created when you save. Select fields must exist in Paperless – the AI picks one of their options.
+      </p>
     </div>
   );
 }

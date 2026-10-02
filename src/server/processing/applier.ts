@@ -8,7 +8,9 @@ import type { DocumentPatch } from '../paperless/client.js';
 import { normalizeName } from '../paperless/metadata.js';
 import type { PaperlessCustomField, PaperlessCustomFieldType, PaperlessDocument } from '../paperless/types.js';
 import { logger } from '../logger.js';
+import { PaperlessError } from '../paperless/client.js';
 import { datePart, normalizeDate } from './dates.js';
+import { localDate } from './prompt.js';
 
 const log = logger.child({ module: 'applier' });
 
@@ -58,11 +60,15 @@ export function convertCustomFieldValue(field: PaperlessCustomField, value: stri
   const v = value.trim();
   switch (field.data_type) {
     case 'string':
-      return v.slice(0, 128);
+      return v.replace(/\s+/g, ' ').slice(0, 128);
     case 'longtext':
       return v;
-    case 'url':
-      return /^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : /^www\./i.test(v) ? `https://${v}` : undefined;
+    case 'url': {
+      const url = /^www\./i.test(v) ? `https://${v}` : v;
+      // Paperless validates URLs strictly – an invalid one would make it reject the whole update.
+      if (/\s/.test(url) || !/^[a-z][a-z0-9+.-]*:\/\/[^/]/i.test(url) || !URL.canParse(url)) return undefined;
+      return url;
+    }
     case 'date':
       return normalizeDate(v) ?? undefined;
     case 'boolean':
@@ -119,9 +125,11 @@ async function resolveCustomFields(
     if (onlyConfigured && !configured) continue;
     try {
       const type = (configured?.type ?? 'string') as PaperlessCustomFieldType;
-      const res = await meta.resolveCustomField(configured?.name ?? field_name, Boolean(configured), type, configured?.currency);
+      // Select fields need their options – those are defined in Paperless.
+      const create = Boolean(configured) && type !== 'select';
+      const res = await meta.resolveCustomField(configured?.name ?? field_name, create, type, configured?.currency);
       if (res.id == null) {
-        notes.push(`Custom field "${field_name}" does not exist in Paperless`);
+        notes.push(`Custom field "${field_name}" does not exist in Paperless${type === 'select' ? ' (create select fields with their options in Paperless)' : ''}`);
         continue;
       }
       const field = meta.customField(res.id) ?? { id: res.id, name: res.name, data_type: type };
@@ -180,7 +188,9 @@ export async function planAutomaticUpdate(ctx: AppContext, doc: PaperlessDocumen
   }
 
   if (p.functions.documentDate && s.document_date && s.document_date !== datePart(doc.created_date ?? doc.created)) {
-    patch.created = s.document_date;
+    // A document cannot be written in the future – that is a due date or a misread year (one day of slack for time zones).
+    if (s.document_date > localDate(new Date(Date.now() + 86_400_000))) notes.push(`Ignored document date ${s.document_date} (in the future)`);
+    else patch.created = s.document_date;
   }
 
   let documentType = meta.documentTypeName(doc.document_type);
@@ -195,14 +205,14 @@ export async function planAutomaticUpdate(ctx: AppContext, doc: PaperlessDocumen
 
   let correspondent = meta.correspondentName(doc.correspondent);
   if (p.functions.correspondent && s.correspondent) {
-    if (doc.correspondent) {
+    if (doc.correspondent && !p.overwriteCorrespondent) {
       if (normalizeName(correspondent ?? '') !== normalizeName(s.correspondent)) {
         notes.push(`Kept existing correspondent "${correspondent}" (AI suggested "${s.correspondent}")`);
       }
     } else {
       const res = await meta.resolveCorrespondent(s.correspondent, !p.restrict.correspondents);
       if (res.id == null) notes.push(`Correspondent "${s.correspondent}" does not exist (restricted to existing correspondents)`);
-      else {
+      else if (res.id !== doc.correspondent) {
         correspondent = res.name;
         patch.correspondent = res.id;
       }
@@ -285,8 +295,17 @@ export interface ApplyMeta {
 
 /** PATCH the document, then record history and processing state (only after success). */
 export async function applyPlannedUpdate(ctx: AppContext, doc: PaperlessDocument, plan: PlannedUpdate, info: ApplyMeta): Promise<PaperlessDocument> {
+  let updated = doc;
+  if (Object.keys(plan.patch).length) {
+    try {
+      updated = await ctx.paperless().updateDocument(doc.id, plan.patch);
+    } catch (err) {
+      // One unacceptable custom field value must not cost the title, tags and correspondent.
+      if (!withoutRejectedCustomFields(err, plan)) throw err;
+      updated = Object.keys(plan.patch).length ? await ctx.paperless().updateDocument(doc.id, plan.patch) : doc;
+    }
+  }
   const hasChanges = Object.keys(plan.patch).length > 0;
-  const updated = hasChanges ? await ctx.paperless().updateDocument(doc.id, plan.patch) : doc;
   try {
     // Undo snapshot and processing state are stored together (or not at all).
     ctx.db.transaction(() => recordApplied(ctx, doc, updated, plan, info, hasChanges))();
@@ -301,6 +320,28 @@ export async function applyPlannedUpdate(ctx: AppContext, doc: PaperlessDocument
   }
   if (plan.notes.length) log.info({ documentId: doc.id, notes: plan.notes }, `Document ${doc.id}: ${plan.notes.join('; ')}`);
   return updated;
+}
+
+/**
+ * Paperless rejected the custom field values (400 with a `custom_fields` error): remove the
+ * rejected ones – or all, if the response does not say which – from the plan. Returns false for
+ * other errors.
+ */
+function withoutRejectedCustomFields(err: unknown, plan: PlannedUpdate): boolean {
+  const fields = plan.patch.custom_fields;
+  if (!fields || !(err instanceof PaperlessError) || err.status !== 400) return false;
+  const body = (err.cause as { body?: unknown } | undefined)?.body as { custom_fields?: unknown } | undefined;
+  if (!body || typeof body !== 'object' || !('custom_fields' in body)) return false;
+  const errors = Array.isArray(body.custom_fields) ? body.custom_fields : null;
+  // Paperless answers with one entry per submitted field – empty for the valid ones.
+  const rejected = (i: number) => !errors || errors.length !== fields.length || Boolean(errors[i] && Object.keys(errors[i] as object).length);
+  const kept = fields.filter((_, i) => !rejected(i));
+  if (kept.length && kept.length < fields.length) plan.patch.custom_fields = kept;
+  else delete plan.patch.custom_fields;
+  const dropped = fields.filter((f) => !plan.patch.custom_fields?.includes(f)).map((f) => f.field);
+  plan.notes.push(`Paperless rejected custom field values (${JSON.stringify(body.custom_fields).slice(0, 300)}) – saved without them`);
+  log.warn(`Document custom fields ${dropped.join(', ')} were rejected by Paperless – saving the other changes`);
+  return true;
 }
 
 function recordApplied(ctx: AppContext, doc: PaperlessDocument, updated: PaperlessDocument, plan: PlannedUpdate, info: ApplyMeta, hasChanges: boolean): void {
