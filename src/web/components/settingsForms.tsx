@@ -141,7 +141,8 @@ const PROVIDERS: { id: Config['ai']['provider']; label: string; description: str
   { id: 'azure', label: 'Azure OpenAI', description: 'Deployments in Azure', icon: <Cloud className="size-5" /> },
 ];
 
-const OPENAI_MODELS = ['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4.1', 'gpt-4o', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5', 'o4-mini'];
+// Suggestions only – "Load" lists every model of the account.
+const OPENAI_MODELS = ['gpt-5-mini', 'gpt-5-nano', 'gpt-5.5', 'gpt-5.4', 'gpt-5', 'gpt-4.1-mini', 'gpt-4o-mini'];
 
 export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiBase: ApiBase }) {
   const test = useTest();
@@ -221,7 +222,7 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
             <Field label="API key" locked={locked['ai.openai.apiKey']}>
               <SecretInput value={draft.ai.openai.apiKey} onChange={(v) => set('ai.openai.apiKey', v)} disabled={Boolean(locked['ai.openai.apiKey'])} placeholder="sk-…" />
             </Field>
-            {modelInput('Model', 'gpt-4o-mini', 'gpt-4o-mini and gpt-4.1-mini offer the best value for document analysis.')}
+            {modelInput('Model', 'gpt-5-mini', 'gpt-5-mini offers the best value for document analysis. Reasoning models (GPT-5.x, o-series) work with low reasoning effort.')}
           </>
         )}
         {provider === 'ollama' && (

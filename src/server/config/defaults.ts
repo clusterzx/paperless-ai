@@ -41,7 +41,7 @@ For the language:
 
 export const DEFAULT_SCAN_INTERVAL = '*/30 * * * *';
 export const DEFAULT_PROCESSED_TAG = 'ai-processed';
-export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
+export const DEFAULT_OPENAI_MODEL = 'gpt-5-mini';
 export const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 export const DEFAULT_OLLAMA_MODEL = 'llama3.2';
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21';

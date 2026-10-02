@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { OpenAiCompatibleClient, OpenAiEmbeddingClient } from '../../src/server/ai/openai.js';
+import { OpenAiCompatibleClient, OpenAiEmbeddingClient, REASONING_RESERVE } from '../../src/server/ai/openai.js';
 import { azureDeploymentUrl, createLlmClient, aiConfigProblem, embeddingPrefix } from '../../src/server/ai/factory.js';
 import { configSchema } from '../../src/server/config/schema.js';
 import { AiError, type StreamChunk } from '../../src/server/ai/types.js';
@@ -91,11 +91,55 @@ describe('OpenAiCompatibleClient.complete', () => {
     expect(bodies[2]).not.toHaveProperty('max_tokens');
   });
 
-  it('uses max_completion_tokens and no temperature for official reasoning models', () => {
+  it('gives reasoning models room for their reasoning, low effort and no temperature', () => {
     // body construction only (no request is sent to api.openai.com)
-    const c = new OpenAiCompatibleClient({ provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'o3-mini', contextWindow: 1000 });
-    const body = (c as unknown as { buildBody: (m: unknown, o: unknown, s: boolean) => Record<string, unknown> }).buildBody(messages, { maxTokens: 10, temperature: 0.5 }, false);
-    expect(body).toEqual({ messages, model: 'o3-mini', max_completion_tokens: 10 });
+    const bodyFor = (model: string, baseUrl = 'https://api.openai.com/v1') => {
+      const c = new OpenAiCompatibleClient({ provider: 'openai', baseUrl, model, contextWindow: 1000 });
+      return (c as unknown as { buildBody: (m: unknown, o: unknown, s: boolean) => Record<string, unknown> }).buildBody(messages, { maxTokens: 10, temperature: 0.5 }, false);
+    };
+    for (const model of ['o3-mini', 'o4-mini', 'gpt-5', 'gpt-5-mini', 'gpt-5.5', 'gpt-5.6-sol', 'gpt-6-luna']) {
+      expect(bodyFor(model), model).toEqual({ messages, model, max_completion_tokens: 10 + REASONING_RESERVE, reasoning_effort: 'low' });
+    }
+    // also behind routers (OpenRouter: "openai/gpt-5-mini")
+    expect(bodyFor('openai/gpt-5-mini', 'https://openrouter.ai/api/v1')).toMatchObject({ max_completion_tokens: 10 + REASONING_RESERVE, reasoning_effort: 'low' });
+    // classic models keep their exact limit and temperature
+    for (const model of ['gpt-4.1', 'gpt-4o-mini', 'gpt-4.1-nano']) {
+      expect(bodyFor(model), model).toEqual({ messages, model, temperature: 0.5, max_completion_tokens: 10 });
+    }
+  });
+
+  it('retries with a reasoning budget when the answer was cut off before it started', async () => {
+    // A reasoning model the client does not know by name spends the whole budget on reasoning.
+    llm.reply((req) => (Number(req.body.max_tokens) <= 100 ? { content: '', finishReason: 'length' } : '{"title":"after reasoning"}'));
+    const res = await client('my-thinking-model').complete(messages, { maxTokens: 100, jsonSchema: schema });
+    expect(res.text).toBe('{"title":"after reasoning"}');
+    expect(chatBodies().map((b) => b.max_tokens)).toEqual([100, 100 + REASONING_RESERVE]);
+    // remembered for the next request
+    await client('my-thinking-model').complete(messages, { maxTokens: 100 });
+    expect(chatBodies()[2].max_tokens).toBe(100 + REASONING_RESERVE);
+  });
+
+  it('explains an answer that never started instead of returning nothing', async () => {
+    llm.reply({ content: '', finishReason: 'length' });
+    const err = await client('gpt-5-mini').complete(messages, { maxTokens: 100 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiError);
+    expect((err as Error).message).toMatch(/whole output budget \(16484 tokens\).*Answer tokens/);
+    expect(chatBodies()).toHaveLength(1);
+  });
+
+  it('drops reasoning_effort when the model does not accept it and respects output limits', async () => {
+    llm.reply((req) => {
+      if ('reasoning_effort' in req.body) {
+        return { status: 400, error: { error: { message: "Unsupported value: 'reasoning_effort' does not support 'low' with this model. Supported values are: 'medium'." } } };
+      }
+      if (Number(req.body.max_completion_tokens) > 8192) {
+        return { status: 400, error: { error: { message: 'max_completion_tokens is too large: 17384. This model supports at most 8192 completion tokens, whereas you provided 17384.' } } };
+      }
+      return 'fine';
+    });
+    const res = await client('gpt-5.2-chat-latest').complete(messages, { maxTokens: 1000 });
+    expect(res.text).toBe('fine');
+    expect(chatBodies().at(-1)).toEqual({ model: 'gpt-5.2-chat-latest', messages, max_completion_tokens: 8192 });
   });
 
   it('wraps HTTP errors into AiError with hints', async () => {
@@ -152,6 +196,17 @@ describe('OpenAiCompatibleClient.stream', () => {
     expect(text).toBe('ok');
     expect(chunks.some((c) => c.type === 'usage')).toBe(false);
     expect(chatBodies()).toHaveLength(2);
+  });
+
+  it('reports a stream that was cut off before the answer started', async () => {
+    llm.reply({ content: '', finishReason: 'length' });
+    const err = await collect(client('stream-thinker').stream(messages, { maxTokens: 50 })).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiError);
+    expect((err as Error).message).toMatch(/whole output budget/);
+    // the next request reserves room for the reasoning
+    llm.reply('ok');
+    await collect(client('stream-thinker').stream(messages, { maxTokens: 50 }));
+    expect(chatBodies().at(-1)!.max_tokens).toBe(50 + REASONING_RESERVE);
   });
 
   it('raises errors sent inside the stream', async () => {

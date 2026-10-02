@@ -69,6 +69,27 @@ describe('OllamaClient.complete', () => {
     expect(llm.chatRequests()[0].path).toBe('/api/chat');
   });
 
+  it('gives thinking models room to think when the answer was cut off', async () => {
+    // qwen3 & co. spend num_predict on thinking first; the answer never starts.
+    llm.reply((req) => {
+      const opts = req.body.options as { num_predict?: number };
+      return (opts.num_predict ?? 0) <= 300 ? { content: '', finishReason: 'length' } : '{"title":"after thinking"}';
+    });
+    const c = client({ model: 'qwen3:8b' });
+    const res = await c.complete(messages, { maxTokens: 300, jsonSchema: schema });
+    expect(res.text).toBe('{"title":"after thinking"}');
+    const opts = chatBodies().map((b) => b.options as { num_predict: number; num_ctx: number });
+    expect(opts.map((o) => o.num_predict)).toEqual([300, 300 + 8192]);
+    expect(opts[1].num_ctx).toBeGreaterThan(300 + 8192);
+    // learned: the next request reserves the room right away
+    await c.complete(messages, { maxTokens: 300 });
+    expect((chatBodies()[2].options as { num_predict: number }).num_predict).toBe(300 + 8192);
+
+    // still nothing → a helpful error instead of an empty answer
+    llm.reply({ content: '', finishReason: 'length' });
+    await expect(c.complete(messages, { maxTokens: 300 })).rejects.toThrow(/whole output budget/);
+  });
+
   it('falls back to format "json" when the server does not support schemas', async () => {
     await llm.close();
     llm = await new MockLlm({ rejectOllamaSchemaFormat: true }).start();

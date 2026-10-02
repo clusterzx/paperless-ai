@@ -37,10 +37,16 @@ interface OllamaChatResponse {
   model?: string;
   message?: { role: string; content: string; thinking?: string };
   done?: boolean;
+  done_reason?: string;
   prompt_eval_count?: number;
   eval_count?: number;
   error?: string;
 }
+
+/** Models that think before answering (qwen3, gpt-oss, deepseek-r1 …) – learned from their responses. */
+const thinkingModels = new Set<string>();
+/** Extra num_predict for the thinking of such models. */
+const THINKING_RESERVE = 8192;
 
 export class OllamaClient implements LlmClient {
   readonly provider = 'ollama';
@@ -69,9 +75,11 @@ export class OllamaClient implements LlmClient {
   }
 
   private buildBody(messages: ChatMessage[], opts: CompletionOptions, stream: boolean) {
-    const options: Record<string, unknown> = { num_ctx: this.numCtx(messages, opts.maxTokens) };
+    // num_predict also covers the thinking of thinking models – give them room for it.
+    const maxTokens = opts.maxTokens && thinkingModels.has(this.key) ? opts.maxTokens + THINKING_RESERVE : opts.maxTokens;
+    const options: Record<string, unknown> = { num_ctx: this.numCtx(messages, maxTokens) };
     if (opts.temperature !== undefined) options.temperature = opts.temperature;
-    if (opts.maxTokens) options.num_predict = opts.maxTokens;
+    if (maxTokens) options.num_predict = maxTokens;
     const body: Record<string, unknown> = { model: this.model, messages, stream, options };
     if (opts.jsonSchema) body.format = opts.jsonSchema.schema;
     else if (opts.json) body.format = 'json';
@@ -79,8 +87,28 @@ export class OllamaClient implements LlmClient {
     return body;
   }
 
+  private get key(): string {
+    return `${this.base}|${this.model}`;
+  }
+
   async complete(messages: ChatMessage[], opts: CompletionOptions = {}): Promise<CompletionResult> {
     const started = Date.now();
+    let res = await this.chat(messages, opts);
+    if (!res.message?.content?.trim() && res.done_reason === 'length' && !thinkingModels.has(this.key)) {
+      // The token limit was used up by thinking – retry once with room for it.
+      thinkingModels.add(this.key);
+      res = await this.chat(messages, opts);
+    }
+    const text = res.message?.content ?? '';
+    if (!text.trim() && res.done_reason === 'length') {
+      throw new AiError(
+        'The model used its whole output budget before answering – usually for thinking. Increase "Answer tokens" in Settings → AI provider → Advanced or choose a model that thinks less.',
+      );
+    }
+    return { text, usage: usage(res), model: res.model ?? this.model, durationMs: Date.now() - started };
+  }
+
+  private async chat(messages: ChatMessage[], opts: CompletionOptions): Promise<OllamaChatResponse> {
     let body = this.buildBody(messages, opts, false);
     let res: OllamaChatResponse;
     try {
@@ -93,12 +121,7 @@ export class OllamaClient implements LlmClient {
       } else throw wrapOllamaError(err, this.model);
     }
     if (res.error) throw new AiError(`Ollama: ${res.error}`);
-    return {
-      text: res.message?.content ?? '',
-      usage: usage(res),
-      model: res.model ?? this.model,
-      durationMs: Date.now() - started,
-    };
+    return res;
   }
 
   private async post<T>(path: string, body: unknown, opts: CompletionOptions): Promise<T> {
@@ -135,13 +158,24 @@ export class OllamaClient implements LlmClient {
     }
     if (!res.body) throw new AiError('Ollama returned an empty stream');
     const think = new ThinkFilter();
+    let produced = false;
     for await (const chunk of parseNdjson<OllamaChatResponse>(res.body)) {
       if (chunk.error) throw new AiError(`Ollama: ${chunk.error}`);
       const text = think.push(chunk.message?.content ?? '');
-      if (text) yield { type: 'delta', text };
+      if (text) {
+        produced = true;
+        yield { type: 'delta', text };
+      }
       if (chunk.done) {
         const rest = think.flush();
-        if (rest) yield { type: 'delta', text: rest };
+        if (rest) {
+          produced = true;
+          yield { type: 'delta', text: rest };
+        }
+        if (!produced && chunk.done_reason === 'length') {
+          thinkingModels.add(this.key); // next requests get room for the thinking
+          throw new AiError('The model used its whole output budget before answering – usually for thinking. Please try again.');
+        }
         yield { type: 'usage', usage: usage(chunk) };
         break;
       }

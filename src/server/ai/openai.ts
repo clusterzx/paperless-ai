@@ -44,10 +44,24 @@ interface Capabilities {
   tokenParam: 'max_tokens' | 'max_completion_tokens' | 'none';
   temperature: boolean;
   streamUsage: boolean;
+  /** Reasoning model: the token limit also covers the hidden reasoning, so it gets extra room. */
+  reasoning: boolean;
+  /** `reasoning_effort` sent to reasoning models; null when the model/endpoint does not accept it. */
+  reasoningEffort: string | null;
+  /** Largest output the model accepts (learned from "at most N tokens" errors). */
+  maxOutput: number | null;
 }
 
 /** Capabilities learned per endpoint+model, shared across client instances. */
 const learned = new Map<string, Capabilities>();
+
+/**
+ * OpenAI reasoning models: o1/o3/o4…, gpt-5, gpt-5.x, gpt-6-… (also behind prefixes such as
+ * "openai/gpt-5-mini" on OpenRouter). Other reasoning models are detected from their responses.
+ */
+const REASONING_MODEL = /(^|\/)(o\d|gpt-([5-9]|\d{2,})(\b|[.-]))/i;
+/** Extra output budget for hidden reasoning (an upper bound – only tokens actually used are billed). */
+export const REASONING_RESERVE = 16_384;
 
 export class OpenAiCompatibleClient implements LlmClient {
   readonly provider: string;
@@ -66,12 +80,16 @@ export class OpenAiCompatibleClient implements LlmClient {
     let caps = learned.get(this.key);
     if (!caps) {
       const official = /api\.openai\.com/.test(this.opts.baseUrl) || !!this.opts.azure;
-      const reasoning = /^(o\d|gpt-5)/i.test(this.opts.model);
+      const reasoning = REASONING_MODEL.test(this.opts.model);
       caps = {
         responseFormat: 'json_schema',
-        tokenParam: official ? 'max_completion_tokens' : 'max_tokens',
+        tokenParam: official || reasoning ? 'max_completion_tokens' : 'max_tokens',
         temperature: !reasoning,
         streamUsage: true,
+        reasoning,
+        // Low effort: metadata extraction and grounded answers need little deliberation – fast and cheap.
+        reasoningEffort: reasoning ? 'low' : null,
+        maxOutput: null,
       };
       learned.set(this.key, caps);
     }
@@ -101,7 +119,11 @@ export class OpenAiCompatibleClient implements LlmClient {
     const body: Record<string, unknown> = { messages };
     if (!this.opts.azure) body.model = this.model;
     if (opts.temperature !== undefined && caps.temperature) body.temperature = opts.temperature;
-    if (opts.maxTokens && caps.tokenParam !== 'none') body[caps.tokenParam] = opts.maxTokens;
+    if (opts.maxTokens && caps.tokenParam !== 'none') {
+      const budget = caps.reasoning ? opts.maxTokens + REASONING_RESERVE : opts.maxTokens;
+      body[caps.tokenParam] = caps.maxOutput ? Math.min(budget, caps.maxOutput) : budget;
+    }
+    if (caps.reasoning && caps.reasoningEffort) body.reasoning_effort = caps.reasoningEffort;
     if (opts.jsonSchema || opts.json) {
       if (opts.jsonSchema && caps.responseFormat === 'json_schema') {
         body.response_format = {
@@ -130,6 +152,20 @@ export class OpenAiCompatibleClient implements LlmClient {
     if (body.response_format && /response_format|json_schema|json_object|structured|guided/.test(msg)) {
       caps.responseFormat = caps.responseFormat === 'json_schema' ? 'json_object' : 'none';
       return true;
+    }
+    if (body.reasoning_effort && /reasoning_effort|reasoning effort|reasoning\.effort/.test(msg)) {
+      // Unsupported value (e.g. a model that only accepts its default) or unknown parameter.
+      caps.reasoningEffort = null;
+      return true;
+    }
+    // "max_completion_tokens is too large: 20000. This model supports at most 16384 completion tokens"
+    const limit = /at most (\d+)/.exec(msg);
+    if (limit && /max_(completion_)?tokens|completion tokens|output tokens/.test(msg)) {
+      const max = Number(limit[1]);
+      if (max > 0 && max !== caps.maxOutput) {
+        caps.maxOutput = max;
+        return true;
+      }
     }
     if (/max_completion_tokens/.test(msg) && caps.tokenParam === 'max_completion_tokens') {
       caps.tokenParam = 'max_tokens';
@@ -167,6 +203,14 @@ export class OpenAiCompatibleClient implements LlmClient {
         const choice = res?.choices?.[0];
         const text = choice?.message?.content ?? '';
         if (!text && choice?.message?.refusal) throw new AiError(`Model refused: ${choice.message.refusal}`);
+        if (!text.trim() && choice?.finish_reason === 'length') {
+          // The output budget was used up before any answer – typically by hidden reasoning.
+          if (!this.caps.reasoning) {
+            this.caps.reasoning = true;
+            continue;
+          }
+          throw outOfBudget(body[this.caps.tokenParam]);
+        }
         return { text, usage: toUsage(res?.usage), model: res?.model ?? this.model, durationMs: Date.now() - started };
       } catch (err) {
         if (this.adapt(err, body)) continue;
@@ -197,6 +241,8 @@ export class OpenAiCompatibleClient implements LlmClient {
     }
     if (!res?.body) throw new AiError('AI endpoint returned an empty stream');
     let usage: Usage | undefined;
+    let finish: string | undefined;
+    let produced = false;
     // Hide <think> reasoning of reasoning models in chat output.
     const think = new ThinkFilter();
     for await (const evt of parseSse(res.body)) {
@@ -211,13 +257,24 @@ export class OpenAiCompatibleClient implements LlmClient {
         throw new AiError((json as { error: { message?: string } }).error.message ?? 'Stream error');
       }
       if (json.usage) usage = toUsage(json.usage);
+      finish = json.choices?.[0]?.finish_reason ?? finish;
       const raw = json.choices?.[0]?.delta?.content;
       if (!raw) continue;
       const delta = think.push(raw);
-      if (delta) yield { type: 'delta', text: delta };
+      if (delta) {
+        produced = true;
+        yield { type: 'delta', text: delta };
+      }
     }
     const rest = think.flush();
-    if (rest) yield { type: 'delta', text: rest };
+    if (rest) {
+      produced = true;
+      yield { type: 'delta', text: rest };
+    }
+    if (!produced && finish === 'length') {
+      this.caps.reasoning = true; // next requests get the reasoning budget
+      throw outOfBudget(undefined);
+    }
     if (usage) yield { type: 'usage', usage };
   }
 
@@ -308,8 +365,15 @@ interface OpenAiChatResponse {
   usage?: OpenAiUsage;
 }
 interface OpenAiStreamChunk {
-  choices?: { delta?: { content?: string | null } }[];
+  choices?: { delta?: { content?: string | null }; finish_reason?: string | null }[];
   usage?: OpenAiUsage | null;
+}
+
+function outOfBudget(budget: unknown): AiError {
+  return new AiError(
+    `The model used its whole output budget${typeof budget === 'number' ? ` (${budget} tokens)` : ''} before answering – usually for reasoning. ` +
+      'Increase "Answer tokens" in Settings → AI provider → Advanced or choose a model that reasons less.',
+  );
 }
 interface OpenAiUsage {
   prompt_tokens?: number;

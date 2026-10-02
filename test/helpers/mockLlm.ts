@@ -36,6 +36,8 @@ export interface ChatReply {
   chunks?: string[];
   /** OpenAI refusal message (content will be null). */
   refusal?: string;
+  /** finish_reason (OpenAI) / done_reason (Ollama), default "stop". */
+  finishReason?: string;
 }
 
 export type ChatHandler = (req: ChatRequestInfo) => string | ChatReply | Promise<string | ChatReply>;
@@ -225,7 +227,7 @@ export class MockLlm {
           object: 'chat.completion',
           model,
           choices: [
-            { index: 0, message: { role: 'assistant', content: r.refusal ? null : content, refusal: r.refusal ?? null }, finish_reason: 'stop' },
+            { index: 0, message: { role: 'assistant', content: r.refusal ? null : content, refusal: r.refusal ?? null }, finish_reason: r.finishReason ?? 'stop' },
           ],
           usage: usageObj,
         });
@@ -236,7 +238,7 @@ export class MockLlm {
       for (const p of pieces) {
         res.write(`data: ${JSON.stringify({ id: 'c', model, choices: [{ index: 0, delta: { content: p } }] })}\n\n`);
       }
-      res.write(`data: ${JSON.stringify({ id: 'c', model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ id: 'c', model, choices: [{ index: 0, delta: {}, finish_reason: r.finishReason ?? 'stop' }] })}\n\n`);
       if ((b.stream_options as { include_usage?: boolean } | undefined)?.include_usage) {
         res.write(`data: ${JSON.stringify({ id: 'c', model, choices: [], usage: usageObj })}\n\n`);
       }
@@ -270,6 +272,7 @@ export class MockLlm {
           model,
           message: { role: 'assistant', content },
           done: true,
+          done_reason: r.finishReason ?? 'stop',
           prompt_eval_count: usage.prompt_tokens,
           eval_count: usage.completion_tokens,
         });
@@ -279,7 +282,7 @@ export class MockLlm {
         res.write(`${JSON.stringify({ model, message: { role: 'assistant', content: p }, done: false })}\n`);
       }
       res.write(
-        `${JSON.stringify({ model, message: { role: 'assistant', content: '' }, done: true, prompt_eval_count: usage.prompt_tokens, eval_count: usage.completion_tokens })}\n`,
+        `${JSON.stringify({ model, message: { role: 'assistant', content: '' }, done: true, done_reason: r.finishReason ?? 'stop', prompt_eval_count: usage.prompt_tokens, eval_count: usage.completion_tokens })}\n`,
       );
       res.end();
       return;
