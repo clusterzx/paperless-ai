@@ -198,7 +198,7 @@ describe('automatic processing', () => {
   });
 
   it('saves the other changes when Paperless rejects a custom field value', async () => {
-    const hh = await harness({ config: { processing: { customFields: [{ name: 'Reference', type: 'string' }, { name: 'Amount', type: 'monetary', currency: 'EUR' }] } } });
+    const hh = await harness({ config: { processing: { customFields: [{ name: 'Reference', type: 'string', description: '' }, { name: 'Amount', type: 'monetary', currency: 'EUR', description: '' }] } } });
     const ref = hh.paperless.addCustomField('Reference', 'string');
     const amount = hh.paperless.addCustomField('Amount', 'monetary');
     hh.paperless.addDocument({ id: 6, content: 'Invoice R-1 over 12.50 EUR' });
