@@ -79,7 +79,7 @@ Powered by **Retrieval-Augmented Generation (RAG)**, you can now search semantic
 - Health monitoring and auto-restart
 - Persistent volumes and graceful shutdown
 - Works out of the box with minimal setup
-- Foundry Local can be configured through the dedicated provider preset using its optional OpenAI-compatible endpoint. See the [Foundry Local 2.2.0 setup guide](docs/foundry-local.md) for SDK hosting, model selection, and Docker networking. Foundry Local runs separately from Paperless-AI; upgrading the host SDK does not require adding a native SDK dependency to the Paperless-AI container.
+- Foundry Local can be configured through the dedicated provider preset using its optional OpenAI-compatible endpoint. See the [Foundry Local 2.2.1 setup guide](docs/foundry-local.md) for SDK hosting, model selection, and Docker networking. Foundry Local runs separately from Paperless-AI; upgrading the host SDK does not require adding a native SDK dependency to the Paperless-AI container.
 
 ---
 

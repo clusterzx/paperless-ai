@@ -1,8 +1,8 @@
-# Foundry Local 2.2.0
+# Foundry Local 2.2.1
 
 Paperless-AI's **Foundry Local** preset connects to an externally hosted,
 OpenAI-compatible REST endpoint. The Foundry Local SDK runs on the inference
-host, not inside Paperless-AI. Upgrade that host to `foundry-local-sdk@2.2.0`;
+host, not inside Paperless-AI. Upgrade that host to `foundry-local-sdk@2.2.1`;
 there is no Foundry Local dependency in Paperless-AI's `package.json` to bump.
 The Foundry CLI has a separate version and is not the SDK package.
 
@@ -10,7 +10,7 @@ The Foundry CLI has a separate version and is not the SDK package.
 
 Use Node.js 20 or later and the [official JavaScript web-server sample](https://github.com/microsoft/Foundry-Local/tree/main/samples/js/web-server-example)
 as the starting point for a separate host application. Pin its
-`foundry-local-sdk` dependency to `2.2.0`. Obtain packages through your
+`foundry-local-sdk` dependency to `2.2.1`. Obtain packages through your
 organization's approved package source where required.
 
 The SDK 2.x hosting sequence is:
