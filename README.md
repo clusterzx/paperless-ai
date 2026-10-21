@@ -79,7 +79,7 @@ Powered by **Retrieval-Augmented Generation (RAG)**, you can now search semantic
 - Health monitoring and auto-restart
 - Persistent volumes and graceful shutdown
 - Works out of the box with minimal setup
-- Foundry Local can be configured through the dedicated provider preset. Foundry Local Core itself is SDK-first and does not need to run as a web server in general; Paperless-AI uses the optional OpenAI-compatible endpoint for compatibility with its existing provider path. If you start the SDK 1.2 web service yourself, use `manager.urls[0]/v1`; if Paperless-AI runs in Docker while Foundry Local runs on the host, use `http://host.docker.internal:<port>/v1`, the loaded model alias (for example `qwen2.5-0.5b`), and either leave the API key blank or set any non-empty value
+- Foundry Local can be configured through the dedicated provider preset using its optional OpenAI-compatible endpoint. See the [Foundry Local 2.2.0 setup guide](docs/foundry-local.md) for SDK hosting, model selection, and Docker networking. Foundry Local runs separately from Paperless-AI; upgrading the host SDK does not require adding a native SDK dependency to the Paperless-AI container.
 
 ---
 

@@ -378,9 +378,10 @@
                                         <p class="text-sm text-gray-500">
                                             Foundry Local itself is SDK-first; this field is only for Paperless-AI's OpenAI-compatible integration.
                                             <br>
-                                            If you start Foundry Local from the SDK, use <code>manager.urls[0]/v1</code>.
+                                            With the JavaScript SDK 2.x, configure <code>webServiceUrls</code>, call <code>manager.startWebService()</code>,
+                                            and append <code>/v1</code> to the listening URL.
                                             If Paperless-AI runs in Docker while Foundry Local runs on the host, use
-                                            <code>host.docker.internal</code> instead of <code>localhost</code>.
+                                            <code>host.docker.internal</code> instead of <code>localhost</code>; the service must listen on a container-reachable interface.
                                         </p>
                                     </div>
 
