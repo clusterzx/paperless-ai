@@ -4,11 +4,12 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 2.5.2   | :white_check_mark: |
-| 2.5.0   | :white_check_mark: |
-| 1.9.x   | :x: |
-| < 1.9   | :x:                |
+| 4.0.x   | :white_check_mark: |
+| < 4.0   | :x: – please upgrade, see [Upgrading from 3.x](README.md#upgrading-from-3x) |
 
 ## Reporting a Vulnerability
 
-If you find a security vulnerability please open an issue.
+Please do **not** open a public issue for security problems. Report them privately via
+[GitHub's private vulnerability reporting](https://github.com/clusterzx/paperless-ai/security/advisories/new)
+(*Security* tab → *Report a vulnerability*). You will get an answer as soon as possible; please give us
+reasonable time to release a fix before publishing details.

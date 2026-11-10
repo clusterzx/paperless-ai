@@ -1,23 +1,32 @@
+# Builds Paperless-AI from this repository (also used by Coolify's "Docker Compose" build pack).
+# To run the published image instead, replace `build: .` with `image: clusterzx/paperless-ai:latest`.
 services:
   paperless-ai:
-    image: clusterzx/paperless-ai
-    container_name: paperless-ai
-    network_mode: bridge
+    build: .
     restart: unless-stopped
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges=true
     environment:
-      - PUID=1000
-      - PGID=1000
-      - PAPERLESS_AI_PORT=${PAPERLESS_AI_PORT:-3000}
-      - RAG_SERVICE_URL=http://localhost:8000
-      - RAG_SERVICE_ENABLED=true
+      - PAPERLESS_AI_PORT=3000
+      # Behind a reverse proxy (Traefik, Caddy, nginx, Coolify, …): number of proxy hops.
+      # - TRUST_PROXY=1
+      # Everything else is configured in the web interface (setup wizard).
+      # Settings can also be pinned with environment variables, e.g.:
+      # - PAPERLESS_API_URL=http://paperless:8000
+      # - PAPERLESS_API_TOKEN=...
+      # - AI_PROVIDER=ollama
+      # - OLLAMA_API_URL=http://host.docker.internal:11434
+      # - OLLAMA_MODEL=qwen3:8b
     ports:
-      - "3000:${PAPERLESS_AI_PORT:-3000}"
+      # Host port: set PAPERLESS_AI_HOST_PORT if 3000 is taken (e.g. by another app or a 3.x instance).
+      - "${PAPERLESS_AI_HOST_PORT:-3000}:3000"
     volumes:
       - paperless-ai_data:/app/data
+    # Needed to reach Ollama running on the Docker host via host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   paperless-ai_data:
