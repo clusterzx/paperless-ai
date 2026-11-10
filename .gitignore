@@ -1,43 +1,28 @@
-.env
-.env.bak
-.dockerignore
-data/
+# Dependencies & build output
 node_modules/
-api-test.ps1
-openai_debug.log
-prompt.bak
-data bak/
-data_bak/
-data_*/
-.env*
-docker-compose-dev.yml
-public/images/
-delete_all.js
-documents.json
-apitest.js
-logs/*
-api_correspondent.js
-prompt.txt
-api_test_r1.js
-openrouter.js
-/chromadb
-rag_config.conf
-indexed.conf
-indexing_complete.flag
-RAGZ_README.md
+dist/
+*.tsbuildinfo
 
-# Local development files
-.local/
+# Runtime data (config, database, models, logs)
+data/
+data_*/
+logs/
+
+# Environment files (keep the example)
+.env
+.env.*
+!.env.example
+
+# Test artefacts
+coverage/
+test-results/
+playwright-report/
+e2e/.auth/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
 *.local.*
-/chromadb
-/chromadb/*
-rag_config.conf
-indexed.conf
-main.py.bak
-indexing_complete.flag
-__pycache__/
-main.pyy*
-rag.ejs.old
-surya_env/
-ocr_server.py
-surya_models.py
+.local/

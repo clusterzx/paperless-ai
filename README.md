@@ -5,132 +5,249 @@
 [![GitHub Stars](https://img.shields.io/github/stars/clusterzx)](https://github.com/clusterzx)
 [![License](https://img.shields.io/github/license/clusterzx/paperless-ai?cacheSeconds=1)](LICENSE)
 
-# ⚠️ IMPORTANT NOTICE:
-This repo is currently not maintained. I appreciate all the efforts from the community pushing PRs and creating issues.
-I'm currently rewriting the entire codebase with a more stable, up-to-date architecture. But I'm limited to evenings, and doing support here while also working on the rewrite just isn't feasible for me.
-With the upcoming official AI integration in Paperless-ngx itself, I'm also not sure if I'll complete the rewrite or continue maintaining this repo at all.
+**Paperless-AI** is an AI extension for [Paperless-ngx](https://github.com/paperless-ngx/paperless-ngx). It analyzes your documents and fills in title, tags, correspondent, document type, date and custom fields – and lets you **ask questions about your whole archive** in natural language, with answers that cite their sources.
+
+Works with **Paperless-ngx 2.x and 3.x**, OpenAI, Anthropic (Claude), **Ollama (fully local)**, Azure OpenAI and every OpenAI-compatible API (DeepSeek, OpenRouter, LiteLLM, vLLM, LM Studio, Gemini, Together, Perplexity, …).
+
+> [!IMPORTANT]
+> **Security notice for 3.x:** in all Paperless-AI versions before 4.0, the setup wizard can be used without logging in. Anyone who can reach such an instance can replace its user account and its configuration (Paperless token, AI provider), and this is being exploited. **Update to 4.0** – it is not affected. If your 3.x instance was reachable from the internet, read [Upgrading from 3.x](#upgrading-from-3x) before you migrate.
+
+> 💡 Just ask:
+> “When did I sign my rental agreement?”
+> “What was the amount of the last electricity bill?”
+> “Which documents mention my health insurance?”
+
+![Dashboard](docs/screenshots/dashboard.png)
 
 ---
 
-**Paperless-AI** is an AI-powered extension for [Paperless-ngx](https://github.com/paperless-ngx/paperless-ngx) that brings automatic document classification, smart tagging, and semantic search using OpenAI-compatible APIs and Ollama.
+## ✨ What's new in 4.0 – a complete rewrite
 
-It enables **fully automated document workflows**, **contextual chat**, and **powerful customization** — all via an intuitive web interface.
+Version 4 is rebuilt from scratch with a focus on reliability, speed and low resource usage.
 
-> 💡 Just ask:  
-> “When did I sign my rental agreement?”  
-> “What was the amount of the last electricity bill?”  
-> “Which documents mention my health insurance?”  
+| | 3.x | 4.0 |
+| --- | --- | --- |
+| Architecture | Node.js + separate Python service (Torch, ChromaDB, NLTK) | One Node.js process (TypeScript) |
+| Docker image | several GB | **~135 MB** compressed |
+| RAM in idle | 1–2 GB | **≈ 80–150 MB** (embedding model loaded on demand) |
+| RAG retrieval | one embedding of the first ~100 words per document | **chunked passages**, hybrid **BM25 + vector** search, metadata boosts |
+| RAG answers | not streamed, no references | **streamed**, **cited sources** `[1]`, follow-up questions |
+| Index updates | full re-crawl & re-embed | **incremental** (changed/deleted documents only) |
+| Settings | written to `.env`, container restart required | validated, **applied instantly** – no restart |
+| Paperless-ngx | 2.x | **2.x and 3.x** (API version negotiated automatically, verified against 2.14, 2.20 and 3.2) |
+| Undo | only “forget processing state” | **real undo** – restores the original values in Paperless |
+| Interface | server-rendered pages | **new design**: single-page app, command menu, light/dark + accent colours |
 
-Powered by **Retrieval-Augmented Generation (RAG)**, you can now search semantically across your full archive and get precise, natural language answers.
+Upgrading from 3.x is automatic: your `data/.env`, user account, processing state, history and token statistics are migrated on first start (the old files are kept untouched) – see [Upgrading from 3.x](#upgrading-from-3x).
 
----
+## 🚀 Features
 
-## ✨ Features
+**Automatic processing**
+- Detects new documents (schedule and/or instantly via a Paperless **workflow webhook**)
+- Title, tags, correspondent, document type, document date and **custom fields** (text, long text, number, monetary, date, boolean, URL, select)
+- AI providers: **OpenAI**, **Anthropic (Claude)**, **Ollama**, any **OpenAI-compatible** API (DeepSeek, OpenRouter, LiteLLM, vLLM, LM Studio, Gemini …) and **Azure OpenAI** – reasoning/thinking models included
+- Structured JSON output (JSON schema) with automatic fallback for providers without support
+- Process all documents or only documents with **trigger tags** (optionally removed afterwards), mark processed documents with a tag
+- Restrict the AI to existing tags / correspondents / document types, or to a fixed tag list
+- Optional context from an **external API** (e.g. your customer list) with an optional JavaScript transformation (runs in a separate worker thread with a time limit)
+- Parallel processing, retries with back-off, failed/skipped documents visible on the dashboard; **rate limits** of the AI provider pause the queue instead of failing documents
+- Existing correspondents are kept unless you allow the AI to overwrite them; created tags/correspondents/types are visible to all Paperless users (configurable)
 
-### 🔄 Automated Document Processing
-- Detects new documents in Paperless-ngx automatically
-- Analyzes content using OpenAI API, Ollama, and other compatible backends
-- Assigns title, tags, document type, and correspondent
-- Built-in support for:
-  - Ollama (Mistral, Llama, Phi-3, Gemma-2)
-  - OpenAI
-  - DeepSeek.ai
-  - OpenRouter.ai
-  - Perplexity.ai
-  - Together.ai
-  - LiteLLM
-  - VLLM
-  - Fastchat
-  - Gemini (Google)
-  - ...and more!
+**Ask your archive (RAG)**
+- Hybrid search: SQLite FTS5 (BM25) + compact in-memory vector index (int8)
+- Embeddings: built-in multilingual model (offline, CPU), Ollama, OpenAI, Azure, any OpenAI-compatible API – or keyword-only
+- Understands follow-up questions, filters (date range, correspondent, document type), “latest …” questions and mentioned years/correspondents
+- “How many …?” questions are answered with **exact numbers from Paperless** – not by counting the excerpts the AI sees
+- Answers stream in, cite their sources and link to the documents in Paperless; conversations are kept in your browser
+- Pure semantic **search mode** without AI costs
 
-### 🧠 RAG-Based AI Chat
-- Natural language document search and Q&A
-- Understands full document context (not just keywords)
-- Semantic memory powered by your own data
-- Fast, intelligent, privacy-friendly document queries  
-![RAG_CHAT_DEMO](https://raw.githubusercontent.com/clusterzx/paperless-ai/refs/heads/main/ppairag.png)
+![Ask your archive](docs/screenshots/ask.png)
 
-### ⚙️ Manual Processing
-- Web interface for manual AI tagging
-- Useful when reviewing sensitive documents
-- Accessible via `/manual`
+**Interactive tools**
+- **Document chat** – ask questions about a single document (long documents are handled automatically)
+- **Manual review** – let the AI suggest metadata and decide yourself what to save
+- **Prompt playground** – test prompts on real documents side by side with the current values, rate and keep prompts
+- **History with undo**, filters and search
+- **Dashboard** with live processing status, coverage, activity, token usage
+- **Logs & diagnostics** – live log stream, connection checks, Paperless API explorer
+- Modern interface: light/dark theme with five accent colours, **⌘K / Ctrl+K command menu** (jump to pages, open documents by number, ask a question), works on mobile
 
-### 🧩 Smart Tagging & Rules
-- Define rules to limit which documents are processed
-- Disable prompts and apply tags automatically
-- Set custom output tags for tracked classification  
-![PPAI_SHOWCASE3](https://github.com/user-attachments/assets/1fc9f470-6e45-43e0-a212-b8fa6225e8dd)
+| Manual review | History with undo |
+| --- | --- |
+| ![Manual review](docs/screenshots/review.png) | ![History](docs/screenshots/history.png) |
+| **Settings** | **Sign-in** |
+| ![Settings](docs/screenshots/settings.png) | ![Sign-in](docs/screenshots/login.png) |
 
----
+## 🐳 Installation
 
-## 🚀 Installation
+```yaml
+# docker-compose.yml
+services:
+  paperless-ai:
+    image: clusterzx/paperless-ai:latest
+    container_name: paperless-ai
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - paperless-ai_data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # to reach Ollama on the Docker host
 
-> ⚠️ **First-time install:** Restart the container **after completing setup** (API keys, preferences) to build RAG index.  
-> 🔁 Not required for updates.
-
-📘 [Installation Wiki](https://github.com/clusterzx/paperless-ai/wiki/2.-Installation)
-
----
-
-## 🐳 Docker Support
-
-- Health monitoring and auto-restart
-- Persistent volumes and graceful shutdown
-- Works out of the box with minimal setup
-
----
-
-## 🔧 Local Development
-
-```bash
-# Install dependencies
-npm install
-
-# Start development/test mode
-npm run test
+volumes:
+  paperless-ai_data:
 ```
 
----
+```bash
+docker compose up -d
+```
 
-## 🧭 Roadmap Highlights
+Open `http://<your-server>:3000` – the setup wizard guides you through account, Paperless connection, AI provider and processing options. No restart is needed afterwards.
 
-- ✅ Multi-AI model support
-- ✅ Multilingual document analysis
-- ✅ Tag rules and filters
-- ✅ Integrated document chat with RAG
-- ✅ Responsive web interface
+**Paperless API user:** create a dedicated user in Paperless-ngx with permission to *view* and *change* documents, tags, correspondents, document types and custom fields, and use its API token (Profile → API Auth Token). Only documents this user may change are processed.
 
----
+### Upgrading from 3.x
+
+Keep your data volume and switch the image – everything else happens on the first start.
+
+1. **Back up** the data volume (`docker volume ls` shows its exact name, often with the project name in front):
+   ```bash
+   docker compose stop paperless-ai
+   docker run --rm -v paperless-ai_data:/data -v "$PWD":/backup alpine \
+     tar czf /backup/paperless-ai-3x-backup.tgz -C /data .
+   ```
+2. **Update `docker-compose.yml`:** use `image: clusterzx/paperless-ai:latest` (or a fixed version such as `4.0.0`), keep the volume `…:/app/data` and the port. Remove the 3.x lines `RAG_SERVICE_URL`, `PUID` and `PGID` (no longer used) and `RAG_SERVICE_ENABLED` (it would lock the setting in the UI).
+3. **Start:** `docker compose pull && docker compose up -d`. The log (`docker compose logs -f paperless-ai`) shows `Migrated legacy data/.env configuration to data/config.json` and `Imported data from legacy documents.db` with the number of migrated users, documents and history entries.
+4. **Sign in** with your previous username and password and review the settings – everything is prefilled; values set by environment variables are shown locked.
+
+What is migrated: settings from `data/.env`, the user account, which documents were already processed (nothing is analysed again, no extra AI costs), the history including the original values (undo works for old changes too) and the token statistics. The search index for *Ask your archive* is rebuilt in the background; the first time, the built-in embedding model (~120 MB) is downloaded. The 3.x files (`.env`, `documents.db`) are left untouched, so you can switch back to the 3.x image – it just won't know about anything done in 4.0.
+
+> [!WARNING]
+> **If your 3.x instance was reachable from the internet** (without an additional login such as a VPN or an authenticating reverse proxy in front of it), it may have been taken over through the setup wizard – see the security notice above. 3.x only has one account, so the clearest sign is that **your previous username and password no longer work**, or that the settings contain a Paperless URL or AI endpoint you did not set. In that case:
+> - do **not** migrate the old data – start 4.0 with a new, empty data volume and run the setup again;
+> - create a **new Paperless API token** for Paperless-AI and delete the old one, and replace the **API keys** of your AI provider;
+> - check the Paperless-ngx logs for document access with the old token.
+>
+> In any case, don't expose a fresh installation to the internet before the setup is completed: until the first account exists, the setup wizard is open to everyone who can reach it.
+
+### Instant processing with a Paperless workflow
+
+1. Paperless-ngx → *Workflows* → *Add workflow*, trigger **Document Added**
+2. Action **Webhook**: URL `http://paperless-ai:3000/api/webhook/document`, body parameter `url` = `{doc_url}`
+3. Header `x-api-key: <API key from Settings → API & webhooks>`
+
+## ⚙️ Configuration
+
+Everything can be configured in the web interface. Settings are stored in `data/config.json`.
+Environment variables **override** stored settings (the UI shows them as locked) – handy for Docker deployments. The variable names of 3.x are still supported.
+
+| Variable | Setting |
+| --- | --- |
+| `PAPERLESS_AI_PORT` | HTTP port (default `3000`) |
+| `PAPERLESS_AI_DATA_DIR` | data directory (default `./data`, `/app/data` in Docker) |
+| `PAPERLESS_API_URL` (or `PAPERLESS_URL`), `PAPERLESS_API_TOKEN` | Paperless-ngx URL (with or without `/api`) and token – `PAPERLESS_API_URL` wins when both are set |
+| `PAPERLESS_PUBLIC_URL` | URL for links opened in the browser (optional) |
+| `AI_PROVIDER` | `openai`, `anthropic`, `ollama`, `custom`, `azure` |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | OpenAI |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL` | Anthropic (Claude); the base URL only for a gateway/proxy |
+| `OLLAMA_API_URL`, `OLLAMA_MODEL`, `OLLAMA_KEEP_ALIVE` | Ollama |
+| `OLLAMA_NUM_CTX` (or `OLLAMA_CONTEXT_SIZE`), `OLLAMA_THINK`, `OLLAMA_UNLOAD_WHEN_IDLE` | Ollama context size (`0` = per document), thinking (`auto`, `off`, `on`, `low`, `medium`, `high`), unload when the queue is empty |
+| `CUSTOM_BASE_URL`, `CUSTOM_API_KEY`, `CUSTOM_MODEL`, `CUSTOM_EXTRA_BODY` | OpenAI-compatible provider; extra request parameters as JSON |
+| `AZURE_ENDPOINT`, `AZURE_API_KEY`, `AZURE_DEPLOYMENT_NAME`, `AZURE_API_VERSION` | Azure OpenAI |
+| `TOKEN_LIMIT`, `RESPONSE_TOKENS`, `AI_TEMPERATURE`, `AI_TIMEOUT_SECONDS` | model limits |
+| `SCAN_INTERVAL`, `DISABLE_AUTOMATIC_PROCESSING`, `PROCESSING_CONCURRENCY` | scheduling |
+| `PROCESS_PREDEFINED_DOCUMENTS`, `TAGS`, `REMOVE_TRIGGER_TAGS` | only process tagged documents |
+| `ADD_AI_PROCESSED_TAG`, `AI_PROCESSED_TAG_NAME` | mark processed documents |
+| `USE_PROMPT_TAGS`, `PROMPT_TAGS`, `USE_EXISTING_DATA`, `SYSTEM_PROMPT` | prompt |
+| `OVERWRITE_CORRESPONDENT`, `SHARE_CREATED_OBJECTS` | replace existing correspondents (default off); create tags/correspondents/types without owner (default on) |
+| `ACTIVATE_TAGGING`, `ACTIVATE_CORRESPONDENTS`, `ACTIVATE_DOCUMENT_TYPE`, `ACTIVATE_TITLE`, `ACTIVATE_CUSTOM_FIELDS`, `ACTIVATE_DOCUMENT_DATE` | enabled functions |
+| `RESTRICT_TO_EXISTING_TAGS`, `RESTRICT_TO_EXISTING_CORRESPONDENTS`, `RESTRICT_TO_EXISTING_DOCUMENT_TYPES` | restrictions |
+| `CUSTOM_FIELDS` | custom fields (JSON, format of 3.x) |
+| `EXTERNAL_API_ENABLED`, `EXTERNAL_API_URL`, `EXTERNAL_API_METHOD`, `EXTERNAL_API_HEADERS`, `EXTERNAL_API_BODY`, `EXTERNAL_API_TIMEOUT`, `EXTERNAL_API_TRANSFORM` | external data |
+| `RAG_ENABLED` (or `RAG_SERVICE_ENABLED`), `RAG_EMBEDDING_PROVIDER`, `RAG_EMBEDDING_MODEL`, `RAG_QUERY_EXPANSION` | ask your archive |
+| `API_KEY`, `JWT_SECRET` | secrets (generated automatically when unset; use at least 32 random characters for `JWT_SECRET`) |
+| `LOG_LEVEL`, `LOG_FORMAT=json` | operations |
+| `TRUST_PROXY` | behind a reverse proxy: number of proxy hops (usually `1`) or the proxy addresses – needed for correct client IPs (login rate limit) and secure cookies; off by default |
+
+Empty variables (e.g. `OPENAI_API_KEY=` left in a compose file) are ignored, so they never replace what you configured in the web interface.
+
+### Local models (Ollama)
+
+- **Context size:** Paperless-AI sends a fixed `num_ctx` (default 16,384 tokens). Ollama reloads the model whenever `num_ctx` changes, so a fixed size keeps it loaded between documents. Longer documents are shortened to fit; raise the size if your GPU has room, or set `0` to size it per document.
+- **Thinking:** thinking models (qwen3, gpt-oss, deepseek-r1 …) can be switched off in *Settings → AI provider*, which is much faster for metadata extraction. gpt-oss also accepts `low`/`medium`/`high`.
+- **Free the GPU:** *Unload the model when the queue is empty* releases the memory right after the last document; alternatively use *Keep model loaded* (`keep_alive`).
+- **Other local servers** (vLLM, llama.cpp, LM Studio) run as *OpenAI-compatible* provider; parameters such as `{"chat_template_kwargs": {"enable_thinking": false}}` go into *Extra request parameters*.
+
+### Self-signed certificates
+
+If Paperless-ngx or your AI server uses a certificate from your own CA, mount the CA certificate and point Node.js to it:
+
+```yaml
+    environment:
+      - NODE_EXTRA_CA_CERTS=/certs/my-ca.pem
+    volumes:
+      - ./my-ca.pem:/certs/my-ca.pem:ro
+```
+
+As a last resort, `NODE_TLS_REJECT_UNAUTHORIZED=0` turns certificate checks off completely. ⚠️ This applies to **every** connection of Paperless-AI – including the one carrying your OpenAI/Anthropic API key – so anybody in the network path could read and change the traffic. Only use it for testing in a trusted network.
+
+### Choosing embeddings for “Ask your archive”
+
+| Option | Notes |
+| --- | --- |
+| **Local** (default) | `Xenova/multilingual-e5-small` (~120 MB, downloaded once to `data/models`), 100+ languages incl. cross-lingual search, runs on the CPU in a worker thread (≈ 0.5 GB RAM while indexing, released after 5 minutes idle) |
+| Ollama | e.g. `nomic-embed-text`, `bge-m3`, `mxbai-embed-large` (`ollama pull …`) |
+| OpenAI / OpenAI-compatible / Azure | e.g. `text-embedding-3-small` |
+| None | keyword search only (BM25) – smallest footprint |
+
+Changing the embedding model re-embeds the passages automatically; the keyword search keeps working meanwhile.
+
+Memory: the vector index keeps one byte per dimension and passage in RAM (a document has about one passage per 1,000 characters) – e.g. 100,000 passages need ≈ 40 MB with the local model (384 dimensions) and ≈ 155 MB with `text-embedding-3-small` (1,536 dimensions).
+
+**Smart search terms** (on by default, `RAG_QUERY_EXPANSION=false` to disable): before searching, the AI adds a few search terms to the question – synonyms, names and translations into the language of your archive. This costs one short extra AI call per question and noticeably improves the hit rate, especially when you ask in a different language than your documents are written in.
+
+Retrieval quality, measured with `npx tsx e2e/rag-eval/run.ts` (49 German/English documents, 27 questions in both languages; “hit@k” = the right document is among the first k sources the AI sees):
+
+| Retrieval | hit@1 | hit@3 | hit@5 |
+| --- | --- | --- | --- |
+| 3.x (emulated) | 52 % | 56 % | 63 % |
+| 4.0 keyword only | 56 % | 70 % | 70 % |
+| 4.0 hybrid, local model | 81 % | 89 % | 93 % |
+| 4.0 hybrid, local model + smart search terms (`qwen2.5:3b` via Ollama) | 85 % | **100 %** | **100 %** |
+
+## 🔌 API
+
+The REST API is documented at `/api-docs` (OpenAPI). Authenticate with the header `x-api-key`. The endpoints used by the Paperless-AI browser extension and by scripts written for 3.x (`/chat/init/:id`, `/chat/message`, `/api/scan/now`, `/api/webhook/document`, `/api/rag/ask`, …) are still available.
+
+## 🧑‍💻 Development
+
+Requirements: Node.js ≥ 22.12.
+
+```bash
+npm install
+npm run dev          # backend (tsx watch, port 3000) + web UI (Vite, port 5173)
+npm run demo         # demo with a fake Paperless-ngx and a fake LLM: http://127.0.0.1:3456 (admin / demo1234)
+npm run check        # typecheck + lint + unit/integration tests
+npm run test:e2e     # Playwright end-to-end tests (uses the demo server)
+# compatibility check against a real (disposable!) Paperless-ngx instance:
+PAPERLESS_URL=http://localhost:8000 PAPERLESS_TOKEN=… npx tsx e2e/real-paperless-check.ts
+npm run build && npm start
+```
+
+Architecture overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## 🤝 Contributing
 
-We welcome PRs and contributions!
-
-```bash
-# Fork, clone, then:
-git checkout -b feature/YourFeature
-# After changes:
-git commit -m "Add YourFeature"
-git push origin feature/YourFeature
-```
-
-Then open a Pull Request via GitHub.
-
----
+Pull requests are welcome! Please run `npm run check` before submitting.
 
 ## 🆘 Support & Community
 
 - [Issues](https://github.com/clusterzx/paperless-ai/issues)
 - [Discord](https://discord.gg/AvNekAfK38)
 
----
-
 ## 📄 License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
-
----
+MIT – see [LICENSE](LICENSE).
 
 ## 🙏 Support Development
 

@@ -1,0 +1,447 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/geist/wght.css';
+@import '@fontsource-variable/geist-mono/wght.css';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/*
+ * Design tokens. Neutral "ink" palette with one accent colour (selectable, see [data-accent]).
+ * Text colours keep ≥ 4.5:1 contrast on the surfaces they are used on.
+ */
+:root {
+  --canvas: #f1f1f4;
+  --sheet: #fbfbfc;
+  --surface: #ffffff;
+  --surface-2: #f7f7fa;
+  --surface-3: #ececf1;
+  --border: #e6e6ec;
+  --border-strong: #d2d2db;
+  --text: #0d0d14;
+  --muted: #5b5b6a;
+  --faint: #696977;
+  --danger: #d02c3c;
+  --danger-soft: #fdecee;
+  --warn: #965a00;
+  --warn-soft: #fdf2df;
+  --info: #2160d6;
+  --info-soft: #e9f0fe;
+  --success: #12804f;
+  --success-soft: #e4f6ec;
+  --shadow-sm: 0 1px 2px rgb(16 16 30 / 0.05);
+  --shadow: 0 1px 2px rgb(16 16 30 / 0.04), 0 4px 12px -4px rgb(16 16 30 / 0.07);
+  --shadow-lg: 0 28px 56px -16px rgb(16 16 30 / 0.22), 0 10px 20px -10px rgb(16 16 30 / 0.1);
+  --highlight: inset 0 1px 0 rgb(255 255 255 / 0.18);
+  color-scheme: light;
+
+  /* Accent: iris (default) */
+  --accent: #5b3ff3;
+  --accent-strong: #4a2fdb;
+  --accent-soft: #efecfe;
+  --accent-text: #4a2fdb;
+  --accent-2: #0ea5e9;
+  --on-accent: #ffffff;
+}
+
+[data-theme='dark'] {
+  --canvas: #08080b;
+  --sheet: #0e0e12;
+  --surface: #141419;
+  --surface-2: #1a1a21;
+  --surface-3: #23232b;
+  --border: #25252f;
+  --border-strong: #33333f;
+  --text: #ededf3;
+  --muted: #a2a2b2;
+  --faint: #8d8d9d;
+  --danger: #ff6b78;
+  --danger-soft: #3a1419;
+  --warn: #f5b84c;
+  --warn-soft: #36270d;
+  --info: #6ea2ff;
+  --info-soft: #14223e;
+  --success: #4cd68f;
+  --success-soft: #0f2c1e;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 6px 16px -6px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 32px 64px -16px rgb(0 0 0 / 0.75), 0 0 0 1px rgb(255 255 255 / 0.04);
+  --highlight: inset 0 1px 0 rgb(255 255 255 / 0.12);
+  color-scheme: dark;
+
+  --accent: #8f7dff;
+  --accent-strong: #a899ff;
+  --accent-soft: #211c45;
+  --accent-text: #b3a8ff;
+  --accent-2: #38bdf8;
+  --on-accent: #0c0824;
+}
+
+[data-accent='ocean'] {
+  --accent: #1d5fe0;
+  --accent-strong: #174dbb;
+  --accent-soft: #e8effe;
+  --accent-text: #174dbb;
+  --accent-2: #06b6d4;
+  --on-accent: #ffffff;
+}
+[data-theme='dark'][data-accent='ocean'],
+[data-accent='ocean'] [data-theme='dark'] {
+  --accent: #5e9bff;
+  --accent-strong: #84b3ff;
+  --accent-soft: #13254a;
+  --accent-text: #93bcff;
+  --accent-2: #22d3ee;
+  --on-accent: #06142e;
+}
+[data-accent='emerald'] {
+  --accent: #04805a;
+  --accent-strong: #036a4a;
+  --accent-soft: #e2f6ee;
+  --accent-text: #036a4a;
+  --accent-2: #84cc16;
+  --on-accent: #ffffff;
+}
+[data-theme='dark'][data-accent='emerald'],
+[data-accent='emerald'] [data-theme='dark'] {
+  --accent: #34d39b;
+  --accent-strong: #5ee2b4;
+  --accent-soft: #0f3326;
+  --accent-text: #6ee7b7;
+  --accent-2: #a3e635;
+  --on-accent: #03140d;
+}
+[data-accent='amber'] {
+  --accent: #b4500a;
+  --accent-strong: #933f06;
+  --accent-soft: #fdf0e3;
+  --accent-text: #933f06;
+  --accent-2: #eab308;
+  --on-accent: #ffffff;
+}
+[data-theme='dark'][data-accent='amber'],
+[data-accent='amber'] [data-theme='dark'] {
+  --accent: #fb9f45;
+  --accent-strong: #fdb876;
+  --accent-soft: #3a240f;
+  --accent-text: #fdba74;
+  --accent-2: #facc15;
+  --on-accent: #1f1003;
+}
+[data-accent='rose'] {
+  --accent: #d1204f;
+  --accent-strong: #b01740;
+  --accent-soft: #fde9ee;
+  --accent-text: #b01740;
+  --accent-2: #f97316;
+  --on-accent: #ffffff;
+}
+[data-theme='dark'][data-accent='rose'],
+[data-accent='rose'] [data-theme='dark'] {
+  --accent: #ff6b8e;
+  --accent-strong: #ff93ac;
+  --accent-soft: #3d1420;
+  --accent-text: #ff9db4;
+  --accent-2: #fb923c;
+  --on-accent: #2a0510;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-sheet: var(--sheet);
+  --color-bg: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-accent-2: var(--accent-2);
+  --color-on-accent: var(--on-accent);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --shadow-xs: var(--shadow-sm);
+  --shadow-card: var(--shadow);
+  --shadow-pop: var(--shadow-lg);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    background: var(--canvas);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.018em;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: var(--accent);
+  }
+  details > summary {
+    @apply flex cursor-pointer list-none items-center gap-2;
+  }
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+  details > summary::after {
+    content: '';
+    @apply ml-auto size-4 shrink-0 bg-current opacity-45 transition-transform duration-200;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+  details[open] > summary::after {
+    transform: rotate(180deg);
+  }
+}
+
+@layer components {
+  .input {
+    @apply h-10 w-full rounded-[10px] border border-border bg-surface px-3 text-sm text-fg shadow-xs transition outline-none placeholder:text-faint;
+    @apply hover:border-border-strong focus:border-accent focus:ring-4 focus:ring-accent/15;
+    @apply disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  textarea.input {
+    @apply h-auto py-2.5 leading-relaxed;
+  }
+  .label {
+    @apply mb-1.5 block text-[13px] font-medium text-fg;
+  }
+  .hint {
+    @apply mt-1.5 text-xs leading-relaxed text-muted;
+  }
+  .kbd {
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-border bg-surface px-1 font-mono text-[10.5px] font-medium text-muted shadow-xs;
+  }
+  /* Accent gradient text, e.g. for the brand and AI highlights */
+  .text-gradient {
+    background: linear-gradient(100deg, var(--accent) 10%, var(--accent-2) 90%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  /* Soft accent glow used behind heroes (login, empty states) */
+  .aurora {
+    background:
+      radial-gradient(60% 50% at 15% 10%, color-mix(in srgb, var(--accent) 28%, transparent) 0%, transparent 70%),
+      radial-gradient(50% 45% at 90% 20%, color-mix(in srgb, var(--accent-2) 22%, transparent) 0%, transparent 70%),
+      radial-gradient(70% 60% at 50% 110%, color-mix(in srgb, var(--accent) 16%, transparent) 0%, transparent 70%);
+  }
+  .fade-bottom {
+    mask-image: linear-gradient(to bottom, black 40%, transparent);
+  }
+  /* Faint dotted grid texture */
+  .dot-grid {
+    background-image: radial-gradient(color-mix(in srgb, var(--text) 9%, transparent) 1px, transparent 1px);
+    background-size: 18px 18px;
+  }
+}
+
+/* Markdown answers */
+.prose-chat {
+  @apply text-[0.95rem] leading-[1.7];
+}
+.prose-chat p {
+  @apply my-2.5;
+}
+.prose-chat p:first-child {
+  @apply mt-0;
+}
+.prose-chat p:last-child {
+  @apply mb-0;
+}
+.prose-chat strong {
+  @apply font-semibold text-fg;
+}
+.prose-chat ul {
+  @apply my-2.5 list-disc pl-5 marker:text-faint;
+}
+.prose-chat ol {
+  @apply my-2.5 list-decimal pl-5 marker:text-faint;
+}
+.prose-chat li {
+  @apply my-1;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3 {
+  @apply mt-4 mb-1.5 font-semibold;
+}
+.prose-chat code {
+  @apply rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[0.84em];
+}
+.prose-chat pre {
+  @apply my-3 overflow-x-auto rounded-xl border border-border bg-surface-2 p-3.5 text-xs;
+}
+.prose-chat pre code {
+  @apply bg-transparent p-0;
+}
+.prose-chat table {
+  @apply my-3 w-full border-separate border-spacing-0 overflow-hidden rounded-xl border border-border text-sm;
+}
+.prose-chat th,
+.prose-chat td {
+  @apply border-b border-border px-3 py-2 text-left;
+}
+.prose-chat tr:last-child td {
+  @apply border-b-0;
+}
+.prose-chat th {
+  @apply bg-surface-2 text-xs font-semibold tracking-wide text-muted uppercase;
+}
+.prose-chat [align='center'] {
+  @apply text-center;
+}
+.prose-chat [align='right'] {
+  @apply text-right;
+}
+.prose-chat a {
+  @apply font-medium text-accent-text underline decoration-accent/40 underline-offset-[3px] hover:decoration-accent;
+}
+.prose-chat blockquote {
+  @apply my-3 border-l-2 border-accent/50 pl-3.5 text-muted;
+}
+.prose-chat .cite {
+  @apply mx-0.5 inline-flex h-[1.2rem] min-w-[1.2rem] -translate-y-[0.2em] cursor-pointer items-center justify-center rounded-full bg-accent-soft px-1.5 align-baseline font-mono text-[0.66rem] font-semibold text-accent-text no-underline ring-1 ring-accent/20 transition hover:bg-accent hover:text-on-accent;
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+.typing-caret::after {
+  content: '';
+  @apply ml-1 inline-block h-[1.05em] w-[3px] translate-y-[0.18em] rounded-full bg-accent;
+  animation: caret 1s steps(1) infinite;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-in {
+  animation: fade-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-pop {
+  animation: pop-in 0.24s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-slide-in {
+  animation: slide-in 0.26s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+.animate-backdrop {
+  animation: backdrop-in 0.2s ease-out;
+}
+
+/* Pulsing status dot */
+@keyframes ping-soft {
+  75%,
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+.status-dot {
+  @apply relative inline-flex size-2 rounded-full;
+}
+.status-dot.live::before {
+  content: '';
+  @apply absolute inset-0 rounded-full bg-inherit;
+  animation: ping-soft 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Shimmer for "thinking" states */
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.text-shimmer {
+  background: linear-gradient(90deg, var(--muted) 30%, var(--text) 50%, var(--muted) 70%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
