@@ -318,7 +318,8 @@ export async function applyPlannedUpdate(ctx: AppContext, doc: PaperlessDocument
       /* database unavailable – logged above */
     }
   }
-  if (plan.notes.length) log.info({ documentId: doc.id, notes: plan.notes }, `Document ${doc.id}: ${plan.notes.join('; ')}`);
+  // The notes name tags, correspondents, types and field values; they stay in the history only.
+  if (plan.notes.length) log.info({ documentId: doc.id }, `Document ${doc.id}: ${plan.notes.length} note(s), see the history`);
   return updated;
 }
 
