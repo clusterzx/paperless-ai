@@ -161,7 +161,8 @@ export function buildOutputInstructions(p: Processing, ctx: PromptContext): stri
     'Return the result EXCLUSIVELY as one JSON object (no markdown, no explanations) with exactly this structure:',
     JSON.stringify(example, null, 2),
     'Rules:',
-    '- Tags, title and document type MUST be written in the language of the document.',
+    '- The title MUST be written in the language of the document.',
+    '- Tags, correspondent and document type: when a list is given, copy one of its names exactly as written, whatever the language of the document.',
     '- Use an empty string for values that cannot be determined. Never ask questions.',
   ];
   if (f.documentDate) {
