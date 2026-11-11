@@ -148,7 +148,7 @@ export class PaperlessMetadata {
       try {
         const created = await creator(name);
         this.add(kind, created);
-        log.info(`Created ${kind} "${created.name}" (id ${created.id})`);
+        log.info(`Created ${kind} with id ${created.id}`);
         return { id: created.id, name: created.name, created: true };
       } catch (err) {
         // Most likely created concurrently (unique constraint) – reload and look again.
