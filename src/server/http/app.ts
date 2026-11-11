@@ -59,6 +59,25 @@ export function parseTrustProxy(value: string | undefined): FastifyServerOptions
   return v.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+/** Whether the request is for the setup wizard. A preflight has no route of its own and is matched by its path. */
+function isSetupRequest(req: FastifyRequest): boolean {
+  if (req.routeOptions.config?.auth === 'setup') return true;
+  if (req.method !== 'OPTIONS') return false;
+  let pathname = req.url.split('?')[0];
+  try {
+    pathname = decodeURIComponent(pathname);
+  } catch {
+    // not valid percent-encoding: no route matches it either
+  }
+  return /^\/api\/setup(\/|$)/.test(pathname);
+}
+
+/** Browsers tell with Sec-Fetch-Site who sent a request (only to https:// and localhost addresses). */
+function isFromOtherSite(req: FastifyRequest): boolean {
+  const site = req.headers['sec-fetch-site'];
+  return typeof site === 'string' && site !== 'same-origin' && site !== 'none';
+}
+
 export async function buildApp(services: Services, opts: AppOptions = {}): Promise<FastifyInstance> {
   const { ctx } = services;
   const app = Fastify({
@@ -88,14 +107,22 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(swaggerUi, { routePrefix: '/api-docs' });
 
   // CORS: any origin may call the API with an API key (browser extension), but
-  // credentials (cookies) are never shared cross-origin.
+  // credentials (cookies) are never shared cross-origin. The setup wizard takes no API key and is
+  // open until the first account exists, so it is only served to its own page: no CORS headers, no
+  // preflight, and no request that a browser marks as coming from another site.
   app.addHook('onRequest', async (req, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Referrer-Policy', 'same-origin');
+    if (isSetupRequest(req)) {
+      if (req.method === 'OPTIONS' || isFromOtherSite(req)) {
+        return reply.code(403).send({ error: 'The setup wizard can only be used from its own page' });
+      }
+      return;
+    }
     reply.header('Access-Control-Allow-Origin', '*');
     reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, Access-Control-Allow-Private-Network');
     reply.header('Access-Control-Allow-Private-Network', 'true');
-    reply.header('X-Content-Type-Options', 'nosniff');
-    reply.header('Referrer-Policy', 'same-origin');
     if (req.method === 'OPTIONS') return reply.code(204).send();
   });
 
