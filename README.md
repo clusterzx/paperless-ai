@@ -249,6 +249,12 @@ Pull requests are welcome! Please run `npm run check` before submitting.
 
 MIT – see [LICENSE](LICENSE).
 
+**AI-assisted development**
+Paperless-AI is a hobby project, and large parts of the new v4 code are written with the help of AI coding tools. The code is covered by automated tests, but AI-assisted code can still contain bugs or security issues that are easy to miss. Please report security problems privately as described in [SECURITY.md](SECURITY.md).
+
+**No warranty**
+This software is provided "as is", without warranty of any kind (see [LICENSE](LICENSE)). Keep it in your local network and don't expose it to the internet without additional protection, such as a VPN or an authenticating reverse proxy.
+
 ## 🙏 Support Development
 
 [![Patreon](https://img.shields.io/badge/Patreon-F96854?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/c/clusterzx)
