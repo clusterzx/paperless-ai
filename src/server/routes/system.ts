@@ -135,10 +135,16 @@ export const systemRoutes =
         if (!ai.ok) return reply.code(400).send({ error: ai.message, step: 'ai', canForce: true });
       }
 
+      // The connection tests and the hashing take a while, and another request may have completed
+      // the setup in the meantime. Nothing awaits between this check and the account creation.
+      const passwordHash = needsUser ? await hashPassword(req.body.password!) : '';
+      if (!ctx.needsSetup() || (needsUser && ctx.repos.users.count() > 0)) {
+        return reply.code(409).send({ error: 'Setup has already been completed' });
+      }
       ctx.config.update({ ...patch, setupCompleted: true });
       let user = req.principal?.kind === 'user' ? ctx.repos.users.byId(req.principal.userId) : undefined;
       if (needsUser) {
-        const id = ctx.repos.users.create(req.body.username!, await hashPassword(req.body.password!));
+        const id = ctx.repos.users.create(req.body.username!, passwordHash);
         user = ctx.repos.users.byId(id);
         log.info(`Created user "${req.body.username}"`);
       }
