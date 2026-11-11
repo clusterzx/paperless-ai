@@ -30,7 +30,8 @@ function splitRecursive(text: string, size: number, level = 0): string[] {
   const pieces: string[] = [];
   for (let i = 0; i < parts.length; i++) {
     const piece = i < parts.length - 1 ? parts[i] + sep : parts[i];
-    if (piece.length > size) pieces.push(...splitRecursive(piece, size, level + 1));
+    // No spread: a long piece can split into millions of parts, more than a call accepts as arguments.
+    if (piece.length > size) for (const sub of splitRecursive(piece, size, level + 1)) pieces.push(sub);
     else if (piece) pieces.push(piece);
   }
   return pieces;
@@ -42,7 +43,8 @@ export function chunkText(input: string, options: ChunkOptions = {}): string[] {
   if (!text) return [];
   if (text.length <= size * 1.25) return [text];
 
-  const pieces = splitRecursive(text, size);
+  // Each chunk takes at most `size` new characters, so text after this point never ends up in a chunk.
+  const pieces = splitRecursive(text.slice(0, size * (maxChunks + 1)), size);
   const chunks: string[] = [];
   let current = '';
   for (const piece of pieces) {

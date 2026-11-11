@@ -9,6 +9,19 @@ function paragraphText(paragraphs: number, sentencesPer = 6): string {
 }
 
 describe('chunkText', () => {
+  it('handles huge documents without overflowing the call stack', () => {
+    // Two halves of 4M characters each: each half splits into ~800k words at once.
+    const half = 'word '.repeat(800_000);
+    const chunks = chunkText(`${half}\n\n${half}`);
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.length).toBeLessThanOrEqual(400);
+  });
+
+  it('splits very long pieces without spreading them into a call', () => {
+    const half = 'word '.repeat(800_000);
+    expect(() => chunkText(`${half}\n\n${half}`, { maxChunks: 1_000_000 })).not.toThrow();
+  });
+
   it('returns nothing for empty text', () => {
     expect(chunkText('')).toEqual([]);
     expect(chunkText('  \n\n \t ')).toEqual([]);
