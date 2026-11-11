@@ -318,8 +318,11 @@ export async function applyPlannedUpdate(ctx: AppContext, doc: PaperlessDocument
       /* database unavailable – logged above */
     }
   }
-  // The notes name tags, correspondents, types and field values; they stay in the history only.
-  if (plan.notes.length) log.info({ documentId: doc.id }, `Document ${doc.id}: ${plan.notes.length} note(s), see the history`);
+  // The notes name tags, correspondents, types and field values: their text only at debug level.
+  if (plan.notes.length) {
+    log.info({ documentId: doc.id }, `Document ${doc.id}: ${plan.notes.length} note(s), LOG_LEVEL=debug shows them`);
+    log.debug({ documentId: doc.id, notes: plan.notes }, `Document ${doc.id}: ${plan.notes.join('; ')}`);
+  }
   return updated;
 }
 
