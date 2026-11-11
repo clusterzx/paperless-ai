@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { ArrowLeft, ArrowRight, Bot, Check, Plug, Rocket, Sparkles, Workflow } from 'lucide-react';
 import type { ConnectionTestResult } from '@shared/api';
 import { AuthShell } from './Login';
 import { AiSection, ConnectionSection, FunctionsSection, modelOf, ProcessingSection, type Config, type Locked } from '../components/settingsForms';
 import { Alert, Button, Field, IconChip, Input, Spinner } from '../components/ui';
-import { ApiError, errorMessage, get, post } from '../lib/api';
+import { ApiError, errorMessage, get, post, setSetupToken } from '../lib/api';
 import { useDraft } from '../lib/draft';
 import { cn } from '../lib/format';
 import { useSession } from '../lib/session';
@@ -29,14 +29,17 @@ function passwordScore(pw: string): { score: number; label: string } {
 }
 
 export default function SetupPage() {
-  const { refresh } = useSession();
+  const { session, refresh } = useSession();
   const [defaults, setDefaults] = useState<Defaults | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Without an account there is no login yet: the setup token from the server log comes first.
+  const needsToken = Boolean(session?.needsUser);
   useEffect(() => {
+    if (needsToken) return;
     get<Defaults>('/api/setup/defaults')
       .then(setDefaults)
       .catch((err) => setLoadError(errorMessage(err)));
-  }, []);
+  }, [needsToken]);
 
   if (loadError) {
     return (
@@ -46,6 +49,7 @@ export default function SetupPage() {
     );
   }
   if (!defaults) {
+    if (needsToken) return <SetupToken onDefaults={setDefaults} />;
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner className="size-6" />
@@ -53,6 +57,40 @@ export default function SetupPage() {
     );
   }
   return <Wizard defaults={defaults} onDone={refresh} />;
+}
+
+function SetupToken({ onDefaults }: { onDefaults: (defaults: Defaults) => void }) {
+  const [token, setToken] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    setSetupToken(token.trim());
+    try {
+      onDefaults(await get<Defaults>('/api/setup/defaults'));
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AuthShell title="Setup token" subtitle="Paperless-AI writes a setup token to its log when it starts without an account. Enter it to begin.">
+      <form onSubmit={submit} className="space-y-4">
+        {error && <Alert tone="danger">{error}</Alert>}
+        <Field label="Setup token" htmlFor="setup-token" hint="Find it with: docker logs paperless-ai">
+          <Input id="setup-token" autoComplete="off" spellCheck={false} autoFocus value={token} onChange={(e) => setToken(e.target.value)} required />
+        </Field>
+        <Button type="submit" variant="primary" size="lg" className="mt-2 w-full" loading={busy}>
+          Continue <ArrowRight className="size-4" />
+        </Button>
+      </form>
+    </AuthShell>
+  );
 }
 
 type StepId = 'account' | 'paperless' | 'ai' | 'processing' | 'finish';

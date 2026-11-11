@@ -108,7 +108,12 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
     paperless,
     llm,
     dataDir,
-    inject: (o) => app.inject(o),
+    // Like the setup wizard, send the setup token along; tests of the token itself use app.inject().
+    inject: (o) => {
+      const url = String(o.url ?? o.path ?? '');
+      if (!url.startsWith('/api/setup') || (o.headers && 'x-setup-token' in o.headers)) return app.inject(o);
+      return app.inject({ ...o, headers: { ...o.headers, 'x-setup-token': ctx.setupToken } });
+    },
     async login(username = TEST_USER, password = TEST_PASSWORD) {
       if (cookie && username === TEST_USER && password === TEST_PASSWORD) return cookie;
       if (!ctx.repos.users.byUsername(username)) ctx.repos.users.create(username, await hashPassword(password));

@@ -102,7 +102,7 @@ volumes:
 docker compose up -d
 ```
 
-Open `http://<your-server>:3000` – the setup wizard guides you through account, Paperless connection, AI provider and processing options. No restart is needed afterwards.
+Open `http://<your-server>:3000` – the setup wizard guides you through account, Paperless connection, AI provider and processing options. It first asks for the **setup token**, which Paperless-AI writes to its log while no account exists (`docker logs paperless-ai`). No restart is needed afterwards.
 
 **Paperless API user:** create a dedicated user in Paperless-ngx with permission to *view* and *change* documents, tags, correspondents, document types and custom fields, and use its API token (Profile → API Auth Token). Only documents this user may change are processed.
 
@@ -128,7 +128,7 @@ What is migrated: settings from `data/.env`, the user account, which documents w
 > - create a **new Paperless API token** for Paperless-AI and delete the old one, and replace the **API keys** of your AI provider;
 > - check the Paperless-ngx logs for document access with the old token.
 >
-> In any case, don't expose a fresh installation to the internet before the setup is completed: until the first account exists, the setup wizard is open to everyone who can reach it.
+> In any case, complete the setup before you expose a fresh installation to the internet. Until the first account exists, the setup wizard only works with the setup token from the log (a new one on every start).
 
 ### Instant processing with a Paperless workflow
 

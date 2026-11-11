@@ -12,7 +12,7 @@ import type { AppContext } from '../context.js';
 import { NotConfiguredError } from '../context.js';
 import type { ProcessingEngine } from '../processing/engine.js';
 import type { RagService } from '../rag/service.js';
-import { authenticate } from '../auth.js';
+import { authenticate, setupTokenMatches } from '../auth.js';
 import { PaperlessError } from '../paperless/client.js';
 import { AiError } from '../ai/types.js';
 import { logger } from '../logger.js';
@@ -107,9 +107,13 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     req.principal = await authenticate(ctx, req);
     if (level === 'public') return;
     if (level === 'setup') {
-      // Open only on a fresh installation (nobody could log in yet); afterwards a logged-in user is
-      // required – never an API key, the setup endpoints contact arbitrary URLs.
-      if (ctx.needsSetup() && ctx.repos.users.count() === 0) return;
+      // On a fresh installation nobody can log in yet: the setup token from the server log takes the
+      // place of the login. Afterwards a logged-in user is required – never an API key, the setup
+      // endpoints contact arbitrary URLs.
+      if (ctx.needsSetup() && ctx.repos.users.count() === 0) {
+        if (setupTokenMatches(ctx, req.headers['x-setup-token'])) return;
+        return reply.code(403).send({ error: 'Enter the setup token from the Paperless-AI log', code: 'setup_token' });
+      }
       level = 'session';
     }
     if (!req.principal) return reply.code(401).send({ error: 'Authentication required' });

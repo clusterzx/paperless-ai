@@ -34,12 +34,19 @@ async function login(page: Page) {
 }
 
 test('setup wizard configures Paperless-AI', async ({ page, request }) => {
-  const info = (await (await request.get('/__demo/info')).json()) as { paperlessUrl: string; paperlessToken: string; llmUrl: string };
+  const info = (await (await request.get('/__demo/info')).json()) as { paperlessUrl: string; paperlessToken: string; llmUrl: string; setupToken: string };
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
 
   await page.goto('/');
   await expect(page).toHaveURL(/\/setup$/);
+  // The wizard starts with the setup token from the server log.
+  await expect(page.getByRole('heading', { name: 'Setup token' })).toBeVisible();
+  await page.getByLabel('Setup token').fill('not-the-token');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByText('Enter the setup token from the Paperless-AI log')).toBeVisible();
+  await page.getByLabel('Setup token').fill(info.setupToken);
+  await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible();
   await page.getByLabel('Username').fill(USER);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);

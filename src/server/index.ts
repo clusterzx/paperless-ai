@@ -34,6 +34,7 @@ async function main(): Promise<void> {
   await app.listen({ port, host });
   log.info(`Web interface available on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
   if (ctx.needsSetup()) log.info('Setup required – open the web interface to configure Paperless-AI');
+  if (ctx.repos.users.count() === 0) log.info(`Setup token: ${ctx.setupToken} – the setup wizard asks for it`);
 
   engine.start();
   rag.start();

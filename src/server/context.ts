@@ -3,6 +3,7 @@
  * service clients. Clients are rebuilt automatically when the relevant part
  * of the configuration changes – no restart required after saving settings.
  */
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import type { AppConfig } from './config/schema.js';
 import { ConfigStore } from './config/store.js';
@@ -36,6 +37,11 @@ export class AppContext {
   readonly repos: Repos;
   readonly dataDir: string;
   readonly version = VERSION;
+  /**
+   * The setup wizard asks for this token while no account exists. It is written to the log on
+   * start, so only somebody who can read the log can set up a fresh installation. New on every start.
+   */
+  readonly setupToken = randomBytes(16).toString('hex');
 
   private paperlessCache: { key: string; client: PaperlessClient; metadata: PaperlessMetadata } | null = null;
   private llmCache: { key: string; client: LlmClient } | null = null;
