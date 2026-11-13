@@ -44,10 +44,20 @@ function describeError(data: unknown, status: number): string {
   return details.length ? `${message} – ${details.slice(0, 5).join('; ')}` : message;
 }
 
+let setupToken = '';
+
+/** While no account exists, the setup endpoints only answer with the setup token from the server log. */
+export function setSetupToken(token: string): void {
+  setupToken = token;
+}
+
 export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (init.body !== undefined) headers['Content-Type'] = 'application/json';
+  if (setupToken && path.startsWith('/api/setup')) headers['x-setup-token'] = setupToken;
   const res = await fetch(path, {
     method: init.method ?? (init.body !== undefined ? 'POST' : 'GET'),
-    headers: init.body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     credentials: 'same-origin',
     signal: init.signal,

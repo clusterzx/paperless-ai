@@ -60,13 +60,21 @@ export async function verifySession(ctx: AppContext, token: string): Promise<Pri
   }
 }
 
-export function apiKeyMatches(ctx: AppContext, candidate: string | undefined): boolean {
-  const expected = ctx.cfg.security.apiKey;
-  if (!candidate || !expected) return false;
+function secretMatches(candidate: unknown, expected: string): boolean {
+  if (typeof candidate !== 'string' || !candidate || !expected) return false;
   // Compare hashes so the comparison is constant-time regardless of length.
   const a = createHash('sha256').update(candidate).digest();
   const b = createHash('sha256').update(expected).digest();
   return timingSafeEqual(a, b);
+}
+
+export function apiKeyMatches(ctx: AppContext, candidate: string | undefined): boolean {
+  return secretMatches(candidate, ctx.cfg.security.apiKey);
+}
+
+/** The token from the `x-setup-token` header of a setup request (see AppContext.setupToken). */
+export function setupTokenMatches(ctx: AppContext, candidate: unknown): boolean {
+  return secretMatches(candidate, ctx.setupToken);
 }
 
 export function newApiKey(): string {

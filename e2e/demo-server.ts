@@ -194,7 +194,12 @@ const rag = new RagService(ctx);
 engine.on('idle', () => rag.requestSync());
 const staticDir = path.resolve(here, '..', 'dist', 'public');
 const app = await buildApp({ ctx, engine, rag }, { staticDir });
-app.get('/__demo/info', { config: { auth: 'public' } }, async () => ({ paperlessUrl: paperless.url, paperlessToken: paperless.token, llmUrl: llm.openaiUrl }));
+app.get('/__demo/info', { config: { auth: 'public' } }, async () => ({
+  paperlessUrl: paperless.url,
+  paperlessToken: paperless.token,
+  llmUrl: llm.openaiUrl,
+  setupToken: ctx.setupToken,
+}));
 await app.listen({ port, host: '127.0.0.1' });
 engine.start(false);
 rag.start();
