@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { SessionInfo } from '../../shared/api.js';
@@ -18,7 +18,7 @@ import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
 import { localEmbeddingsAvailable } from '../rag/localEmbedder.js';
 import { request } from '../util/http.js';
 import { logBuffer, logger, type LogEntry } from '../logger.js';
-import { storedPaperlessToken, testAiConnection, testPaperlessConnection, withoutMaskedSecrets } from './connectionTests.js';
+import { secretForAnotherServer, storedPaperlessToken, testAiConnection, testPaperlessConnection, withoutMaskedSecrets } from './connectionTests.js';
 
 const log = logger.child({ module: 'auth' });
 let dummy: Promise<string> | null = null;
@@ -93,8 +93,6 @@ export const systemRoutes =
       force: z.boolean().optional(),
     });
 
-    const isUser = (req: FastifyRequest) => req.principal?.kind === 'user';
-
     app.get('/api/setup/defaults', { config: { auth: 'setup' } }, async () => ({
       config: ctx.config.redacted(),
       locked: ctx.config.lockedPaths,
@@ -104,15 +102,15 @@ export const systemRoutes =
     }));
 
     app.post('/api/setup/test-paperless', { config: { auth: 'setup' }, schema: { body: z.object({ url: z.string(), token: z.string() }) } }, async (req) =>
-      testPaperlessConnection(req.body.url, storedPaperlessToken(ctx, req.body.url, req.body.token, isUser(req))),
+      testPaperlessConnection(req.body.url, storedPaperlessToken(ctx, req.body.url, req.body.token)),
     );
 
     app.post('/api/setup/test-ai', { config: { auth: 'setup' }, schema: { body: z.object({ ai: z.record(z.string(), z.unknown()) }) } }, async (req) =>
-      testAiConnection(ctx, req.body.ai as DeepPartial<AppConfig['ai']>, { trusted: isUser(req) }),
+      testAiConnection(ctx, req.body.ai as DeepPartial<AppConfig['ai']>),
     );
 
     app.post('/api/setup/models', { config: { auth: 'setup' }, schema: { body: z.object({ ai: z.record(z.string(), z.unknown()) }) } }, async (req) => {
-      const res = await testAiConnection(ctx, req.body.ai as DeepPartial<AppConfig['ai']>, { modelsOnly: true, trusted: isUser(req) });
+      const res = await testAiConnection(ctx, req.body.ai as DeepPartial<AppConfig['ai']>, { modelsOnly: true });
       return { models: (res.details?.models as string[] | undefined) ?? [], error: res.ok ? undefined : res.message };
     });
 
@@ -127,11 +125,13 @@ export const systemRoutes =
       const patch = req.body.config as DeepPartial<AppConfig>;
       // Validate the merged configuration before testing anything.
       const merged = configSchema.parse(deepMerge(structuredClone(ctx.cfg), withoutMaskedSecrets(patch)));
+      const secretProblem = secretForAnotherServer(ctx, patch, merged);
+      if (secretProblem) throw badRequest(secretProblem);
 
-      const pl = await testPaperlessConnection(merged.paperless.url, storedPaperlessToken(ctx, merged.paperless.url, patch.paperless?.token, isUser(req)));
+      const pl = await testPaperlessConnection(merged.paperless.url, storedPaperlessToken(ctx, merged.paperless.url, patch.paperless?.token));
       if (!pl.ok) return reply.code(400).send({ error: pl.message, step: 'paperless' });
       if (!req.body.force) {
-        const ai = await testAiConnection(ctx, patch.ai ?? {}, { trusted: isUser(req) });
+        const ai = await testAiConnection(ctx, patch.ai ?? {});
         if (!ai.ok) return reply.code(400).send({ error: ai.message, step: 'ai', canForce: true });
       }
 
