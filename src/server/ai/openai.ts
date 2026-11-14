@@ -194,7 +194,9 @@ export class OpenAiCompatibleClient implements LlmClient {
     }
     // "max_completion_tokens is too large: 20000. This model supports at most 16384 completion tokens"
     // "max_tokens: 64000 > 32000, which is the maximum allowed number of output tokens"
-    const limit = /at most (\d+)/.exec(msg) ?? /max_(?:completion_)?tokens: \d+ > (\d+)/.exec(msg);
+    // "max_completion_tokens is limited to 16384 for qwen3.5-397b-a17b" (Scaleway)
+    const limit =
+      /at most (\d+)/.exec(msg) ?? /max_(?:completion_)?tokens: \d+ > (\d+)/.exec(msg) ?? /limited to (\d+)/.exec(msg);
     if (limit && /max_(completion_)?tokens|completion tokens|output tokens/.test(msg)) {
       const max = Number(limit[1]);
       if (max > 0 && max !== caps.maxOutput) {
