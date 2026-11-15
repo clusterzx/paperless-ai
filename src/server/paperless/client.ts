@@ -46,6 +46,7 @@ export interface PaperlessClientOptions {
 
 export interface DocumentListQuery {
   tagsAny?: number[];
+  tagsNone?: number[];
   ids?: number[];
   ordering?: string;
   fields?: string[];
@@ -192,6 +193,7 @@ export class PaperlessClient {
       ...q.extra,
     };
     if (q.tagsAny?.length) query.tags__id__in = q.tagsAny.join(',');
+    if (q.tagsNone?.length) query.tags__id__none = q.tagsNone.join(',');
     if (q.ids?.length) query.id__in = q.ids.join(',');
     return this.listAll<PaperlessDocument>('/documents/', query, q.pageSize ?? 500);
   }

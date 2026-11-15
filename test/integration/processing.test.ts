@@ -425,6 +425,36 @@ describe('automatic processing', () => {
     expect(hh.paperless.docs.get(301)!.title).toBe('Processed');
   });
 
+  it('excludes documents with an exclude tag even when onlyTagged matches them', async () => {
+    const hh = await harness({
+      config: { processing: { onlyTagged: true, tags: ['ai-process'], excludeTags: ['do-not-ai'] } },
+    });
+    hh.paperless.addTag('ai-process', 50);
+    hh.paperless.addTag('do-not-ai', 60);
+    hh.paperless.addDocument({ id: 401, title: 'included', content: 'Please process this document', tags: [50] });
+    hh.paperless.addDocument({ id: 402, title: 'both tags', content: 'Please do not process this document', tags: [50, 60] });
+    hh.llm.reply(analysisJson({ title: 'Processed', tags: ['Misc'] }));
+
+    expect(await scan(hh)).toBe(1);
+    expect(hh.paperless.patches(401)).toHaveLength(1);
+    expect(hh.paperless.patches(402)).toHaveLength(0);
+    const q = hh.paperless.calls('GET', '/api/documents/')[0].query;
+    expect(q.tags__id__in).toBe('50');
+    expect(q.tags__id__none).toBe('60');
+  });
+
+  it('excludes documents with an exclude tag with no other filter active', async () => {
+    const hh = await harness({ config: { processing: { excludeTags: ['do-not-ai'] } } });
+    hh.paperless.addTag('do-not-ai', 60);
+    hh.paperless.addDocument({ id: 401, title: 'excluded', content: 'Please do not process this document', tags: [60] });
+    hh.paperless.addDocument({ id: 402, title: 'included', content: 'Please process this document' });
+    hh.llm.reply(analysisJson({ title: 'Processed', tags: ['Misc'] }));
+
+    expect(await scan(hh)).toBe(1);
+    expect(hh.paperless.patches(401)).toHaveLength(0);
+    expect(hh.paperless.patches(402)).toHaveLength(1);
+  });
+
   it('skips scanning when none of the trigger tags exist', async () => {
     const hh = await harness({ config: { processing: { onlyTagged: true, tags: ['missing-tag'] } } });
     hh.paperless.addDocument({ id: 1, content: 'Some content to process here' });

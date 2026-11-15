@@ -171,7 +171,18 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
         }
         tagFilter = res.ids;
       }
-      const docs = await client.listDocuments({ tagsAny: tagFilter, fields: ['id', 'title', 'modified'], ordering: 'added', pageSize: 1000 });
+      let excludeFilter: number[] | undefined;
+      if (p.excludeTags.length) {
+        const res = await meta.resolveTags(p.excludeTags, false);
+        if (res.ids.length) excludeFilter = res.ids;
+      }
+      const docs = await client.listDocuments({
+        tagsAny: tagFilter,
+        tagsNone: excludeFilter,
+        fields: ['id', 'title', 'modified'],
+        ordering: 'added',
+        pageSize: 1000,
+      });
       const states = this.ctx.repos.documents.all();
       let count = 0;
       for (const doc of docs) {
@@ -182,7 +193,7 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       this.lastScanAt = Date.now();
       this.lastError = null;
       log.info(`Scan finished: ${docs.length} documents checked, ${count} queued for processing`);
-      await this.pruneDeleted(tagFilter ? undefined : docs.map((d) => d.id));
+      await this.pruneDeleted(tagFilter || excludeFilter ? undefined : docs.map((d) => d.id));
       return count;
     } catch (err) {
       this.lastError = describeError(err);

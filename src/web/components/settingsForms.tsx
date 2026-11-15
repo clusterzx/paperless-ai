@@ -449,6 +449,19 @@ export function ProcessingSection({ draft, set, locked, tagSuggestions = [] }: S
           </div>
         )}
         {!p.onlyTagged && <Alert tone="warn">All documents of your archive will be analyzed. With large archives and paid APIs this can be expensive.</Alert>}
+        <Field
+          label="Exclude tags"
+          locked={locked['processing.excludeTags']}
+          hint="Documents with any of these tags are never processed, even if they match the filters above."
+        >
+          <TagInput
+            value={p.excludeTags}
+            onChange={(v) => set('processing.excludeTags', v)}
+            suggestions={tagSuggestions}
+            placeholder="e.g. do-not-ai"
+            disabled={Boolean(locked['processing.excludeTags'])}
+          />
+        </Field>
       </div>
 
       <div className="space-y-4 rounded-xl border border-border p-4">
