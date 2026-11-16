@@ -131,7 +131,8 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     }
     if (err instanceof AiError) return reply.code(502).send({ error: err.message, code: 'ai_error' });
     if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ error: err.message });
-    logger.error({ err, module: 'http', url: req.url }, 'Unhandled error');
+    // Without the query string: search routes carry the user's search text there.
+    logger.error({ err, module: 'http', url: req.url.split('?')[0] }, 'Unhandled error');
     return reply.code(500).send({ error: 'Internal server error – see the logs for details' });
   });
 

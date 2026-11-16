@@ -331,7 +331,7 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       }
       if (info) info.stage = 'analyzing';
       this.modelUsed = true;
-      log.info(`Analyzing document ${documentId} "${doc.title}"`);
+      log.info(`Analyzing document ${documentId}`);
       const analysis = await analyzeContent(this.ctx, doc.content, {
         feature: 'process',
         documentId,
@@ -340,9 +340,9 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       });
       if (info) info.stage = 'saving';
       const plan = await planAutomaticUpdate(this.ctx, doc, analysis.suggestion);
-      const updated = await applyPlannedUpdate(this.ctx, doc, plan, { source: job.source, analysis });
+      await applyPlannedUpdate(this.ctx, doc, plan, { source: job.source, analysis });
       log.info(
-        `Processed document ${documentId} → "${updated.title}" (${analysis.usage.totalTokens} tokens, ${(analysis.durationMs / 1000).toFixed(1)}s${analysis.truncated ? ', content truncated' : ''})`,
+        `Processed document ${documentId} (${analysis.usage.totalTokens} tokens, ${(analysis.durationMs / 1000).toFixed(1)}s${analysis.truncated ? ', content truncated' : ''})`,
       );
       return 'processed';
     } catch (err) {
