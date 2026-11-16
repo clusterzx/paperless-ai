@@ -89,6 +89,15 @@ describe('enabledFields / buildJsonSchema', () => {
     expect(instructions).toContain('"Notes": text, may span several lines');
     expect(instructions).toContain('"Ref": short text (max. 128 characters)');
   });
+
+  it('asks only the title to follow the document language', () => {
+    const cfg = config({ processing: { restrict: { documentTypes: true } } });
+    const instructions = buildOutputInstructions(cfg.processing, { ...ctx, documentTypes: ['Rechnung', 'Vertrag'] });
+    expect(instructions).toContain('- The title MUST be written in the language of the document.');
+    expect(instructions).not.toMatch(/document type MUST be written in the language/i);
+    expect(instructions).toContain('copy one of its names exactly as written');
+    expect(instructions).toContain('- document_type: ONLY use one of: Rechnung, Vertrag');
+  });
 });
 
 describe('buildSystemPrompt', () => {
