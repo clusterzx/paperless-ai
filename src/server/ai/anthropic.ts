@@ -153,7 +153,13 @@ export class AnthropicClient implements LlmClient {
           `The model used its whole output budget (${params.max_tokens} tokens) before answering – usually for thinking. Increase "Answer tokens" in Settings → AI provider → Advanced.`,
         );
       }
-      return { text, usage: toUsage(message.usage), model: message.model ?? this.model, durationMs: Date.now() - started };
+      return {
+        text,
+        usage: toUsage(message.usage),
+        model: message.model ?? this.model,
+        durationMs: Date.now() - started,
+        truncated: message.stop_reason === 'max_tokens' || message.stop_reason === 'model_context_window_exceeded',
+      };
     }
     throw new AiError('Could not find a request format the Anthropic API accepts for this model');
   }

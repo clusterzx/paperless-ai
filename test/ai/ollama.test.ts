@@ -106,6 +106,13 @@ describe('OllamaClient.complete', () => {
     await expect(c.complete(messages, { maxTokens: 300 })).rejects.toThrow(/whole output budget/);
   });
 
+  it('marks answers that were cut off at num_predict (#1001)', async () => {
+    llm.reply({ content: '{"title": "Cut', finishReason: 'length' });
+    expect(await client().complete(messages, { maxTokens: 300 })).toMatchObject({ text: '{"title": "Cut', truncated: true });
+    llm.reply('{"title": "Complete"}');
+    expect((await client().complete(messages)).truncated).toBe(false);
+  });
+
   it('sends the think setting', async () => {
     const thinkOf = async (think: OllamaThink) => {
       llm.clearRequests();

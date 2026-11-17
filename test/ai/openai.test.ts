@@ -264,6 +264,14 @@ describe('OpenAiCompatibleClient.complete', () => {
     expect((await client().complete(messages)).text).toBe('');
   });
 
+  it('marks answers that were cut off at the output limit (#1001)', async () => {
+    llm.reply({ content: '{"title": "Half a tit', finishReason: 'length' });
+    const res = await client().complete(messages, { maxTokens: 50 });
+    expect(res).toMatchObject({ text: '{"title": "Half a tit', truncated: true });
+    llm.reply({ content: '{"title": "Complete"}' });
+    expect((await client().complete(messages)).truncated).toBe(false);
+  });
+
   it('reads content sent as a list of chunks and drops the reasoning (Mistral, #1002)', async () => {
     llm.reply({
       rawContent: [

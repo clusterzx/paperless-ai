@@ -27,6 +27,8 @@ export interface CompletionResult {
   usage: Usage;
   model: string;
   durationMs: number;
+  /** The answer was cut off by the output limit (finish_reason "length", done_reason "length", stop_reason "max_tokens"). */
+  truncated?: boolean;
 }
 
 export type StreamChunk = { type: 'delta'; text: string } | { type: 'usage'; usage: Usage };

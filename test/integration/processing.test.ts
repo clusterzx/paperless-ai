@@ -357,6 +357,34 @@ describe('automatic processing', () => {
     expect(hh.ctx.repos.usage.stats()).toMatchObject({ calls: 1, totalTokens: 240 });
   });
 
+  it('never applies an answer that was cut off at the output limit (#1001)', async () => {
+    const hh = await harness({ config: { processing: { maxAttempts: 1 } } });
+    hh.paperless.addDocument({ id: 11, title: 'scan.pdf', content: 'Document with enough content to analyse' });
+    // The JSON repair would turn this into a valid object with a half title and without tags.
+    hh.llm.reply({ content: '{"title": "Electricity invoice Ma', finishReason: 'length' });
+    await scan(hh);
+    expect(hh.paperless.patches(11)).toHaveLength(0);
+    expect(hh.paperless.docs.get(11)!.title).toBe('scan.pdf');
+    expect(hh.ctx.repos.documents.get(11)).toMatchObject({ status: 'failed', reason: expect.stringMatching(/cut off at the output limit \(2000 tokens\).*Answer tokens/) });
+    // asked once more with twice the answer budget
+    expect(hh.llm.chatRequests().map((r) => r.body!.max_tokens)).toEqual([1000, 2000]);
+  });
+
+  it('asks again with a larger answer budget when the answer was cut off (#1001)', async () => {
+    const hh = await harness();
+    hh.paperless.addDocument({ id: 12, content: 'Document with enough content to analyse' });
+    hh.llm.reply((req) =>
+      Number(req.body.max_tokens) <= 1000
+        ? { content: '{"title": "Half', finishReason: 'length' }
+        : analysisJson({ title: 'Full title', tags: ['Invoice'] }),
+    );
+    await scan(hh);
+    expect(hh.paperless.docs.get(12)!.title).toBe('Full title');
+    expect(hh.llm.chatRequests().map((r) => r.body!.max_tokens)).toEqual([1000, 2000]);
+    // usage of both calls is recorded together
+    expect(hh.ctx.repos.usage.stats()).toMatchObject({ calls: 1, totalTokens: 240 });
+  });
+
   it('applies answers of models that send the content as a list of chunks (Mistral, #1002)', async () => {
     const hh = await harness();
     hh.paperless.addDocument({ id: 13, title: 'scan.pdf', content: 'Document with enough content to analyse' });

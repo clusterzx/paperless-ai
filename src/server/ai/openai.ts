@@ -249,7 +249,13 @@ export class OpenAiCompatibleClient implements LlmClient {
           }
           throw outOfBudget(body[this.caps.tokenParam]);
         }
-        return { text, usage: toUsage(res?.usage), model: res?.model ?? this.model, durationMs: Date.now() - started };
+        return {
+          text,
+          usage: toUsage(res?.usage),
+          model: res?.model ?? this.model,
+          durationMs: Date.now() - started,
+          truncated: choice?.finish_reason === 'length',
+        };
       } catch (err) {
         if (this.adapt(err, body, call)) continue;
         throw wrapError(err);

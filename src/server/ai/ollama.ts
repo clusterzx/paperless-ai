@@ -151,7 +151,7 @@ export class OllamaClient implements LlmClient {
         'The model used its whole output budget before answering – usually for thinking. Increase "Answer tokens" in Settings → AI provider → Advanced or choose a model that thinks less.',
       );
     }
-    return { text, usage: usage(res), model: res.model ?? this.model, durationMs: Date.now() - started };
+    return { text, usage: usage(res), model: res.model ?? this.model, durationMs: Date.now() - started, truncated: res.done_reason === 'length' };
   }
 
   private async chat(messages: ChatMessage[], opts: CompletionOptions): Promise<OllamaChatResponse> {
