@@ -87,7 +87,8 @@ Upgrading from 3.x is automatic: your `data/.env`, user account, processing stat
 **Interactive tools**
 - **Document chat** – ask questions about a single document (long documents are handled automatically)
 - **Manual review** – let the AI suggest metadata and decide yourself what to save
-- **Prompt playground** – test prompts on real documents side by side with the current values, rate and keep prompts
+- **Prompt playground** – test prompts on real documents side by side with the current values
+- **Prompt library** – keep tested prompts per use case (invoices, contracts …) with ratings per model (1–10, note, test documents), see which model a prompt works best with, and use one for automatic processing with a single click; the playground and the prompt wizard save into it
 - **History with undo**, filters and search
 - **Dashboard** with live processing status, coverage, activity, token usage
 - **Logs & diagnostics** – live log stream, connection checks, Paperless API explorer

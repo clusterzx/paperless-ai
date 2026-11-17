@@ -3,6 +3,7 @@ import { useLocation } from 'wouter';
 import {
   ArrowLeft,
   ArrowRight,
+  BookMarked,
   Building2,
   Check,
   Copy,
@@ -18,10 +19,11 @@ import {
   Tags,
   Wand2,
 } from 'lucide-react';
-import type { AnalysisResult, DocumentSummary } from '@shared/api';
+import type { AnalysisResult, DocumentSummary, PromptLibrary } from '@shared/api';
 import { buildWizardPrompt, TAG_AVOID_LABELS, TITLE_PLACEHOLDERS, WIZARD_LANGUAGES, type PromptWizardAnswers } from '@shared/promptWizard';
 import type { Config } from '../components/settingsForms';
 import { Page } from '../components/Layout';
+import { SavePromptModal } from '../components/promptLibrary';
 import { Alert, Badge, Button, Card, Field, Input, NumberInput, PageHeader, Select, Skeleton, Switch, TagInput, Textarea, useConfirm, useToast } from '../components/ui';
 import { errorMessage, get, post, put, qs } from '../lib/api';
 import { useAsync, useDebounced, useUnsavedChanges } from '../lib/hooks';
@@ -203,6 +205,8 @@ export default function PromptWizardPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const [, navigate] = useLocation();
+  const library = useAsync((signal) => get<PromptLibrary>('/api/prompts', signal), []);
+  const [keeping, setKeeping] = useState(false);
   const meta = useMetadata();
   const [loaded, setLoaded] = useState<SettingsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -531,9 +535,14 @@ export default function PromptWizardPage() {
                 Next <ArrowRight className="size-4" />
               </Button>
             ) : (
-              <Button variant="primary" icon={<Save className="size-4" />} loading={saving} disabled={Boolean(promptLocked)} onClick={save}>
-                Save prompt
-              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button icon={<BookMarked className="size-4" />} onClick={() => setKeeping(true)}>
+                  Save in library
+                </Button>
+                <Button variant="primary" icon={<Save className="size-4" />} loading={saving} disabled={Boolean(promptLocked)} onClick={save}>
+                  Save prompt
+                </Button>
+              </div>
             )}
           </div>
         </div>
@@ -567,6 +576,14 @@ export default function PromptWizardPage() {
           </Card>
         </div>
       </div>
+      <SavePromptModal
+        open={keeping}
+        onClose={() => setKeeping(false)}
+        prompt={prompt}
+        wizard={{ ...a, used: true }}
+        useCases={library.data?.useCases ?? []}
+        defaults={{ name: 'Prompt from the wizard', model: library.data?.current.model, provider: library.data?.current.provider }}
+      />
     </Page>
   );
 }
