@@ -121,15 +121,36 @@ export const ocrRoutes =
       async (req): Promise<OcrDocumentText> => {
         const doc = await ctx.paperless().getDocument(req.params.id);
         const result = ctx.repos.ocr.result(doc.id);
-        const quality = ctx.repos.ocr.assessment(doc.id)?.quality ?? assessText(doc.content, doc.page_count, ctx.cfg.ocr.poorBelow);
+        const ocrText = result?.status === 'done' ? result.text : null;
+        // Saved in Paperless: the text before the OCR is the one kept for undo.
+        const inPaperless = Boolean(result?.status === 'done' && result.written_back && !result.reverted_at);
+        const originalText = inPaperless ? (result?.previous_text ?? '') : (doc.content ?? '');
+        const pages = doc.page_count ?? result?.total_pages ?? null;
         return {
           id: doc.id,
           title: doc.title,
-          paperlessText: doc.content ?? '',
-          ocrText: result?.status === 'done' ? result.text : null,
-          quality,
+          originalText,
+          originalQuality: assessText(originalText, pages, ctx.cfg.ocr.poorBelow),
+          ocrText,
+          ocrQuality: ocrText !== null ? assessText(ocrText, pages, ctx.cfg.ocr.poorBelow) : null,
+          inPaperless,
           ocr: resultInfo(result),
         };
+      },
+    );
+
+    app.post(
+      '/api/ocr/documents/:id/apply',
+      {
+        schema: {
+          description: 'Save the OCR text in Paperless although it did not score better than the existing text; the document is analysed again.',
+          params: z.object({ id: z.coerce.number().int().positive() }),
+        },
+      },
+      async (req) => {
+        await ocr.apply(req.params.id);
+        engine.enqueue(req.params.id, { source: 'ocr', force: true });
+        return { ok: true };
       },
     );
 

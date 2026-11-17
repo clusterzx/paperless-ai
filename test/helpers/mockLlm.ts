@@ -43,6 +43,10 @@ export interface ChatReply {
   finishReason?: string;
   /** Ollama: separate thinking text (message.thinking). Anthropic: a thinking block before the text. */
   thinking?: string;
+  /** OpenAI: message.content exactly as given (e.g. a list of chunks like Mistral's reasoning models send). */
+  rawContent?: unknown;
+  /** OpenAI streams: delta.content values exactly as given (overrides chunks/content). */
+  rawDeltas?: unknown[];
 }
 
 export type ChatHandler = (req: ChatRequestInfo) => string | ChatReply | Promise<string | ChatReply>;
@@ -237,13 +241,13 @@ export class MockLlm {
           object: 'chat.completion',
           model,
           choices: [
-            { index: 0, message: { role: 'assistant', content: r.refusal ? null : content, refusal: r.refusal ?? null }, finish_reason: r.finishReason ?? 'stop' },
+            { index: 0, message: { role: 'assistant', content: r.refusal ? null : r.rawContent !== undefined ? r.rawContent : content, refusal: r.refusal ?? null }, finish_reason: r.finishReason ?? 'stop' },
           ],
           usage: usageObj,
         });
       }
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
-      const pieces = r.chunks ?? split(content, r.chunkSize ?? 4);
+      const pieces: unknown[] = r.rawDeltas ?? r.chunks ?? split(content, r.chunkSize ?? 4);
       res.write(`data: ${JSON.stringify({ id: 'c', model, choices: [{ index: 0, delta: { role: 'assistant', content: '' } }] })}\n\n`);
       for (const p of pieces) {
         res.write(`data: ${JSON.stringify({ id: 'c', model, choices: [{ index: 0, delta: { content: p } }] })}\n\n`);

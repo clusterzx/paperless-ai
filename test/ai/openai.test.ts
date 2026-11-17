@@ -263,6 +263,30 @@ describe('OpenAiCompatibleClient.complete', () => {
     llm.reply({ content: '' });
     expect((await client().complete(messages)).text).toBe('');
   });
+
+  it('marks answers that were cut off at the output limit (#1001)', async () => {
+    llm.reply({ content: '{"title": "Half a tit', finishReason: 'length' });
+    const res = await client().complete(messages, { maxTokens: 50 });
+    expect(res).toMatchObject({ text: '{"title": "Half a tit', truncated: true });
+    llm.reply({ content: '{"title": "Complete"}' });
+    expect((await client().complete(messages)).truncated).toBe(false);
+  });
+
+  it('reads content sent as a list of chunks and drops the reasoning (Mistral, #1002)', async () => {
+    llm.reply({
+      rawContent: [
+        { type: 'thinking', thinking: [{ type: 'text', text: 'The user wants a title…' }] },
+        { type: 'text', text: '{"title": ' },
+        { type: 'text', text: '"Invoice"}' },
+      ],
+    });
+    expect((await client('mistral-large-2512').complete(messages, { jsonSchema: schema })).text).toBe('{"title": "Invoice"}');
+    llm.reply({ rawContent: ['plain ', { type: 'output_text', text: 'parts' }, { type: 'image_url', image_url: 'x' }, null, 42] });
+    expect((await client().complete(messages)).text).toBe('plain parts');
+    llm.reply({ rawContent: [{ type: 'thinking', thinking: [{ type: 'text', text: 'only reasoning' }] }], finishReason: 'length' });
+    const err = await client().complete(messages, { maxTokens: 50 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiError);
+  });
 });
 
 describe('OpenAiCompatibleClient.stream', () => {
@@ -284,6 +308,19 @@ describe('OpenAiCompatibleClient.stream', () => {
     expect((await collect(client().stream(messages))).text).toBe('Answer continues');
     llm.reply({ chunks: ['<think>', 'never closed'] });
     expect((await collect(client().stream(messages))).text).toBe('');
+  });
+
+  it('streams content sent as lists of chunks without the reasoning (Mistral, #1002)', async () => {
+    llm.reply({
+      rawDeltas: [
+        [{ type: 'thinking', thinking: [{ type: 'text', text: 'Let me think' }] }],
+        [{ type: 'thinking', thinking: [{ type: 'text', text: ' about it' }] }],
+        [{ type: 'text', text: 'The answer' }],
+        ' is 42',
+        null,
+      ],
+    });
+    expect((await collect(client('mistral-large-2512').stream(messages))).text).toBe('The answer is 42');
   });
 
   it('retries without stream_options when unsupported (no usage then)', async () => {

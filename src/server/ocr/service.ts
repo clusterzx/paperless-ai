@@ -28,6 +28,8 @@ const ASSESS_INTERVAL_MS = 6 * 3_600_000;
 
 export interface ReadResult {
   text: string;
+  /** The OCR text scored better than the text Paperless had – only then it replaces it (and is analysed). */
+  better: boolean;
   /** The document after the write-back (new `modified`), or the unchanged one. */
   doc: PaperlessDocument;
   result: OcrResult;
@@ -124,7 +126,7 @@ export class OcrService {
   /** OCR text stored for exactly this version of the document (not written back, not reverted). */
   storedText(doc: PaperlessDocument): string | null {
     const r = this.ctx.repos.ocr.result(doc.id);
-    if (!r || r.status !== 'done' || r.reverted_at || !r.text) return null;
+    if (!r || r.status !== 'done' || r.reverted_at || r.kept_original || !r.text) return null;
     if (r.written_back) return r.written_modified === (doc.modified ?? null) ? r.text : null;
     return r.source_modified === (doc.modified ?? null) ? r.text : null;
   }
@@ -171,39 +173,65 @@ export class OcrService {
         opts.signal,
       );
       const text = result.text;
+      const chars = text.replace(/\s+/g, '').length;
+      // Both texts are rated the same way (same page count). Only a better text replaces the one
+      // Paperless has: a clean text layer of a digital PDF or well-read print stays untouched when
+      // OCR – e.g. on handwriting – does no better. Never replace text with (almost) nothing.
+      const pages = doc.page_count ?? result.totalPages;
+      const before = assessText(doc.content, pages, this.cfg.poorBelow);
+      const after = assessText(text, pages, this.cfg.poorBelow);
+      const better = chars >= 20 && (before.level === 'missing' || after.score > before.score);
       repo.saveResult(doc.id, {
         text,
-        chars: text.replace(/\s+/g, '').length,
+        chars,
         pages: result.pages.length,
         totalPages: result.totalPages,
         meanScore: result.meanScore,
         provider: result.provider,
         durationMs: result.durationMs,
         sourceModified: doc.modified ?? null,
+        scoreBefore: before.score,
+        scoreAfter: after.score,
+        keptOriginal: !better,
       });
       const truncated = result.totalPages > result.pages.length ? ` (first ${result.pages.length} of ${result.totalPages} pages)` : '';
       log.info(
         `OCR of document ${doc.id}: ${result.pages.length} page(s)${truncated}, ${text.length} characters, ` +
-          `confidence ${(result.meanScore * 100).toFixed(0)} %, ${(result.durationMs / 1000).toFixed(1)}s on ${result.provider.toUpperCase()}`,
+          `confidence ${(result.meanScore * 100).toFixed(0)} %, ${(result.durationMs / 1000).toFixed(1)}s on ${result.provider.toUpperCase()}, ` +
+          `text quality ${before.score} → ${after.score}${better ? '' : ' – not better, the existing text is kept'}`,
       );
 
       let current = doc;
       let writtenBack = false;
-      // Never replace text with (almost) nothing: an unreadable scan keeps whatever Paperless had.
-      if (this.cfg.writeBack && text.replace(/\s+/g, '').length >= 20) {
+      if (this.cfg.writeBack && better) {
         current = await this.ctx.paperless().updateDocument(doc.id, { content: text });
         repo.markWrittenBack(doc.id, doc.content ?? '', current.modified ?? null);
         writtenBack = true;
         this.assess({ ...current, content: text });
       }
-      this.onTextChanged?.(doc.id);
-      return { text, doc: current, result, writtenBack };
+      if (better) this.onTextChanged?.(doc.id);
+      return { text, better, doc: current, result, writtenBack };
     } catch (err) {
       repo.saveFailure(doc.id, describeError(err), doc.modified ?? null);
       throw err;
     } finally {
       this.active = null;
     }
+  }
+
+  /** Save an OCR text in Paperless that was kept back (not better by the score) or reverted before. */
+  async apply(documentId: number): Promise<void> {
+    const repo = this.ctx.repos.ocr;
+    const r = repo.result(documentId);
+    if (!r || r.status !== 'done' || !r.text) throw new UserError('There is no OCR result for this document');
+    if (r.written_back && !r.reverted_at) throw new UserError('The OCR text is already saved in Paperless');
+    const client = this.ctx.paperless();
+    const doc = await client.getDocument(documentId);
+    const updated = await client.updateDocument(documentId, { content: r.text });
+    repo.markApplied(documentId, doc.content ?? '', updated.modified ?? null);
+    this.assess({ ...updated, content: r.text });
+    this.onTextChanged?.(documentId);
+    log.info(`OCR text of document ${documentId} saved in Paperless on request`);
   }
 
   /** Put the previous Paperless text back. */

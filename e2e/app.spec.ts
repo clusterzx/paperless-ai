@@ -304,10 +304,12 @@ test('OCR page finds documents with poor text, reads them and the AI renames the
 
   await page.getByRole('button', { name: 'Show text' }).first().click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByText('PaddleOCR result')).toBeVisible();
+  // Side by side: the text before the OCR and the OCR result that is in Paperless now.
+  await expect(dialog.getByText('Before OCR', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('PaddleOCR result – now in Paperless', { exact: true })).toBeVisible();
   // Renamed by the AI pipeline from the OCR text.
   await expect(dialog.getByRole('heading', { name: /Malermeister Kopp/ })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Revert OCR text' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Restore the text before OCR' })).toBeVisible();
 });
 
 test('prompt wizard builds, tests and saves a prompt', async ({ page }) => {

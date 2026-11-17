@@ -239,7 +239,7 @@ export class OpenAiCompatibleClient implements LlmClient {
           signal: opts.signal,
         });
         const choice = res?.choices?.[0];
-        const text = choice?.message?.content ?? '';
+        const text = contentText(choice?.message?.content);
         if (!text && choice?.message?.refusal) throw new AiError(`Model refused: ${choice.message.refusal}`);
         if (!text.trim() && choice?.finish_reason === 'length') {
           // The output budget was used up before any answer – typically by hidden reasoning.
@@ -249,7 +249,13 @@ export class OpenAiCompatibleClient implements LlmClient {
           }
           throw outOfBudget(body[this.caps.tokenParam]);
         }
-        return { text, usage: toUsage(res?.usage), model: res?.model ?? this.model, durationMs: Date.now() - started };
+        return {
+          text,
+          usage: toUsage(res?.usage),
+          model: res?.model ?? this.model,
+          durationMs: Date.now() - started,
+          truncated: choice?.finish_reason === 'length',
+        };
       } catch (err) {
         if (this.adapt(err, body, call)) continue;
         throw wrapError(err);
@@ -297,7 +303,7 @@ export class OpenAiCompatibleClient implements LlmClient {
       }
       if (json.usage) usage = toUsage(json.usage);
       finish = json.choices?.[0]?.finish_reason ?? finish;
-      const raw = json.choices?.[0]?.delta?.content;
+      const raw = contentText(json.choices?.[0]?.delta?.content);
       if (!raw) continue;
       const delta = think.push(raw);
       if (delta) {
@@ -398,14 +404,34 @@ export class OpenAiEmbeddingClient implements EmbeddingClient {
   }
 }
 
+/**
+ * Message content: a string, or (reasoning models of Mistral and others) a list of chunks such as
+ * {type: "text", text} and {type: "thinking", thinking: [...]}.
+ */
+type OpenAiContent = string | null | { type?: string; text?: unknown; thinking?: unknown }[];
+
 interface OpenAiChatResponse {
   model?: string;
-  choices?: { message?: { content?: string | null; refusal?: string | null }; finish_reason?: string }[];
+  choices?: { message?: { content?: OpenAiContent; refusal?: string | null }; finish_reason?: string }[];
   usage?: OpenAiUsage;
 }
 interface OpenAiStreamChunk {
-  choices?: { delta?: { content?: string | null }; finish_reason?: string | null }[];
+  choices?: { delta?: { content?: OpenAiContent }; finish_reason?: string | null }[];
   usage?: OpenAiUsage | null;
+}
+
+/** The answer text of a message: text chunks are joined, reasoning ("thinking") chunks are dropped. */
+export function contentText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part: unknown) => {
+      if (typeof part === 'string') return part;
+      if (!part || typeof part !== 'object') return '';
+      const p = part as { type?: unknown; text?: unknown };
+      return (p.type === 'text' || p.type === 'output_text' || p.type === undefined) && typeof p.text === 'string' ? p.text : '';
+    })
+    .join('');
 }
 
 function outOfBudget(budget: unknown): AiError {

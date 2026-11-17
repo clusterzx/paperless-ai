@@ -92,6 +92,13 @@ describe('AnthropicClient.complete', () => {
     expect(bodies().map((b) => b.max_tokens)).toEqual([300, 300 + 8192]);
   });
 
+  it('marks answers that were cut off at max_tokens (#1001)', async () => {
+    llm.reply({ content: '{"title": "Cut', finishReason: 'max_tokens' });
+    expect(await client().complete(messages, { maxTokens: 300 })).toMatchObject({ text: '{"title": "Cut', truncated: true });
+    llm.reply('{"title": "Complete"}');
+    expect((await client().complete(messages)).truncated).toBe(false);
+  });
+
   it('ignores thinking blocks and reports refusals', async () => {
     llm.reply({ content: 'Answer', thinking: 'Let me think' });
     expect((await client('claude-opus-5-5').complete(messages)).text).toBe('Answer');

@@ -67,14 +67,34 @@ describe('automatic OCR before the AI analysis', () => {
 
   it('reads every document in "always" mode but never twice for the same version', async () => {
     const hh = await harness({ config: { ocr: { enabled: true, mode: 'always', writeBack: false } } });
-    hh.paperless.addDocument({ id: 1, title: 'good.pdf', content: GOOD });
+    hh.paperless.addDocument({ id: 1, title: 'scan.pdf', content: GARBAGE });
+    hh.paperless.addDocument({ id: 4, title: 'good.pdf', content: GOOD });
     await scan(hh);
-    expect(hh.ocrEngine.calls).toHaveLength(1);
+    expect(hh.ocrEngine.calls).toHaveLength(2);
     // Re-analysing the same version uses the stored OCR text.
     hh.engine.enqueue(1, { source: 'manual', force: true });
     await hh.engine.drain(10_000);
-    expect(hh.ocrEngine.calls).toHaveLength(1);
+    expect(hh.ocrEngine.calls).toHaveLength(2);
     expect(prompts(hh).at(-1)).toContain(OCR_TEXT);
+  });
+
+  it('keeps the Paperless text when the OCR text does not score better', async () => {
+    // GOOD scores 82, the (shorter) OCR text 72 – e.g. a clean text layer vs. a mediocre OCR run.
+    const hh = await harness({ config: { ocr: { enabled: true, mode: 'always' } } });
+    hh.paperless.addDocument({ id: 4, title: 'good.pdf', content: GOOD });
+    await scan(hh);
+    expect(hh.ocrEngine.calls).toHaveLength(1);
+    expect(hh.paperless.docs.get(4)!.content).toBe(GOOD);
+    expect(hh.paperless.patches(4).some((p) => 'content' in (p.body as object))).toBe(false);
+    // The AI analysed the better (existing) text.
+    expect(prompts(hh)[0]).toContain('Sehr geehrte Damen und Herren');
+    expect(prompts(hh)[0]).not.toContain(OCR_TEXT);
+    expect(hh.ctx.repos.ocr.result(4)).toMatchObject({ status: 'done', kept_original: 1, written_back: 0, score_before: 82, score_after: 72 });
+    // Not read again on the next analysis of the same version.
+    hh.engine.enqueue(4, { source: 'manual', force: true });
+    await hh.engine.drain(10_000);
+    expect(hh.ocrEngine.calls).toHaveLength(1);
+    expect(prompts(hh).at(-1)).not.toContain(OCR_TEXT);
   });
 
   it('does nothing automatically in manual mode or when disabled', async () => {
@@ -175,8 +195,10 @@ describe('OCR page API', () => {
     expect(list.items[0]).toMatchObject({ id: 2, ocr: { status: 'done', writtenBack: true, provider: 'cpu' } });
     expect(list.counts.needs).toBe(0);
 
+    // Side by side: the text before the OCR, not the (identical) current Paperless text.
     const detail = (await hh.inject({ method: 'GET', url: '/api/ocr/documents/2', headers: { cookie } })).json();
-    expect(detail).toMatchObject({ id: 2, paperlessText: OCR_TEXT, ocrText: OCR_TEXT });
+    expect(detail).toMatchObject({ id: 2, originalText: GARBAGE, ocrText: OCR_TEXT, inPaperless: true, originalQuality: { level: 'poor' } });
+    expect(detail.ocrQuality.score).toBeGreaterThan(detail.originalQuality.score);
 
     const revert = await hh.inject({ method: 'POST', url: '/api/ocr/documents/2/revert', headers: { cookie } });
     expect(revert.statusCode).toBe(200);
@@ -212,6 +234,32 @@ describe('OCR page API', () => {
     await hh.engine.drain(10_000);
     expect(await get('/api/ocr/status')).toMatchObject({ active: null, queue: 0 });
     expect((await get('/api/ocr/documents?filter=all')).items.every((i: { job: unknown }) => i.job === null)).toBe(true);
+  });
+
+  it('saves a kept-back OCR text on request and analyses the document again', async () => {
+    const hh = await harness({ config: { ocr: { enabled: true, mode: 'always' } } });
+    hh.paperless.addDocument({ id: 4, title: 'good.pdf', content: GOOD });
+    await scan(hh);
+    const cookie = await hh.login();
+    const get = async (url: string) => (await hh.inject({ method: 'GET', url, headers: { cookie } })).json();
+
+    const before = await get('/api/ocr/documents/4');
+    expect(before).toMatchObject({ originalText: GOOD, ocrText: OCR_TEXT, inPaperless: false, ocr: { keptOriginal: true, scoreBefore: 82, scoreAfter: 72 } });
+    const list = await get('/api/ocr/documents?filter=done');
+    expect(list.items[0].ocr).toMatchObject({ keptOriginal: true, writtenBack: false });
+
+    const calls = prompts(hh).length;
+    expect((await hh.inject({ method: 'POST', url: '/api/ocr/documents/4/apply', headers: { cookie } })).statusCode).toBe(200);
+    await hh.engine.drain(10_000);
+    expect(hh.paperless.docs.get(4)!.content).toBe(OCR_TEXT);
+    expect(prompts(hh).length).toBe(calls + 1);
+    expect(prompts(hh).at(-1)).toContain(OCR_TEXT);
+    expect(hh.ocrEngine.calls).toHaveLength(1); // analysed again, not read again
+    expect(await get('/api/ocr/documents/4')).toMatchObject({ originalText: GOOD, inPaperless: true, ocr: { keptOriginal: false } });
+    // Applying twice is refused; undo restores the original text.
+    expect((await hh.inject({ method: 'POST', url: '/api/ocr/documents/4/apply', headers: { cookie } })).statusCode).toBe(422);
+    expect((await hh.inject({ method: 'POST', url: '/api/ocr/documents/4/revert', headers: { cookie } })).statusCode).toBe(200);
+    expect(hh.paperless.docs.get(4)!.content).toBe(GOOD);
   });
 
   it('refuses to run while OCR is disabled', async () => {

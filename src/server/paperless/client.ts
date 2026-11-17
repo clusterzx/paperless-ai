@@ -131,7 +131,13 @@ export class PaperlessClient {
       else if (err.status === 403) msg = `Paperless-ngx denied access (403) – check the permissions of the API user. ${detail(err.body)}`;
       else if (err.status === 404) msg = `Not found in Paperless-ngx (404): ${err.url.replace(this.baseUrl, '')}`;
       else if (err.status === 0) msg = `Cannot reach Paperless-ngx at ${this.baseUrl}: ${err.message.replace(/^.*failed: /, '')}`;
-      else if (err.status === 400) msg = `Paperless-ngx rejected the request (400): ${detail(err.body)}`;
+      else if (err.status === 400 && rejectedHost(err.body)) {
+        const host = hostName(this.baseUrl);
+        msg =
+          `Paperless-ngx does not accept the host name "${host}" (HTTP 400). Since Paperless-ngx 3.5 only the host of ` +
+          `PAPERLESS_URL and localhost are allowed when PAPERLESS_URL is set – add "${host}" to PAPERLESS_ALLOWED_HOSTS ` +
+          `in the Paperless-ngx configuration, or connect Paperless-AI with the URL from PAPERLESS_URL.`;
+      } else if (err.status === 400) msg = `Paperless-ngx rejected the request (400): ${detail(err.body)}`;
       return new PaperlessError(msg, err.status, err);
     }
     return err instanceof Error ? err : new Error(String(err));
@@ -314,6 +320,22 @@ export interface DocumentPatch {
   custom_fields?: { field: number; value: unknown }[];
   /** Searchable text of the document (replaced by the OCR result). */
   content?: string;
+}
+
+/**
+ * Django's plain "Bad Request (400)" page (not a JSON API error): the request was refused before it
+ * reached the API, almost always because the host name is not in ALLOWED_HOSTS.
+ */
+function rejectedHost(body: unknown): boolean {
+  return typeof body === 'string' && /<title>\s*Bad Request \(400\)\s*<\/title>/i.test(body);
+}
+
+function hostName(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
 }
 
 function detail(body: unknown): string {

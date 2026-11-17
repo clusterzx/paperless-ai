@@ -3,11 +3,11 @@ import type { AppContext } from '../context.js';
 import type { AppConfig } from '../config/schema.js';
 import { extractJsonObject, JsonExtractionError } from '../ai/json.js';
 import { normalizeContent } from '../ai/tokens.js';
-import type { ChatMessage, CompletionResult } from '../ai/types.js';
+import { AiError, type ChatMessage, type CompletionResult } from '../ai/types.js';
 import { logger } from '../logger.js';
 import { UserError } from '../util/errors.js';
 import { fetchExternalData } from './externalApi.js';
-import { buildAnalysisPrompt, type PromptContext } from './prompt.js';
+import { buildAnalysisPrompt, type BuiltPrompt, type PromptContext } from './prompt.js';
 import { normalizeSuggestion } from './suggestion.js';
 
 const log = logger.child({ module: 'analyzer' });
@@ -50,17 +50,42 @@ export async function analyzeContent(ctx: AppContext, rawContent: string, opts: 
   const cfg = opts.processing ? { ...ctx.cfg, processing: opts.processing } : ctx.cfg;
   const llm = ctx.llm();
   const promptCtx = await buildPromptContext(ctx);
-  const built = buildAnalysisPrompt(cfg, content, promptCtx, { customPrompt: opts.customPrompt, filename: opts.filename });
+  const promptOpts = { customPrompt: opts.customPrompt, filename: opts.filename };
+  let built = buildAnalysisPrompt(cfg, content, promptCtx, promptOpts);
+  let maxTokens = cfg.ai.responseTokens;
   const request = (messages: ChatMessage[]) =>
     llm.complete(messages, {
       temperature: cfg.ai.temperature,
-      maxTokens: cfg.ai.responseTokens,
+      maxTokens,
       jsonSchema: { name: 'document_analysis', schema: built.schema },
       signal: opts.signal,
     });
 
   let result: CompletionResult = await request(built.messages);
   let total = { ...result.usage };
+  const add = (r: CompletionResult) => {
+    total = {
+      promptTokens: total.promptTokens + r.usage.promptTokens,
+      completionTokens: total.completionTokens + r.usage.completionTokens,
+      totalTokens: total.totalTokens + r.usage.totalTokens,
+    };
+  };
+
+  // A cut-off answer must never be applied: the JSON repair would turn it into a valid but incomplete
+  // suggestion (tags or custom fields missing, a title cut in half). Ask once more with a larger answer
+  // budget – the document content is shortened as needed so that the request still fits the context.
+  if (result.truncated) {
+    const larger = Math.min(200_000, Math.max(maxTokens * 2, maxTokens + 1000));
+    const retry = tryBuild(() => buildAnalysisPrompt({ ...cfg, ai: { ...cfg.ai, responseTokens: larger } }, content, promptCtx, promptOpts));
+    if (!retry) throw cutOff(maxTokens);
+    log.warn(`The answer for document ${opts.documentId ?? '?'} was cut off at ${maxTokens} tokens – retrying once with ${larger}`);
+    built = retry;
+    maxTokens = larger;
+    result = await request(built.messages);
+    add(result);
+    if (result.truncated) throw cutOff(maxTokens);
+  }
+
   let parsed: Record<string, unknown>;
   try {
     parsed = extractJsonObject(result.text);
@@ -72,11 +97,8 @@ export async function analyzeContent(ctx: AppContext, rawContent: string, opts: 
       { role: 'assistant', content: result.text.slice(0, 4000) },
       { role: 'user', content: 'Your answer was not valid JSON. Reply again with ONLY the JSON object, nothing else.' },
     ]);
-    total = {
-      promptTokens: total.promptTokens + result.usage.promptTokens,
-      completionTokens: total.completionTokens + result.usage.completionTokens,
-      totalTokens: total.totalTokens + result.usage.totalTokens,
-    };
+    add(result);
+    if (result.truncated) throw cutOff(maxTokens);
     parsed = extractJsonObject(result.text);
   }
 
@@ -95,4 +117,21 @@ export async function analyzeContent(ctx: AppContext, rawContent: string, opts: 
   };
   ctx.recordUsage(opts.feature, { usage: total, model: result.model, durationMs: result.durationMs }, opts.documentId);
   return analysis;
+}
+
+function tryBuild(build: () => BuiltPrompt): BuiltPrompt | null {
+  try {
+    return build();
+  } catch {
+    // A larger answer budget leaves no room for the prompt in the context window.
+    return null;
+  }
+}
+
+/** The answer hit the output limit – nothing of it is applied. */
+function cutOff(maxTokens: number): AiError {
+  return new AiError(
+    `The answer of the model was cut off at the output limit (${maxTokens} tokens) – nothing was applied. ` +
+      'Increase "Answer tokens" in Settings → AI provider → Advanced, or shorten the prompt (fewer fields or custom fields to fill).',
+  );
 }

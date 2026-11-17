@@ -873,7 +873,7 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
           </Field>
           <Switch
             label="Save the OCR text in Paperless"
-            description="Replaces the document text in Paperless with the OCR result – the Paperless full-text search improves too. The previous text is kept and can be restored on the OCR page."
+            description="Replaces the document text in Paperless with the OCR result when it scores better than the existing text – the Paperless full-text search improves too. The previous text is kept and can be restored on the OCR page."
             checked={o.writeBack}
             locked={locked['ocr.writeBack']}
             onChange={(v) => set('ocr.writeBack', v)}
