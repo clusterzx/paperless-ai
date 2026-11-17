@@ -155,7 +155,7 @@ Keep your data volume and switch the image – everything else happens on the fi
    docker run --rm -v paperless-ai_data:/data -v "$PWD":/backup alpine \
      tar czf /backup/paperless-ai-3x-backup.tgz -C /data .
    ```
-2. **Update `docker-compose.yml`:** use `image: clusterzx/paperless-ai:latest` (or a fixed version such as `4.1.1`), keep the volume `…:/app/data` and the port. Remove the 3.x lines `RAG_SERVICE_URL`, `PUID` and `PGID` (no longer used) and `RAG_SERVICE_ENABLED` (it would lock the setting in the UI).
+2. **Update `docker-compose.yml`:** use `image: clusterzx/paperless-ai:latest` (or a fixed version such as `4.1.2`), keep the volume `…:/app/data` and the port. Remove the 3.x lines `RAG_SERVICE_URL`, `PUID` and `PGID` (no longer used) and `RAG_SERVICE_ENABLED` (it would lock the setting in the UI).
 3. **Start:** `docker compose pull && docker compose up -d`. The log (`docker compose logs -f paperless-ai`) shows `Migrated legacy data/.env configuration to data/config.json` and `Imported data from legacy documents.db` with the number of migrated users, documents and history entries.
 4. **Sign in** with your previous username and password and review the settings – everything is prefilled; values set by environment variables are shown locked.
 
