@@ -19,7 +19,17 @@ export const ocrRoutes =
   async (fastify) => {
     const app = fastify.withTypeProvider<ZodTypeProvider>();
 
-    const status = (): OcrStatus => ({ ...ocr.status(engine.queuedForOcr().size) });
+    /** Requested OCR runs that are not finished – including the one being read right now. */
+    const pendingJobs = () => {
+      const jobs = engine.ocrJobs();
+      return jobs.queued.size + jobs.running.size;
+    };
+    const status = (): OcrStatus => {
+      const s = ocr.status(0);
+      // The document being read is shown as `active`; everything else waits or is being analysed.
+      const pending = pendingJobs() - (s.active && engine.ocrJobs().running.has(s.active.documentId) ? 1 : 0);
+      return { ...s, queue: Math.max(0, pending) };
+    };
 
     const requireOcr = async () => {
       if (!ctx.cfg.ocr.enabled) throw new HttpProblem(409, 'OCR is disabled – enable it in Settings → OCR');
@@ -50,7 +60,7 @@ export const ocrRoutes =
       async (req): Promise<OcrListResponse> => {
         ocr.assessIfStale();
         const list = ctx.repos.ocr.list(req.query);
-        const queued = engine.queuedForOcr();
+        const jobs = engine.ocrJobs();
         const active = ocr.status(0).active;
         const items: OcrDocumentItem[] = list.items.map((a) => ({
           id: a.id,
@@ -62,10 +72,12 @@ export const ocrRoutes =
           ocr: resultInfo(a.result),
           job:
             active?.documentId === a.id
-              ? { state: 'running', page: active.page, pages: active.pages }
-              : queued.has(a.id)
-                ? { state: 'queued' }
-                : null,
+              ? { state: 'running', reading: true, page: active.page, pages: active.pages }
+              : jobs.running.has(a.id)
+                ? { state: 'running' }
+                : jobs.queued.has(a.id)
+                  ? { state: 'queued' }
+                  : null,
         }));
         return { items, total: list.total, page: list.page, pageSize: list.pageSize, counts: ctx.repos.ocr.counts() };
       },
@@ -95,7 +107,8 @@ export const ocrRoutes =
         let queued = 0;
         for (const id of ids) {
           engine.enqueue(id, { source: 'ocr', force: true, ocr: true });
-          if (engine.queuedForOcr().has(id)) queued++;
+          const jobs = engine.ocrJobs();
+          if (jobs.queued.has(id) || jobs.running.has(id)) queued++;
         }
         if (queued) log.info(`OCR requested for ${queued} document(s)`);
         return { queued, ...status() };

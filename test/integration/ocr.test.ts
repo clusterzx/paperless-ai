@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { analysisJson, createHarness, type Harness, type HarnessOptions } from '../helpers/appHarness.js';
 import type { ChatRequestInfo } from '../helpers/mockLlm.js';
 
@@ -183,6 +183,35 @@ describe('OCR page API', () => {
     expect(hh.paperless.docs.get(2)!.content).toBe(GARBAGE);
     const again = await hh.inject({ method: 'POST', url: '/api/ocr/documents/2/revert', headers: { cookie } });
     expect(again.statusCode).toBe(422);
+  });
+
+  it('reports a requested run as busy until its AI analysis has finished', async () => {
+    const hh = await harness({ config: { ocr: { enabled: true, mode: 'manual' } } });
+    hh.paperless.addDocument({ id: 2, title: 'garbled.pdf', content: GARBAGE });
+    hh.paperless.addDocument({ id: 3, title: 'empty.pdf', content: '' });
+    await hh.ocr.assessArchive();
+    // The model answers only when released: the first document waits in its AI analysis.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    hh.llm.reply(async () => {
+      await gate;
+      return analysisJson({ title: 'Done', tags: ['Misc'] });
+    });
+    const headers = hh.apiKeyHeaders();
+    const get = async (url: string) => (await hh.inject({ method: 'GET', url, headers })).json();
+    expect((await hh.inject({ method: 'POST', url: '/api/ocr/run', headers, payload: { ids: [2, 3] } })).json().queued).toBe(2);
+
+    await vi.waitFor(() => expect(hh.ctx.repos.ocr.result(2)?.status).toBe('done'));
+    // Nothing is being read at this moment – but both runs are still pending (the page keeps refreshing).
+    const busy = await get('/api/ocr/status');
+    expect(busy).toMatchObject({ active: null, queue: 2 });
+    const list = await get('/api/ocr/documents?filter=all&sort=id&order=asc');
+    expect(list.items.map((i: { job: unknown }) => i.job)).toEqual([{ state: 'running' }, { state: 'queued' }]);
+
+    release();
+    await hh.engine.drain(10_000);
+    expect(await get('/api/ocr/status')).toMatchObject({ active: null, queue: 0 });
+    expect((await get('/api/ocr/documents?filter=all')).items.every((i: { job: unknown }) => i.job === null)).toBe(true);
   });
 
   it('refuses to run while OCR is disabled', async () => {

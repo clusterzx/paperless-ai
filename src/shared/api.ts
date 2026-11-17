@@ -267,7 +267,8 @@ export interface OcrDocumentItem {
   pages: number | null;
   quality: TextQuality;
   ocr: OcrResultInfo | null;
-  job: { state: 'queued' | 'running'; page?: number; pages?: number } | null;
+  /** An OCR run requested for this document: `reading` while PaddleOCR reads it, afterwards the AI analysis runs. */
+  job: { state: 'queued' | 'running'; reading?: boolean; page?: number; pages?: number } | null;
 }
 
 export interface OcrListResponse {
