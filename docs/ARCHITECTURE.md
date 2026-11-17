@@ -30,7 +30,7 @@ src/
     ai/                  OpenAI-compatible/Azure, Anthropic and Ollama clients, JSON extraction, token estimation
     processing/          prompt builder, analyzer, applier (+ undo), engine (queue/scheduler), external API
     rag/                 chunker, SQLite store (FTS5), vector index, local embedder (worker), service, document chat
-    ocr/                 PaddleOCR via ONNX Runtime (worker): rendering, detection post-processing, recognition,
+    ocr/                 PaddleOCR via ONNX Runtime (child process): rendering, detection post-processing, recognition,
                          reading order, text-quality heuristic, service (when to read, write-back, undo)
     http/ routes/        Fastify app, auth levels, SSE helper, route modules
   web/                   React 19 + Tailwind 4 UI (Vite), pages are code-split
@@ -104,8 +104,13 @@ engine job ─▶ needs OCR? (mode: always / missing / poor = text-quality score
   image) or DirectML (Windows) and falls back to the CPU.
 * Models come from the PaddlePaddle repositories on Hugging Face, pinned to a revision, cached in
   `data/models/paddleocr`.
-* The worker is started on demand and stopped after 10 idle minutes; jobs run through the normal
-  processing queue, so a manual OCR request is followed by the AI analysis.
+* The worker is a child process (`ocr/worker.ts`, forked by `ocr/runner.ts`): ending it frees all of
+  its memory – including the CUDA context, which would otherwise stay with the server process – and
+  a crash of a native library cannot take the server down. It is started on demand and ends after
+  each document read on the GPU (`ocr.release: auto`; before the AI analysis, so that a local model
+  on the same GPU gets the memory) or after 10 idle minutes, and on its own when the server goes
+  away. Jobs run through the normal processing queue, so a manual OCR request is followed by the AI
+  analysis.
 * `ocr_documents` holds the text-quality score of every document (refreshed incrementally on the OCR
   page and after each analysis), `ocr_results` the OCR text, the previous Paperless text (undo) and
   the document version it belongs to. Text that is not written back replaces the Paperless text for

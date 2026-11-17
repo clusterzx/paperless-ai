@@ -156,6 +156,15 @@ describe('legacy helpers', () => {
     expect(configFromEnv({ OLLAMA_THINK: 'medium' }).values).toEqual({ ai: { ollama: { think: 'medium' } } });
     expect(configFromEnv({ OLLAMA_THINK: 'maybe' }).values).toEqual({});
   });
+
+  it('configFromEnv maps OCR_RELEASE and defaults to unloading per document on the GPU (#1005)', () => {
+    expect(configFromEnv({ OCR_RELEASE: ' Document ' }).values).toEqual({ ocr: { release: 'document' } });
+    // an unknown value is dropped when the configuration is loaded
+    const { config, dropped } = lenientParse(configFromEnv({ OCR_RELEASE: 'sometimes' }).values);
+    expect(dropped).toEqual(['ocr.release']);
+    expect(config.ocr.release).toBe('auto');
+    expect(configSchema.parse({}).ocr.release).toBe('auto');
+  });
 });
 
 const LEGACY_ENV = [
