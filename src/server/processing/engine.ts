@@ -58,6 +58,8 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
   private readonly queue: Job[] = [];
   private readonly queued = new Set<number>();
   private readonly active = new Map<number, ProcessingJob>();
+  /** The jobs behind `active` (they carry the OCR request). */
+  private readonly running = new Map<number, Job>();
   private cron: Cron | null = null;
   private scanning: Promise<number> | null = null;
   private paused = false;
@@ -253,9 +255,15 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
     return Boolean(this.ocr) && o.enabled && o.mode !== 'manual';
   }
 
-  /** Documents waiting in the queue for an OCR run requested on the OCR page. */
-  queuedForOcr(): Set<number> {
-    return new Set(this.queue.filter((j) => j.ocr).map((j) => j.documentId));
+  /**
+   * OCR runs requested on the OCR page: waiting in the queue, or taken from it and not finished
+   * yet (being read, analysed, or between the two – there is no gap where a job is not listed).
+   */
+  ocrJobs(): { queued: Set<number>; running: Set<number> } {
+    return {
+      queued: new Set(this.queue.filter((j) => j.ocr).map((j) => j.documentId)),
+      running: new Set([...this.running.values()].filter((j) => j.ocr).map((j) => j.documentId)),
+    };
   }
 
   /** Queue a document. Returns false if it is already queued or being processed. */
@@ -294,6 +302,7 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       this.queued.delete(job.documentId);
       const info: ProcessingJob = { documentId: job.documentId, title: null, source: job.source, startedAt: Date.now(), stage: 'loading' };
       this.active.set(job.documentId, info);
+      this.running.set(job.documentId, job);
       void this.run(job, info)
         .then((outcome) => {
           if (outcome === 'deferred') {
@@ -309,6 +318,7 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
         })
         .finally(() => {
           this.active.delete(job.documentId);
+          this.running.delete(job.documentId);
           if (!this.active.size && !this.queue.length) this.onIdle();
           this.pump();
         });

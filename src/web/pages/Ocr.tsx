@@ -50,7 +50,8 @@ function OcrCell({ item }: { item: OcrDocumentItem }) {
   if (item.job?.state === 'running') {
     return (
       <Badge tone="info">
-        <RefreshCw className="size-3 animate-spin" /> Reading{item.job.pages ? ` page ${item.job.page}/${item.job.pages}` : '…'}
+        <RefreshCw className="size-3 animate-spin" />
+        {item.job.reading ? `Reading${item.job.pages ? ` page ${item.job.page}/${item.job.pages}` : '…'}` : 'AI analysis…'}
       </Badge>
     );
   }
@@ -143,7 +144,9 @@ export default function OcrPage() {
   useEffect(() => setSelected(new Set()), [filter, q, page, pageSize]);
 
   const s = status.data;
-  const working = Boolean(s && (s.queue > 0 || s.active || s.analysis.running));
+  // Fast refresh while anything runs – the status and every listed document are checked, so a
+  // moment between two jobs never looks like "idle".
+  const working = Boolean((s && (s.queue > 0 || s.active || s.analysis.running)) || items.some((i) => i.job));
   // Live progress while something is running; otherwise refresh now and then.
   useInterval(
     () => {

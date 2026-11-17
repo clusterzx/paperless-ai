@@ -21,6 +21,15 @@ Works with **Paperless-ngx 2.x and 3.x**, OpenAI, Anthropic (Claude), **Ollama (
 
 ---
 
+## ✨ What's new in 4.1
+
+- **OCR with PaddleOCR** – scans, photos and documents with garbled text are read locally (PP-OCRv5 via ONNX Runtime, no extra container, models ~20 MB). Runs automatically *before* the AI analysis – for documents without text, with poor text or always – or on demand. → [OCR](#ocr)
+- **OCR page** – every document with a text-quality score, filters for missing/poor text, bulk OCR, side-by-side comparison of the Paperless text and the OCR result. Afterwards the AI names and tags the documents again.
+- **Better text in Paperless too** – the OCR result can replace the document text in Paperless (improves the Paperless full-text search), with undo.
+- **GPU image** – `clusterzx/paperless-ai:latest-cuda` runs OCR on NVIDIA GPUs (CUDA 13); `latest` stays the small CPU image for amd64 and arm64. → [Image variants](#-installation)
+- **Prompt wizard** – a few questions instead of prompt engineering: your own name (never used as correspondent), output language, title style or pattern, tags, short company names, document types and own rules. Live preview and a test on real documents before saving.
+- **Privacy** – the usage telemetry of ONNX Runtime (OCR and local embeddings) is switched off.
+
 ## ✨ What's new in 4.0 – a complete rewrite
 
 Version 4 is rebuilt from scratch with a focus on reliability, speed and low resource usage.
@@ -146,7 +155,7 @@ Keep your data volume and switch the image – everything else happens on the fi
    docker run --rm -v paperless-ai_data:/data -v "$PWD":/backup alpine \
      tar czf /backup/paperless-ai-3x-backup.tgz -C /data .
    ```
-2. **Update `docker-compose.yml`:** use `image: clusterzx/paperless-ai:latest` (or a fixed version such as `4.0.0`), keep the volume `…:/app/data` and the port. Remove the 3.x lines `RAG_SERVICE_URL`, `PUID` and `PGID` (no longer used) and `RAG_SERVICE_ENABLED` (it would lock the setting in the UI).
+2. **Update `docker-compose.yml`:** use `image: clusterzx/paperless-ai:latest` (or a fixed version such as `4.1.0`), keep the volume `…:/app/data` and the port. Remove the 3.x lines `RAG_SERVICE_URL`, `PUID` and `PGID` (no longer used) and `RAG_SERVICE_ENABLED` (it would lock the setting in the UI).
 3. **Start:** `docker compose pull && docker compose up -d`. The log (`docker compose logs -f paperless-ai`) shows `Migrated legacy data/.env configuration to data/config.json` and `Imported data from legacy documents.db` with the number of migrated users, documents and history entries.
 4. **Sign in** with your previous username and password and review the settings – everything is prefilled; values set by environment variables are shown locked.
 
