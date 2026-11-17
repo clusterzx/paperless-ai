@@ -85,6 +85,10 @@ manual ──────┘                                   │
 * A document is only marked as processed after the PATCH succeeded. Failures are retried on later
   scans (`maxAttempts`); documents without permission or text are skipped until they change.
 * Every change stores a snapshot of the previous values → *History → Undo* restores them.
+* The prompt library (`prompts`, `prompt_ratings`; `routes/prompts.ts`) keeps prompts with a use case
+  and ratings per provider/model. Activating one writes it to `processing.systemPrompt`; a prompt made
+  with the wizard brings its answers back (`promptWizard`, e.g. the output language), any other one
+  marks the prompt as hand-written. The same text is never stored twice – saving it again adds a rating.
 
 ## OCR
 

@@ -5,6 +5,7 @@ import {
   ChevronsUpDown,
   FileSearch,
   FlaskConical,
+  BookMarked,
   History,
   LayoutDashboard,
   LogOut,
@@ -247,6 +248,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { href: '/chat', label: 'Document chat', icon: <MessageSquareText />, keywords: 'conversation' },
     { href: '/review', label: 'Manual review', icon: <FileSearch />, keywords: 'analyse suggest' },
     { href: '/playground', label: 'Prompt playground', icon: <FlaskConical />, keywords: 'test prompt' },
+    { href: '/prompts', label: 'Prompt library', icon: <BookMarked />, keywords: 'saved prompts rating model use case manager' },
     { href: '/history', label: 'History', icon: <History />, keywords: 'undo changes' },
     { href: '/ocr', label: 'OCR', icon: <ScanText />, keywords: 'text recognition scan paddleocr quality' },
   ];

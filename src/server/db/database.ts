@@ -186,6 +186,37 @@ const MIGRATIONS: Migration[] = [
         ALTER TABLE ocr_results ADD COLUMN kept_original INTEGER NOT NULL DEFAULT 0;
       `),
   },
+  {
+    version: 6,
+    name: 'prompt library',
+    up: (db) =>
+      db.exec(`
+        -- Prompts kept for later use, with the use case they were written for
+        CREATE TABLE prompts (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          use_case TEXT NOT NULL DEFAULT '',
+          prompt TEXT NOT NULL,
+          -- answers of the prompt wizard (JSON) when the prompt was made with it
+          wizard TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        -- How well a prompt worked with a model
+        CREATE TABLE prompt_ratings (
+          id INTEGER PRIMARY KEY,
+          prompt_id INTEGER NOT NULL REFERENCES prompts(id) ON DELETE CASCADE,
+          provider TEXT NOT NULL DEFAULT '',
+          model TEXT NOT NULL DEFAULT '',
+          score INTEGER NOT NULL,
+          note TEXT NOT NULL DEFAULT '',
+          -- ids of the documents of the test run (JSON array)
+          documents TEXT,
+          created_at INTEGER NOT NULL
+        );
+        CREATE INDEX prompt_ratings_prompt ON prompt_ratings(prompt_id);
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {
