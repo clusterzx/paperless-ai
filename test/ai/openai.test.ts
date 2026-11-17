@@ -119,6 +119,25 @@ describe('OpenAiCompatibleClient.complete', () => {
     expect(chatBodies()[2].max_tokens).toBe(100 + REASONING_RESERVE);
   });
 
+  it('learns the output limit from a "limited to N" error after a reasoning retry', async () => {
+    // Model not recognized as reasoning by name (e.g. a Qwen reasoning model hosted on a
+    // third-party OpenAI-compatible provider); the reasoning behaviour is only discovered at
+    // runtime, as in the test above. The provider's own cap phrasing ("is limited to N") must
+    // also be recognized, or the reasoning-budget retry permanently exceeds it and the request
+    // never recovers, even though the original requested budget was well within the limit.
+    llm.reply((req) => {
+      const tokens = Number(req.body.max_tokens);
+      if (tokens <= 2000) return { content: '', finishReason: 'length' };
+      if (tokens > 16384) {
+        return { status: 400, error: { error: { message: 'payload validation: max_completion_tokens is limited to 16384 for qwen3.5-397b-a17b' } } };
+      }
+      return 'ok';
+    });
+    const res = await client('qwen3.5-397b-a17b').complete(messages, { maxTokens: 2000 });
+    expect(res.text).toBe('ok');
+    expect(chatBodies().map((b) => b.max_tokens)).toEqual([2000, 2000 + REASONING_RESERVE, 16384]);
+  });
+
   it('explains an answer that never started instead of returning nothing', async () => {
     llm.reply({ content: '', finishReason: 'length' });
     const err = await client('gpt-5-mini').complete(messages, { maxTokens: 100 }).catch((e: unknown) => e);
