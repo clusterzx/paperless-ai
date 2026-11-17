@@ -13,7 +13,7 @@ import { normalizeSuggestion } from './suggestion.js';
 const log = logger.child({ module: 'analyzer' });
 
 export interface AnalyzeOptions {
-  feature: 'process' | 'manual' | 'playground';
+  feature: 'process' | 'manual' | 'playground' | 'calendar';
   documentId?: number | null;
   customPrompt?: string;
   filename?: string | null;

@@ -91,6 +91,27 @@ describe('enabledFields / buildJsonSchema', () => {
   });
 });
 
+describe('calendar dates', () => {
+  it('are only asked for when switched on', () => {
+    const off = buildJsonSchema(config().processing, ctx) as Schema;
+    expect(off.properties.events).toBeUndefined();
+    expect(buildOutputInstructions(config().processing, ctx)).not.toContain('events');
+
+    const p = config({ processing: { functions: { events: true } } }).processing;
+    expect(enabledFields(p).events).toBe(true);
+    const on = buildJsonSchema(p, ctx) as Schema;
+    expect(on.required).toContain('events');
+    expect(on.properties.events).toMatchObject({
+      type: 'array',
+      items: { required: ['title', 'date', 'time', 'kind'], properties: { kind: { enum: ['appointment', 'due', 'deadline', 'expiry', 'other'] } } },
+    });
+    const contract = buildOutputInstructions(p, ctx);
+    expect(contract).toContain('"events": [');
+    expect(contract).toContain('- events: dates the recipient has to act on or attend');
+    expect(contract).toContain('Tags, title, event titles and document type MUST be written in');
+  });
+});
+
 describe('buildSystemPrompt', () => {
   it('replaces legacy placeholders', () => {
     const cfg = config({

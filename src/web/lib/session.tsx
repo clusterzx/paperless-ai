@@ -17,7 +17,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setSession(s);
       return s;
     } catch {
-      const fallback: SessionInfo = { authenticated: false, setupRequired: false, needsUser: false, version: '', features: { rag: false } };
+      const fallback: SessionInfo = { authenticated: false, setupRequired: false, needsUser: false, version: '', features: { rag: false, calendar: false } };
       setSession(fallback);
       return fallback;
     }

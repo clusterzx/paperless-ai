@@ -6,6 +6,7 @@ import {
   FileSearch,
   FlaskConical,
   BookMarked,
+  CalendarDays,
   History,
   LayoutDashboard,
   LogOut,
@@ -251,6 +252,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { href: '/prompts', label: 'Prompt library', icon: <BookMarked />, keywords: 'saved prompts rating model use case manager' },
     { href: '/history', label: 'History', icon: <History />, keywords: 'undo changes' },
     { href: '/ocr', label: 'OCR', icon: <ScanText />, keywords: 'text recognition scan paddleocr quality' },
+    { href: '/calendar', label: 'Calendar', icon: <CalendarDays />, hidden: !session?.features.calendar, keywords: 'dates deadlines appointments due ical' },
   ];
   const secondary: NavItem[] = [
     { href: '/settings', label: 'Settings', icon: <Settings />, keywords: 'configuration preferences' },

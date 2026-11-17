@@ -21,6 +21,12 @@ Works with **Paperless-ngx 2.x and 3.x**, OpenAI, Anthropic (Claude), **Ollama (
 
 ---
 
+## ✨ What's new in 4.2
+
+- **Calendar** – appointments, payment due dates, deadlines (cancellation, objection …) and expiry dates are found during the AI analysis – no extra AI request. A calendar page lists what is coming up, and a private **iCal link** brings the dates into Google Calendar, Apple Calendar or Outlook. Documents processed earlier can be searched on request. Off by default. → [Calendar](#calendar)
+- **Prompt library** – keep tested prompts per use case with ratings per model (1–10, note, test documents), see which model a prompt works best with and use one for processing with a single click. The playground and the prompt wizard save into it.
+- **Two-factor authentication** – optional codes from an authenticator app (Aegis, Google Authenticator, 1Password, Bitwarden …) plus ten single-use recovery codes. API keys keep working without a code.
+
 ## ✨ What's new in 4.1
 
 - **OCR with PaddleOCR** – scans, photos and documents with garbled text are read locally (PP-OCRv5 via ONNX Runtime, no extra container, models ~20 MB). Runs automatically *before* the AI analysis – for documents without text, with poor text or always – or on demand. → [OCR](#ocr)
@@ -69,6 +75,11 @@ Upgrading from 3.x is automatic: your `data/.env`, user account, processing stat
 - The text replaces the content in Paperless (better Paperless full-text search) **only when it reads better** than the existing text – with a side-by-side comparison and **undo**
 - Detects pages scanned sideways or upside down, 30+ Latin-script languages plus Cyrillic, Greek, Arabic, Chinese/Japanese, Korean, …
 - CPU (all platforms) or **NVIDIA GPU** with the `:latest-cuda` image
+
+**Calendar (optional)**
+- Appointments, payment due dates, deadlines and expiry/renewal dates are found during the AI analysis (no extra request) and listed on the *Calendar* page – upcoming, past and hidden ones
+- Private **iCal subscription link** for Google Calendar, Apple Calendar, Outlook or Thunderbird, with a reminder one day before payments and deadlines
+- Documents processed before the calendar was switched on can be searched later – only the dates are asked for, nothing is changed in Paperless
 
 **Prompt wizard**
 - A few questions instead of prompt engineering: your name (never used as correspondent), output language, title style or pattern, how many and what kind of tags, short company names, document types, own rules
@@ -157,7 +168,7 @@ Keep your data volume and switch the image – everything else happens on the fi
    docker run --rm -v paperless-ai_data:/data -v "$PWD":/backup alpine \
      tar czf /backup/paperless-ai-3x-backup.tgz -C /data .
    ```
-2. **Update `docker-compose.yml`:** use `image: clusterzx/paperless-ai:latest` (or a fixed version such as `4.1.2`), keep the volume `…:/app/data` and the port. Remove the 3.x lines `RAG_SERVICE_URL`, `PUID` and `PGID` (no longer used) and `RAG_SERVICE_ENABLED` (it would lock the setting in the UI).
+2. **Update `docker-compose.yml`:** use `image: clusterzx/paperless-ai:latest` (or a fixed version such as `4.2.0`), keep the volume `…:/app/data` and the port. Remove the 3.x lines `RAG_SERVICE_URL`, `PUID` and `PGID` (no longer used) and `RAG_SERVICE_ENABLED` (it would lock the setting in the UI).
 3. **Start:** `docker compose pull && docker compose up -d`. The log (`docker compose logs -f paperless-ai`) shows `Migrated legacy data/.env configuration to data/config.json` and `Imported data from legacy documents.db` with the number of migrated users, documents and history entries.
 4. **Sign in** with your previous username and password and review the settings – everything is prefilled; values set by environment variables are shown locked.
 
@@ -207,6 +218,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `CUSTOM_FIELDS` | custom fields (JSON, format of 3.x) |
 | `EXTERNAL_API_ENABLED`, `EXTERNAL_API_URL`, `EXTERNAL_API_METHOD`, `EXTERNAL_API_HEADERS`, `EXTERNAL_API_BODY`, `EXTERNAL_API_TIMEOUT`, `EXTERNAL_API_TRANSFORM` | external data |
 | `RAG_ENABLED` (or `RAG_SERVICE_ENABLED`), `RAG_EMBEDDING_PROVIDER`, `RAG_EMBEDDING_MODEL`, `RAG_QUERY_EXPANSION` | ask your archive |
+| `ACTIVATE_CALENDAR` | find appointments, due dates and deadlines for the calendar (default off) |
 | `OCR_ENABLED`, `OCR_MODE` (`manual`, `missing`, `poor`, `always`), `OCR_WRITE_BACK` | OCR on/off, when it runs automatically, replace the text in Paperless (default on) |
 | `OCR_LANGUAGE` (`latin`, `en`, `multi`, `cyrillic`, `eslav`, `greek`, `arabic`, `devanagari`, `korean`, `thai`, `tamil`, `telugu`), `OCR_QUALITY` (`fast`, `balanced`, `accurate`) | OCR model |
 | `OCR_DEVICE` (`auto`, `cpu`, `cuda`), `OCR_THREADS`, `OCR_MAX_PAGES` | OCR hardware and limits (`0` threads = automatic, `0` pages = all) |
@@ -233,6 +245,13 @@ The OCR text replaces the text in Paperless only when its text-quality score is 
 On a 4-core CPU an A4 page takes about 1–2 s (*Balanced*). *Accurate* uses a larger detection model and 300 dpi – noticeably better for small print, but slow without a GPU. Models are stored in the data directory (`models/paddleocr`), so they are downloaded only once; behind a proxy or offline, set `HF_ENDPOINT` to a Hugging Face mirror or copy the folder from another installation.
 
 ONNX Runtime's own usage telemetry is switched off (`ORT_DISABLE_TELEMETRY=1`) – nothing about your documents leaves your server.
+
+### Calendar
+
+*Settings → Processing → Appointments & deadlines* turns the calendar on. From then on the AI analysis also asks for dates the recipient has to act on or attend – appointments (with time), payment due dates, deadlines (cancellation, objection, application) and expiry or renewal dates. They appear on the *Calendar* page with a link to the document; dates you hide stay hidden when the document is analysed again.
+
+- **Earlier documents:** *Search documents* asks only for the dates of documents processed before (last 3 or 12 months, 3 years or all) – one small AI request per document, titles and tags in Paperless stay untouched.
+- **Subscribe:** *Subscribe* shows a private link (`…/api/calendar/feed/<secret>.ics`). Add it in Google Calendar (*Other calendars → From URL*), Apple Calendar (*File → New Calendar Subscription*) or Outlook (*Subscribe from web*). The calendar app must be able to reach Paperless-AI at that address; anyone with the link can read the dates, so a new link can be created at any time.
 
 ### Local models (Ollama)
 

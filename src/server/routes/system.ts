@@ -50,7 +50,7 @@ export const systemRoutes =
         needsUser: ctx.repos.users.count() === 0,
         user: p?.kind === 'user' ? { id: p.userId, username: p.username } : undefined,
         version: ctx.version,
-        features: { rag: ctx.cfg.rag.enabled },
+        features: { rag: ctx.cfg.rag.enabled, calendar: ctx.cfg.processing.functions.events },
       };
     });
 

@@ -409,6 +409,10 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       const updated = await applyPlannedUpdate(this.ctx, doc, plan, { source: job.source, analysis });
       // Our own change must not make the OCR text look outdated; the OCR page shows the new title.
       this.ctx.repos.ocr.followVersion(documentId, doc.modified ?? null, updated.modified ?? null);
+      if (this.ctx.cfg.processing.functions.events) {
+        const found = this.ctx.repos.calendar.replaceForDocument(documentId, updated.title ?? null, analysis.suggestion.events ?? []);
+        if (found) log.info(`Found ${found} date(s) for the calendar in document ${documentId}`);
+      }
       this.ocr?.assess({ ...updated, content: updated.content ?? doc.content });
       log.info(
         `Processed document ${documentId} → "${updated.title}" (${analysis.usage.totalTokens} tokens, ${(analysis.durationMs / 1000).toFixed(1)}s${analysis.truncated ? ', content truncated' : ''})`,

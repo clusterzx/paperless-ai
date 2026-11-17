@@ -3,7 +3,7 @@
  * DocumentSuggestion. Accepts the various shapes models (and older prompts)
  * produce, e.g. custom_fields as an index-keyed object.
  */
-import type { DocumentSuggestion } from '../../shared/api.js';
+import { EVENT_KINDS, type DocumentSuggestion, type EventKind, type SuggestedEvent } from '../../shared/api.js';
 import { normalizeDate } from './dates.js';
 
 const EMPTY = /^(|null|none|unknown|unbekannt|n\/a|na|-|nicht angegeben|not specified|undefined)$/i;
@@ -65,6 +65,43 @@ function cleanCustomFields(v: unknown): { field_name: string; value: string }[] 
   return out;
 }
 
+/** Words models use for the kind of a date (also in German). */
+const KIND_WORDS: [RegExp, EventKind][] = [
+  [/appoint|meeting|termin|visit|besuch|consult|untersuch/, 'appointment'],
+  [/due|pay|zahl|fällig|faellig|rate|instal/, 'due'],
+  [/deadline|frist|cancel|kündig|kuendig|object|widerspruch|submit|einreich|apply|antrag/, 'deadline'],
+  [/expir|renew|ablauf|verläng|verlaeng|gültig|gueltig|valid|warrant|garantie/, 'expiry'],
+];
+
+function cleanTime(v: unknown): string | null {
+  const m = typeof v === 'string' ? /^(\d{1,2})[:.h](\d{2})/.exec(v.trim()) : null;
+  if (!m || +m[1] > 23 || +m[2] > 59) return null;
+  return `${m[1].padStart(2, '0')}:${m[2]}`;
+}
+
+function cleanKind(v: unknown): EventKind {
+  const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
+  if ((EVENT_KINDS as readonly string[]).includes(s)) return s as EventKind;
+  return KIND_WORDS.find(([re]) => re.test(s))?.[1] ?? 'other';
+}
+
+/** Dates with a title and a valid date; at most 20, no duplicates. */
+export function cleanEvents(v: unknown): SuggestedEvent[] {
+  if (!Array.isArray(v)) return [];
+  const out: SuggestedEvent[] = [];
+  for (const item of v) {
+    if (!item || typeof item !== 'object') continue;
+    const e = item as Record<string, unknown>;
+    const title = cleanString(e.title ?? e.summary ?? e.name ?? e.description, 200);
+    const date = normalizeDate(e.date ?? e.day);
+    if (!title || !date) continue;
+    if (out.some((o) => o.date === date && o.title.toLowerCase() === title.toLowerCase())) continue;
+    out.push({ title, date, time: cleanTime(e.time), kind: cleanKind(e.kind ?? e.type) });
+    if (out.length >= 20) break;
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''));
+}
+
 export function normalizeSuggestion(raw: Record<string, unknown>): DocumentSuggestion {
   // Some models nest the result, e.g. {"document": {...}} or {"result": {...}}.
   const inner = ['document', 'result', 'data', 'analysis'].map((k) => raw[k]).find((v) => v && typeof v === 'object' && !Array.isArray(v));
@@ -78,5 +115,6 @@ export function normalizeSuggestion(raw: Record<string, unknown>): DocumentSugge
     document_date: normalizeDate(r.document_date ?? r.documentDate ?? r.date),
     language: language && language.toLowerCase() !== 'und' ? language.toLowerCase() : null,
     custom_fields: cleanCustomFields(r.custom_fields ?? r.customFields),
+    events: cleanEvents(r.events ?? r.dates ?? r.appointments),
   };
 }

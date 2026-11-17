@@ -238,6 +238,34 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX recovery_codes_user ON recovery_codes(user_id);
       `),
   },
+  {
+    version: 8,
+    name: 'calendar',
+    up: (db) =>
+      db.exec(`
+        -- Appointments, due dates and deadlines found in documents
+        CREATE TABLE calendar_events (
+          id INTEGER PRIMARY KEY,
+          document_id INTEGER NOT NULL,
+          document_title TEXT,
+          title TEXT NOT NULL,
+          date TEXT NOT NULL,            -- YYYY-MM-DD
+          time TEXT,                     -- HH:MM, NULL = all day
+          kind TEXT NOT NULL DEFAULT 'other',
+          dismissed_at INTEGER,          -- hidden by the user (stays hidden when the document is analysed again)
+          created_at INTEGER NOT NULL
+        );
+        CREATE INDEX calendar_events_date ON calendar_events(date);
+        CREATE INDEX calendar_events_document ON calendar_events(document_id);
+        -- Documents searched for dates (analysis with the calendar switched on, or the scan)
+        CREATE TABLE calendar_scans (
+          document_id INTEGER PRIMARY KEY,
+          scanned_at INTEGER NOT NULL,
+          events INTEGER NOT NULL DEFAULT 0,
+          error TEXT
+        );
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {

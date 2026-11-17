@@ -1,6 +1,7 @@
 import type { Db } from './database.js';
 import { OcrRepo } from './ocrRepo.js';
 import { PromptsRepo } from './promptsRepo.js';
+import { CalendarRepo } from './calendarRepo.js';
 import type { DocumentSnapshot, HistoryItem, HistoryQuery, UsageStats } from '../../shared/api.js';
 
 // ---------------------------------------------------------------- users
@@ -438,7 +439,7 @@ export class HistoryRepo {
 // ---------------------------------------------------------------- usage
 
 export interface NewUsage {
-  feature: 'process' | 'manual' | 'playground' | 'chat' | 'rag' | 'test';
+  feature: 'process' | 'manual' | 'playground' | 'chat' | 'rag' | 'test' | 'calendar';
   documentId?: number | null;
   provider?: string;
   model?: string;
@@ -550,6 +551,7 @@ export interface Repos {
   kv: KvRepo;
   ocr: OcrRepo;
   prompts: PromptsRepo;
+  calendar: CalendarRepo;
 }
 
 export function createRepos(db: Db): Repos {
@@ -561,5 +563,6 @@ export function createRepos(db: Db): Repos {
     kv: new KvRepo(db),
     ocr: new OcrRepo(db),
     prompts: new PromptsRepo(db),
+    calendar: new CalendarRepo(db),
   };
 }

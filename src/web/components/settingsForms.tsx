@@ -486,6 +486,7 @@ const FUNCTIONS: { key: keyof Config['processing']['functions']; label: string; 
   { key: 'documentType', label: 'Document type', description: 'Classify the document' },
   { key: 'documentDate', label: 'Document date', description: 'Extract the date of the document' },
   { key: 'customFields', label: 'Custom fields', description: 'Fill the custom fields configured below' },
+  { key: 'events', label: 'Appointments & deadlines', description: 'Find due dates, appointments and deadlines for the calendar (iCal subscription)' },
 ];
 
 export function FunctionsSection({ draft, set, locked }: SectionProps) {

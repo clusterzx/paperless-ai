@@ -112,7 +112,24 @@ samples.forEach((s, i) =>
 );
 
 // ------------------------------------------------------------------ fake AI
-function analyze(content: string): Record<string, unknown> {
+/** Dates for the calendar – relative to today, so the demo always has upcoming ones. */
+function demoEvents(content: string): Record<string, unknown>[] {
+  const day = (offset: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const lower = content.toLowerCase();
+  const out: Record<string, unknown>[] = [];
+  const invoice = /(?:Nr\.|Rechnungsnummer)\s*([\w-]+)/.exec(content)?.[1];
+  if (lower.includes('zahlbar bis')) out.push({ title: `Stromrechnung ${invoice ?? ''} bezahlen`.replace(/\s+/g, ' '), date: day(9), time: '', kind: 'due' });
+  if (lower.includes('kfz')) out.push({ title: 'Kündigungsfrist Kfz-Versicherung HUK-COBURG', date: day(13), time: '', kind: 'deadline' });
+  if (lower.includes('beitragsanpassung')) out.push({ title: 'Neuer Beitrag Krankenversicherung gilt', date: day(44), time: '', kind: 'expiry' });
+  if (lower.includes('mietvertrag')) out.push({ title: 'Wohnungsbegehung mit der Hausverwaltung', date: day(2), time: '10:30', kind: 'appointment' });
+  return out;
+}
+
+function analyze(content: string, withEvents = false): Record<string, unknown> {
   const lower = content.toLowerCase();
   const date = /(\d{2})\.(\d{2})\.(\d{4})/.exec(content);
   const amount = /(?:Gesamtbetrag|Kaltmiete|Monatsbeitrag|Jahresbeitrag)[^\d]*([\d.]+,\d{2})/.exec(content)?.[1];
@@ -151,13 +168,14 @@ function analyze(content: string): Record<string, unknown> {
       ...(amount ? [{ field_name: 'Betrag', value: amount }] : []),
       ...(number ? [{ field_name: 'Rechnungsnummer', value: number }] : []),
     ],
+    ...(withEvents ? { events: demoEvents(content) } : {}),
   };
 }
 
 llm.reply((req: ChatRequestInfo) => {
   if (req.system.includes('Return the result EXCLUSIVELY as one JSON object')) {
     const content = /Document content:\n"""\n([\s\S]*)\n"""/.exec(req.user)?.[1] ?? req.user;
-    return { content: JSON.stringify(analyze(content)), usage: { prompt_tokens: 900 + content.length / 4, completion_tokens: 80 } };
+    return { content: JSON.stringify(analyze(content, req.system.includes('- events:'))), usage: { prompt_tokens: 900 + content.length / 4, completion_tokens: 80 } };
   }
   if (req.system.includes('standalone question')) return JSON.stringify({ query: req.user.split('Follow-up question:').at(-1)?.trim() ?? req.user });
   if (req.system.startsWith('You are Paperless-AI')) {

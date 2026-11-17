@@ -173,6 +173,8 @@ export const configSchema = z.object({
           title: bool(true),
           customFields: bool(true),
           documentDate: bool(true),
+          /** Appointments, due dates and deadlines for the calendar (off by default). */
+          events: bool(false),
         })
         .prefault({}),
       restrict: z

@@ -81,6 +81,20 @@ export interface DocumentSuggestion {
   document_date: string | null;
   language: string | null;
   custom_fields: { field_name: string; value: string }[];
+  /** Appointments, due dates and deadlines (only when the calendar is switched on). */
+  events?: SuggestedEvent[];
+}
+
+export const EVENT_KINDS = ['appointment', 'due', 'deadline', 'expiry', 'other'] as const;
+export type EventKind = (typeof EVENT_KINDS)[number];
+
+export interface SuggestedEvent {
+  title: string;
+  /** YYYY-MM-DD */
+  date: string;
+  /** HH:MM, null = all day */
+  time: string | null;
+  kind: EventKind;
 }
 
 export interface AnalysisResult {
@@ -211,7 +225,37 @@ export interface SessionInfo {
   needsUser: boolean;
   user?: { id: number; username: string };
   version: string;
-  features: { rag: boolean };
+  features: { rag: boolean; calendar: boolean };
+}
+
+// ---------------------------------------------------------------- calendar
+
+export interface CalendarEvent extends SuggestedEvent {
+  id: number;
+  documentId: number;
+  documentTitle: string | null;
+  /** Link to the document in Paperless. */
+  url: string;
+  dismissed: boolean;
+}
+
+export interface CalendarScanStatus {
+  running: boolean;
+  done: number;
+  total: number;
+  /** Dates found by this scan. */
+  found: number;
+  failed: number;
+  error: string | null;
+}
+
+export interface CalendarResponse {
+  /** Date recognition is switched on (Settings → Processing → Functions). */
+  enabled: boolean;
+  events: CalendarEvent[];
+  /** Documents searched for dates so far. */
+  scannedDocuments: number;
+  scan: CalendarScanStatus;
 }
 
 // ---------------------------------------------------------------- two-factor authentication
