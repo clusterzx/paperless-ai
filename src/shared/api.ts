@@ -228,3 +228,74 @@ export interface LogEntryDto {
   msg: string;
   data?: Record<string, unknown>;
 }
+
+// ------------------------------------------------------------------ OCR
+
+export type TextQualityLevel = 'missing' | 'poor' | 'fair' | 'good';
+
+/** Heuristic assessment of a document's text (0–100). */
+export interface TextQuality {
+  score: number;
+  level: TextQualityLevel;
+  reasons: string[];
+  chars: number;
+  words: number;
+}
+
+export type OcrFilter = 'all' | 'needs' | 'missing' | 'poor' | 'fair' | 'good' | 'done' | 'failed';
+
+export interface OcrResultInfo {
+  status: 'done' | 'failed';
+  at: number;
+  chars: number | null;
+  /** Mean recognition confidence 0…1. */
+  meanScore: number | null;
+  pages: number | null;
+  totalPages: number | null;
+  provider: string | null;
+  durationMs: number | null;
+  writtenBack: boolean;
+  revertedAt: number | null;
+  error: string | null;
+}
+
+export interface OcrDocumentItem {
+  id: number;
+  title: string;
+  url: string;
+  created: string | null;
+  pages: number | null;
+  quality: TextQuality;
+  ocr: OcrResultInfo | null;
+  job: { state: 'queued' | 'running'; page?: number; pages?: number } | null;
+}
+
+export interface OcrListResponse {
+  items: OcrDocumentItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  counts: Record<OcrFilter, number>;
+}
+
+export interface OcrStatus {
+  enabled: boolean;
+  /** The OCR libraries are installed. */
+  available: boolean;
+  mode: string;
+  writeBack: boolean;
+  /** Execution provider of the loaded models (cpu, cuda, dml) – null while not loaded. */
+  provider: string | null;
+  analysis: { running: boolean; done: number; total: number; lastAt: number | null; error: string | null };
+  queue: number;
+  active: { documentId: number; title: string | null; page: number; pages: number } | null;
+}
+
+export interface OcrDocumentText {
+  id: number;
+  title: string;
+  paperlessText: string;
+  ocrText: string | null;
+  quality: TextQuality;
+  ocr: OcrResultInfo | null;
+}

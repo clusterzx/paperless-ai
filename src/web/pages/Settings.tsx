@@ -11,6 +11,7 @@ import {
   Link2,
   ListChecks,
   MessageSquareQuote,
+  ScanText,
   RefreshCw,
   Save,
   Sparkles,
@@ -25,6 +26,7 @@ import {
   ExternalApiSection,
   FunctionsSection,
   ProcessingSection,
+  OcrSection,
   PromptSection,
   RagSection,
   type Config,
@@ -54,9 +56,10 @@ interface SettingsResponse {
   locked: Locked;
   defaults: { systemPrompt: string };
   localEmbeddings: boolean;
+  ocr: { available: boolean; cudaAvailable: boolean };
 }
 
-const TAB_IDS = ['connection', 'ai', 'processing', 'prompt', 'fields', 'external', 'rag', 'integrations', 'account'] as const;
+const TAB_IDS = ['connection', 'ai', 'processing', 'prompt', 'fields', 'ocr', 'external', 'rag', 'integrations', 'account'] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 function CopyField({ value, secret }: { value: string; secret?: boolean }) {
@@ -312,6 +315,7 @@ export default function SettingsPage() {
     { id: 'processing', label: 'Processing', icon: <ListChecks className="size-4" /> },
     { id: 'prompt', label: 'Prompt', icon: <MessageSquareQuote className="size-4" /> },
     { id: 'fields', label: 'Custom fields', icon: <FileCog className="size-4" /> },
+    { id: 'ocr', label: 'OCR', icon: <ScanText className="size-4" /> },
     { id: 'external', label: 'External data', icon: <Braces className="size-4" /> },
     { id: 'rag', label: 'Ask your archive', icon: <Sparkles className="size-4" /> },
     { id: 'integrations', label: 'API & webhooks', icon: <KeyRound className="size-4" /> },
@@ -370,6 +374,11 @@ export default function SettingsPage() {
           {tab === 'fields' && (
             <Card title="Custom fields" description="Values the AI should extract into Paperless custom fields.">
               <CustomFieldsSection {...props} />
+            </Card>
+          )}
+          {tab === 'ocr' && (
+            <Card title="OCR (PaddleOCR)" description="Text recognition for scans and photos – runs locally on CPU or NVIDIA GPU.">
+              <OcrSection {...props} available={loaded.ocr.available} cudaAvailable={loaded.ocr.cudaAvailable} />
             </Card>
           )}
           {tab === 'external' && (

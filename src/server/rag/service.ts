@@ -121,6 +121,12 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     });
   }
 
+  /** The text of a document changed without Paperless noticing (local OCR text): index it again. */
+  invalidate(documentId: number): void {
+    for (const chunkId of this.store.deleteDocument(documentId)) this.vectors.remove(chunkId);
+    this.requestSync();
+  }
+
   /** Called by the processing engine after documents were changed. */
   requestSync(): void {
     if (!this.enabled || !this.cfg.rag.autoSync || !this.ctx.isConfigured()) return;
@@ -348,7 +354,8 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
       const contents = await client.listDocuments({ ids: batch.map((b) => b.id), fields: ['id', 'content'], pageSize: FETCH_BATCH });
       const byId = new Map(contents.map((c) => [c.id, c.content ?? '']));
       for (const m of batch) {
-        const content = normalizeContent(byId.get(m.id) ?? '');
+        // OCR text that was not written back to Paperless replaces the Paperless text.
+        const content = normalizeContent(this.ctx.repos.ocr.localText(m.id, m.modified) ?? byId.get(m.id) ?? '');
         const chunks = content ? chunkText(content) : [m.title];
         this.vectors.removeDocument(m.id);
         this.store.upsertDocument({ ...m, contentHash: createHash('sha1').update(content).digest('hex') }, chunks);

@@ -167,6 +167,15 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'RAG_EMBEDDING_MODEL', path: 'rag.embeddingModel', parse: s },
   { env: 'RAG_QUERY_EXPANSION', path: 'rag.queryExpansion', parse: b },
 
+  { env: 'OCR_ENABLED', path: 'ocr.enabled', parse: b },
+  { env: 'OCR_MODE', path: 'ocr.mode', parse: (v) => v.trim().toLowerCase() },
+  { env: 'OCR_WRITE_BACK', path: 'ocr.writeBack', parse: b },
+  { env: 'OCR_LANGUAGE', path: 'ocr.language', parse: (v) => v.trim().toLowerCase() },
+  { env: 'OCR_QUALITY', path: 'ocr.quality', parse: (v) => v.trim().toLowerCase() },
+  { env: 'OCR_DEVICE', path: 'ocr.device', parse: (v) => v.trim().toLowerCase() },
+  { env: 'OCR_THREADS', path: 'ocr.threads', parse: i },
+  { env: 'OCR_MAX_PAGES', path: 'ocr.maxPages', parse: i },
+
   { env: 'API_KEY', path: 'security.apiKey', parse: s },
   { env: 'JWT_SECRET', path: 'security.jwtSecret', parse: s },
 ];

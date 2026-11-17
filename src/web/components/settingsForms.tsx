@@ -2,10 +2,13 @@ import { useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Bot, Cloud, Cpu, Plug, Plus, Server, Sparkle, Trash2, Wand2 } from 'lucide-react';
 import type { AppConfig } from '../../server/config/schema';
 import type { ConnectionTestResult } from '@shared/api';
+import { OCR_LANGUAGE_LABELS, OCR_LANGUAGES, OCR_QUALITY, OCR_QUALITY_PRESETS } from '@shared/ocr';
+import { buildWizardPrompt } from '@shared/promptWizard';
 import { errorMessage, post } from '../lib/api';
 import { getIn, SECRET_MASK, type Setter } from '../lib/draft';
 import { cn } from '../lib/format';
-import { Alert, Badge, Button, Field, Input, NumberInput, Select, Switch, TagInput, Textarea } from './ui';
+import { Link } from 'wouter';
+import { Alert, Badge, Button, buttonClass, Field, Input, NumberInput, Select, Switch, TagInput, Textarea } from './ui';
 
 export type Config = AppConfig;
 export type Locked = Record<string, string>;
@@ -543,8 +546,22 @@ export function FunctionsSection({ draft, set, locked }: SectionProps) {
 
 export function PromptSection({ draft, set, locked, defaultPrompt, tagSuggestions = [] }: SectionProps & { defaultPrompt: string; tagSuggestions?: string[] }) {
   const p = draft.processing;
+  const fromWizard = p.promptWizard.used && p.systemPrompt.trim() === buildWizardPrompt(p.promptWizard).trim();
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent/30 bg-accent-soft/40 p-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Wand2 className="size-4 text-accent" /> Prompt wizard
+            {fromWizard ? <Badge tone="success">in use</Badge> : p.promptWizard.used ? <Badge tone="warn">edited by hand</Badge> : null}
+          </div>
+          <p className="mt-0.5 text-xs text-muted">Answer a few questions (language, titles, tags, your own name, …) and get a tested prompt – no prompt writing needed.</p>
+        </div>
+        <Link href="/prompt-wizard" className={buttonClass({ variant: 'primary', size: 'sm' })}>
+          <Wand2 className="size-3.5" />
+          {p.promptWizard.used ? 'Open wizard' : 'Start wizard'}
+        </Link>
+      </div>
       <Field
         label="System prompt"
         locked={locked['processing.systemPrompt']}
@@ -565,7 +582,16 @@ export function PromptSection({ draft, set, locked, defaultPrompt, tagSuggestion
         />
       </Field>
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" icon={<Wand2 className="size-3.5" />} disabled={p.usePromptTags} onClick={() => set('processing.systemPrompt', defaultPrompt)}>
+        <Button
+          size="sm"
+          icon={<Wand2 className="size-3.5" />}
+          disabled={p.usePromptTags}
+          onClick={() => {
+            set('processing.systemPrompt', defaultPrompt);
+            // The wizard's language rule belongs to the wizard prompt.
+            set('processing.promptWizard.used', false);
+          }}
+        >
           Use default prompt
         </Button>
       </div>
@@ -802,6 +828,107 @@ export function RagSection({ draft, set, locked, localEmbeddings }: SectionProps
             locked={locked['rag.queryExpansion']}
             onChange={(v) => set('rag.queryExpansion', v)}
           />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ OCR
+
+const OCR_MODE_OPTIONS: { value: Config['ocr']['mode']; label: string; hint: string }[] = [
+  { value: 'poor', label: 'Automatic – no text or poor text', hint: 'Recommended. Before the AI analysis, documents without text or with garbled text are read with OCR.' },
+  { value: 'missing', label: 'Automatic – only documents without text', hint: 'Only documents for which Paperless has (almost) no text are read before the AI analysis.' },
+  { value: 'always', label: 'Automatic – every document', hint: 'Every document is read with OCR before the AI analysis. Best text, but costs time for every document.' },
+  { value: 'manual', label: 'Manual', hint: 'OCR only runs when you start it on the OCR page (or via the API). The documents are analyzed by the AI afterwards.' },
+];
+
+export function OcrSection({ draft, set, locked, available, cudaAvailable }: SectionProps & { available: boolean; cudaAvailable: boolean }) {
+  const o = draft.ocr;
+  const mode = OCR_MODE_OPTIONS.find((m) => m.value === o.mode) ?? OCR_MODE_OPTIONS[0];
+  return (
+    <div className="space-y-6">
+      {!available && (
+        <Alert tone="danger" title="OCR is not available">
+          The OCR libraries (onnxruntime-node, sharp, @hyzyla/pdfium) are not installed in this installation.
+        </Alert>
+      )}
+      <Switch
+        label="Enable OCR with PaddleOCR"
+        description="Reads scans and photos locally (no external service). The models (about 20 MB) are downloaded on first use into the data directory."
+        checked={o.enabled}
+        locked={locked['ocr.enabled']}
+        onChange={(v) => set('ocr.enabled', v)}
+      />
+      {o.enabled && (
+        <>
+          <Field label="When should OCR run?" locked={locked['ocr.mode']} hint={mode.hint}>
+            <Select {...bind(draft, set, locked, 'ocr.mode')}>
+              {OCR_MODE_OPTIONS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Switch
+            label="Save the OCR text in Paperless"
+            description="Replaces the document text in Paperless with the OCR result – the Paperless full-text search improves too. The previous text is kept and can be restored on the OCR page."
+            checked={o.writeBack}
+            locked={locked['ocr.writeBack']}
+            onChange={(v) => set('ocr.writeBack', v)}
+          />
+          <FormGrid>
+            <Field label="Language / script" locked={locked['ocr.language']} hint="The recognition model. “Latin script” covers German, English and most European languages.">
+              <Select {...bind(draft, set, locked, 'ocr.language')}>
+                {OCR_LANGUAGES.map((l) => (
+                  <option key={l} value={l}>
+                    {OCR_LANGUAGE_LABELS[l]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Quality" locked={locked['ocr.quality']} hint={OCR_QUALITY_PRESETS[o.quality].label}>
+              <Select {...bind(draft, set, locked, 'ocr.quality')}>
+                {OCR_QUALITY.map((q) => (
+                  <option key={q} value={q}>
+                    {q[0].toUpperCase() + q.slice(1)} ({OCR_QUALITY_PRESETS[q].dpi} dpi)
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </FormGrid>
+          <FormGrid className="lg:grid-cols-3">
+            <Field
+              label="Device"
+              locked={locked['ocr.device']}
+              hint={cudaAvailable ? 'NVIDIA GPU support (CUDA) is installed.' : 'GPU needs the CUDA image (:latest-cuda) – otherwise the CPU is used.'}
+            >
+              <Select {...bind(draft, set, locked, 'ocr.device')}>
+                <option value="auto">Automatic (GPU if available)</option>
+                <option value="cpu">CPU</option>
+                <option value="cuda">NVIDIA GPU (CUDA)</option>
+              </Select>
+            </Field>
+            <Field label="CPU threads" locked={locked['ocr.threads']} hint="0 = automatic (all cores, at most 8).">
+              <NumberInput min={0} max={64} {...bindNumber(draft, set, locked, 'ocr.threads')} />
+            </Field>
+            <Field label="Max. pages per document" locked={locked['ocr.maxPages']} hint="0 = all pages.">
+              <NumberInput min={0} max={2000} {...bindNumber(draft, set, locked, 'ocr.maxPages')} />
+            </Field>
+          </FormGrid>
+          <FormGrid>
+            <Switch
+              label="Straighten rotated pages"
+              description="Detects pages scanned sideways or upside down."
+              checked={o.autoRotate}
+              locked={locked['ocr.autoRotate']}
+              onChange={(v) => set('ocr.autoRotate', v)}
+            />
+            <Field label="“Poor text” below score" locked={locked['ocr.poorBelow']} hint="Text quality is rated 0–100. Lower values read fewer documents automatically.">
+              <NumberInput min={1} max={99} {...bindNumber(draft, set, locked, 'ocr.poorBelow')} />
+            </Field>
+          </FormGrid>
         </>
       )}
     </div>

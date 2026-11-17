@@ -18,6 +18,8 @@ is imported (users, processed documents, history, token metrics). The legacy fil
 ```
 src/
   shared/api.ts          API contract (types only, shared by server and web)
+  shared/ocr.ts          OCR options (languages, modes, quality presets)
+  shared/promptWizard.ts prompt wizard answers → system prompt (used for the live preview and on the server)
   server/
     index.ts             bootstrap, graceful shutdown
     context.ts           AppContext: config, DB, lazily (re)built clients
@@ -28,6 +30,8 @@ src/
     ai/                  OpenAI-compatible/Azure, Anthropic and Ollama clients, JSON extraction, token estimation
     processing/          prompt builder, analyzer, applier (+ undo), engine (queue/scheduler), external API
     rag/                 chunker, SQLite store (FTS5), vector index, local embedder (worker), service, document chat
+    ocr/                 PaddleOCR via ONNX Runtime (worker): rendering, detection post-processing, recognition,
+                         reading order, text-quality heuristic, service (when to read, write-back, undo)
     http/ routes/        Fastify app, auth levels, SSE helper, route modules
   web/                   React 19 + Tailwind 4 UI (Vite), pages are code-split
     styles.css           design tokens (ink palette, accent presets via [data-accent], dark via [data-theme])
@@ -81,6 +85,30 @@ manual ──────┘                                   │
 * A document is only marked as processed after the PATCH succeeded. Failures are retried on later
   scans (`maxAttempts`); documents without permission or text are skipped until they change.
 * Every change stores a snapshot of the previous values → *History → Undo* restores them.
+
+## OCR
+
+```
+engine job ─▶ needs OCR? (mode: always / missing / poor = text-quality score) ─▶ download original
+   (or archived PDF) ─▶ OCR worker ─▶ text ─▶ optional PATCH content (old text kept for undo) ─▶ analyze
+```
+
+* `ocr/render.ts` turns PDFs into page images with PDFium (WebAssembly) and decodes images with sharp
+  (EXIF orientation, multi-page TIFF). Pages are rendered one at a time.
+* `ocr/pipeline.ts` runs the PP-OCRv5 models with ONNX Runtime: page orientation (0/90/180/270°) →
+  DB text detection (`detPost.ts`: threshold → connected regions → minimum-area rectangle → box
+  score → unclip, no OpenCV) → perspective crop → text-line orientation (0/180°) → CTC recognition.
+  `layout.ts` straightens skewed scans and builds lines and paragraphs.
+* Execution provider: `auto` tries CUDA (when the provider library is installed, i.e. the `-cuda`
+  image) or DirectML (Windows) and falls back to the CPU.
+* Models come from the PaddlePaddle repositories on Hugging Face, pinned to a revision, cached in
+  `data/models/paddleocr`.
+* The worker is started on demand and stopped after 10 idle minutes; jobs run through the normal
+  processing queue, so a manual OCR request is followed by the AI analysis.
+* `ocr_documents` holds the text-quality score of every document (refreshed incrementally on the OCR
+  page and after each analysis), `ocr_results` the OCR text, the previous Paperless text (undo) and
+  the document version it belongs to. Text that is not written back replaces the Paperless text for
+  the analysis and the RAG index.
 
 ## Ask your archive (RAG)
 

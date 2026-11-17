@@ -13,6 +13,8 @@ const ChatPage = lazy(() => import('./pages/Chat'));
 const ReviewPage = lazy(() => import('./pages/Review'));
 const PlaygroundPage = lazy(() => import('./pages/Playground'));
 const HistoryPage = lazy(() => import('./pages/History'));
+const OcrPage = lazy(() => import('./pages/Ocr'));
+const PromptWizardPage = lazy(() => import('./pages/PromptWizard'));
 const SettingsPage = lazy(() => import('./pages/Settings'));
 const LogsPage = lazy(() => import('./pages/Logs'));
 
@@ -109,6 +111,8 @@ function Routes() {
             <Route path="/review" component={ReviewPage} />
             <Route path="/playground" component={PlaygroundPage} />
             <Route path="/history" component={HistoryPage} />
+            <Route path="/ocr" component={OcrPage} />
+            <Route path="/prompt-wizard" component={PromptWizardPage} />
             <Route path="/settings" component={SettingsPage} />
             <Route path="/logs" component={LogsPage} />
             {/* Old URLs of Paperless-AI ≤ 3.x */}

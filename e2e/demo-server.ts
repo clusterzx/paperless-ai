@@ -17,6 +17,8 @@ import { AppContext } from '../src/server/context.js';
 import { buildApp } from '../src/server/http/app.js';
 import { ProcessingEngine } from '../src/server/processing/engine.js';
 import { RagService } from '../src/server/rag/service.js';
+import { OcrService } from '../src/server/ocr/service.js';
+import { FakeOcrEngine } from '../test/helpers/fakeOcr.js';
 import { hashPassword } from '../src/server/auth.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -89,6 +91,11 @@ const samples = [
     content: 'Ausdruck der elektronischen Lohnsteuerbescheinigung für 2023\nArbeitgeber: Muster AG\nBruttoarbeitslohn: 58.400,00 EUR\nEinbehaltene Lohnsteuer: 11.230,00 EUR',
   },
   { title: 'Leerer Scan', created: '2024-05-01', content: '' },
+  {
+    title: 'Scan Handwerkerrechnung',
+    created: '2024-05-12',
+    content: "Rchng Nr . l2O4 ; ' ~ | ] Mlrmstr Kpp l . ii| ,, Btrg : 4l2 ,8O EUR ~ _ ' | ; ° ¬ l1 I | ' . -- ' ; :",
+  },
 ];
 const baseAdded = Date.UTC(2024, 0, 1);
 samples.forEach((s, i) =>
@@ -186,19 +193,29 @@ if (!fresh) {
       ],
     },
     rag: { enabled: true, embeddingProvider: 'custom', embeddingModel: 'mock-embed' },
+    ocr: { enabled: true, mode: 'manual' },
   });
   ctx.repos.users.create('admin', await hashPassword('demo1234'));
 }
-const engine = new ProcessingEngine(ctx);
+// Stand-in OCR: "reads" the scanned documents of the sample archive.
+const demoOcr = new FakeOcrEngine();
+demoOcr.text = 'Malermeister Kopp GmbH\nRechnung Nr. 1204 vom 12.05.2024\nMalerarbeiten Wohnzimmer\nGesamtbetrag 412,80 EUR\nZahlbar bis 26.05.2024';
+// DEMO_REAL_OCR=1 reads documents with PaddleOCR (downloads the models); otherwise a stand-in returns a fixed text.
+const ocr = process.env.DEMO_REAL_OCR === '1' ? new OcrService(ctx) : new OcrService(ctx, () => demoOcr);
+const engine = new ProcessingEngine(ctx, ocr);
 const rag = new RagService(ctx);
 engine.on('idle', () => rag.requestSync());
+ocr.onTextChanged = (id) => rag.invalidate(id);
 const staticDir = path.resolve(here, '..', 'dist', 'public');
-const app = await buildApp({ ctx, engine, rag }, { staticDir });
+const app = await buildApp({ ctx, engine, rag, ocr }, { staticDir });
 app.get('/__demo/info', { config: { auth: 'public' } }, async () => ({ paperlessUrl: paperless.url, paperlessToken: paperless.token, llmUrl: llm.openaiUrl }));
 await app.listen({ port, host: '127.0.0.1' });
 engine.start(false);
 rag.start();
-if (!fresh) void rag.sync();
+if (!fresh) {
+  void rag.sync();
+  void ocr.assessArchive();
+}
 console.log(`Demo running on http://127.0.0.1:${port} (${fresh ? 'setup wizard' : 'login admin / demo1234'})`);
 console.log(`Fake Paperless: ${paperless.url} (token ${paperless.token}) · Fake LLM: ${llm.openaiUrl}`);
 

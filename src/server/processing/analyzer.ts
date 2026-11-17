@@ -1,5 +1,6 @@
 import type { AnalysisResult } from '../../shared/api.js';
 import type { AppContext } from '../context.js';
+import type { AppConfig } from '../config/schema.js';
 import { extractJsonObject, JsonExtractionError } from '../ai/json.js';
 import { normalizeContent } from '../ai/tokens.js';
 import type { ChatMessage, CompletionResult } from '../ai/types.js';
@@ -17,6 +18,8 @@ export interface AnalyzeOptions {
   customPrompt?: string;
   filename?: string | null;
   signal?: AbortSignal;
+  /** Processing settings for this analysis only (testing the prompt wizard before saving). */
+  processing?: AppConfig['processing'];
 }
 
 export async function buildPromptContext(ctx: AppContext): Promise<PromptContext> {
@@ -44,7 +47,7 @@ export async function buildPromptContext(ctx: AppContext): Promise<PromptContext
 export async function analyzeContent(ctx: AppContext, rawContent: string, opts: AnalyzeOptions): Promise<AnalysisResult> {
   const content = normalizeContent(rawContent);
   if (content.length < 10) throw new UserError('The document has no (or almost no) text content. Is OCR finished?');
-  const cfg = ctx.cfg;
+  const cfg = opts.processing ? { ...ctx.cfg, processing: opts.processing } : ctx.cfg;
   const llm = ctx.llm();
   const promptCtx = await buildPromptContext(ctx);
   const built = buildAnalysisPrompt(cfg, content, promptCtx, { customPrompt: opts.customPrompt, filename: opts.filename });

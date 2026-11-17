@@ -53,7 +53,10 @@
     "zod": "^4.6.5"
   },
   "optionalDependencies": {
-    "@huggingface/transformers": "^4.3.0"
+    "@huggingface/transformers": "^4.3.0",
+    "@hyzyla/pdfium": "^3.0.0",
+    "onnxruntime-node": "1.30.0",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

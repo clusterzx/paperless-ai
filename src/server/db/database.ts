@@ -130,6 +130,50 @@ const MIGRATIONS: Migration[] = [
     // Finding/counting passages without embedding must not scan the whole (large) chunk table.
     up: (db) => db.exec(`CREATE INDEX rag_chunks_pending ON rag_chunks(id) WHERE embedding IS NULL;`),
   },
+  {
+    version: 4,
+    name: 'ocr',
+    up: (db) =>
+      db.exec(`
+        -- Heuristic quality of the text Paperless holds for each document
+        CREATE TABLE ocr_documents (
+          id INTEGER PRIMARY KEY,
+          title TEXT NOT NULL DEFAULT '',
+          modified TEXT,
+          created TEXT,
+          pages INTEGER,
+          chars INTEGER NOT NULL DEFAULT 0,
+          score INTEGER NOT NULL DEFAULT 0,
+          level TEXT NOT NULL CHECK (level IN ('missing', 'poor', 'fair', 'good')),
+          reasons TEXT NOT NULL DEFAULT '[]',
+          assessed_at INTEGER NOT NULL
+        );
+        CREATE INDEX ocr_documents_level ON ocr_documents(level, score);
+
+        -- Latest PaddleOCR result per document
+        CREATE TABLE ocr_results (
+          document_id INTEGER PRIMARY KEY,
+          status TEXT NOT NULL CHECK (status IN ('done', 'failed')),
+          text TEXT,
+          -- Text in Paperless before the OCR text replaced it (undo)
+          previous_text TEXT,
+          chars INTEGER,
+          pages INTEGER,
+          total_pages INTEGER,
+          mean_score REAL,
+          provider TEXT,
+          duration_ms INTEGER,
+          -- Paperless "modified" of the version that was read and after the write-back
+          source_modified TEXT,
+          written_modified TEXT,
+          written_back INTEGER NOT NULL DEFAULT 0,
+          error TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          reverted_at INTEGER
+        );
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {
