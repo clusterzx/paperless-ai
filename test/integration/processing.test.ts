@@ -357,6 +357,20 @@ describe('automatic processing', () => {
     expect(hh.ctx.repos.usage.stats()).toMatchObject({ calls: 1, totalTokens: 240 });
   });
 
+  it('applies answers of models that send the content as a list of chunks (Mistral, #1002)', async () => {
+    const hh = await harness();
+    hh.paperless.addDocument({ id: 13, title: 'scan.pdf', content: 'Document with enough content to analyse' });
+    hh.llm.reply({
+      rawContent: [
+        { type: 'thinking', thinking: [{ type: 'text', text: 'This looks like an invoice.' }] },
+        { type: 'text', text: analysisJson({ title: 'Mistral invoice', tags: ['Invoice'] }) },
+      ],
+    });
+    await scan(hh);
+    expect(hh.paperless.docs.get(13)!.title).toBe('Mistral invoice');
+    expect(hh.ctx.repos.documents.get(13)).toMatchObject({ status: 'processed' });
+  });
+
   it('falls back to json_object when the provider rejects json_schema', async () => {
     const hh = await harness({ llm: { rejectJsonSchema: true } });
     hh.paperless.addDocument({ id: 10, content: 'Document with enough content to analyse' });
