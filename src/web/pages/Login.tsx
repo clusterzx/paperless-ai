@@ -1,9 +1,10 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
-import { ArrowRight, ShieldCheck, Sparkles, Wand2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ShieldCheck, Sparkles, Wand2 } from 'lucide-react';
+import type { LoginTwoFactorRequired } from '@shared/api';
 import { Logo, Wordmark } from '../components/Brand';
-import { Alert, Button, Field, Input } from '../components/ui';
-import { errorMessage, post } from '../lib/api';
+import { Alert, Button, Field, Input, useToast } from '../components/ui';
+import { ApiError, errorMessage, post } from '../lib/api';
 import { useSession } from '../lib/session';
 
 /** Default content of the brand panel: what Paperless-AI does, with a small sample answer. */
@@ -87,27 +88,107 @@ function nextPath(): string {
 
 export default function LoginPage() {
   const { refresh } = useSession();
+  const toast = useToast();
   const [, navigate] = useLocation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Accounts with 2FA: the password gives a ticket for the second step.
+  const [ticket, setTicket] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+
+  const signedIn = async () => {
+    const next = nextPath();
+    const s = await refresh();
+    if (s && !s.setupRequired) navigate(next, { replace: true });
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await post('/api/auth/login', { username, password });
-      const next = nextPath();
-      const s = await refresh();
-      if (s && !s.setupRequired) navigate(next, { replace: true });
+      const res = await post<{ ok: true } | LoginTwoFactorRequired>('/api/auth/login', { username, password });
+      if ('twoFactor' in res && res.twoFactor) {
+        setTicket(res.ticket);
+        setCode('');
+        setPassword('');
+        return;
+      }
+      await signedIn();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
   };
+
+  const submitCode = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await post<{ usedRecoveryCode: boolean; recoveryCodesLeft: number }>('/api/auth/login/2fa', { ticket, code });
+      if (res.usedRecoveryCode) {
+        toast.info(
+          res.recoveryCodesLeft > 0
+            ? `Signed in with a recovery code – ${res.recoveryCodesLeft} left. Each code works only once.`
+            : 'That was your last recovery code – create new ones in Settings → Account.',
+        );
+      }
+      await signedIn();
+    } catch (err) {
+      if (err instanceof ApiError && (err.body as { code?: string } | undefined)?.code === 'ticket_expired') {
+        setTicket(null);
+        setError('The sign-in has expired – enter your password again.');
+      } else {
+        setError(errorMessage(err));
+        setCode('');
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (ticket) {
+    return (
+      <AuthShell title="Two-factor authentication" subtitle="Enter the 6-digit code from your authenticator app.">
+        <form onSubmit={submitCode} className="space-y-4">
+          {error && <Alert tone="danger">{error}</Alert>}
+          <Field label="Code" htmlFor="otp" hint="Lost your phone? Enter one of your recovery codes instead.">
+            <Input
+              id="otp"
+              autoComplete="one-time-code"
+              autoFocus
+              inputMode="text"
+              spellCheck={false}
+              placeholder="123456"
+              maxLength={40}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              required
+            />
+          </Field>
+          <Button type="submit" variant="primary" size="lg" className="mt-2 w-full" loading={busy} disabled={code.trim().length < 6}>
+            Verify <ArrowRight className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            icon={<ArrowLeft className="size-4" />}
+            onClick={() => {
+              setTicket(null);
+              setError(null);
+            }}
+          >
+            Back
+          </Button>
+        </form>
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell title="Welcome back" subtitle="Sign in to continue to Paperless-AI.">

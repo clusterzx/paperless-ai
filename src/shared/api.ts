@@ -214,6 +214,29 @@ export interface SessionInfo {
   features: { rag: boolean };
 }
 
+// ---------------------------------------------------------------- two-factor authentication
+
+/** Answer of /api/auth/login when the account uses 2FA: no session yet, continue with /api/auth/login/2fa. */
+export interface LoginTwoFactorRequired {
+  ok: false;
+  twoFactor: true;
+  ticket: string;
+}
+
+export interface TwoFactorStatus {
+  enabled: boolean;
+  enabledAt: number | null;
+  recoveryCodesLeft: number;
+}
+
+export interface TwoFactorSetup {
+  /** Base32 secret for manual entry. */
+  secret: string;
+  otpauthUrl: string;
+  /** QR code of otpauthUrl as SVG markup. */
+  qrSvg: string;
+}
+
 export interface ConnectionTestResult {
   ok: boolean;
   message: string;

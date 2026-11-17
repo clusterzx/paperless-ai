@@ -157,5 +157,11 @@ question ─▶ query analysis with the LLM (standalone query for follow-ups + s
   e.g. settings and API key), `setup` (only while no user exists).
 * Session: HS256 JWT in an `httpOnly`, `SameSite=Lax` cookie (`Secure` behind HTTPS); changing the
   password invalidates existing sessions. API key comparison is constant-time. Login is rate limited.
+* Two-factor authentication (`totp.ts`, `twoFactor.ts`, `routes/twoFactor.ts`): TOTP (RFC 6238, SHA-1,
+  6 digits, 30 s, ±1 step) with replay protection (`users.totp_last_step`) and ten recovery codes
+  stored as salted scrypt hashes. With 2FA the password login returns a 5-minute ticket signed with a
+  key derived from the JWT secret – a ticket can never pass as a session – and `/api/auth/login/2fa`
+  turns ticket + code into the session cookie. Enabling 2FA ends all other sessions.
+  `PAPERLESS_AI_RESET_2FA=<user>` switches it off at start-up. API keys are not affected.
 * CORS allows any origin without credentials (API key only), so browser extensions keep working.
 * Server-sent events are used for chats and the live log; disconnecting clients abort the LLM request.

@@ -11,6 +11,7 @@ import { ProcessingEngine } from './processing/engine.js';
 import { RagService } from './rag/service.js';
 import { OcrService } from './ocr/service.js';
 import { logger } from './logger.js';
+import { resetTwoFactorFromEnv } from './twoFactor.js';
 
 const log = logger.child({ module: 'main' });
 
@@ -23,6 +24,7 @@ async function main(): Promise<void> {
 
   const ctx = new AppContext({ dataDir });
   log.info(`Paperless-AI ${ctx.version} starting (data directory: ${dataDir})`);
+  resetTwoFactorFromEnv(ctx);
 
   const ocr = new OcrService(ctx);
   const engine = new ProcessingEngine(ctx, ocr);

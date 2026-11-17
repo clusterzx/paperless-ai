@@ -217,6 +217,27 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX prompt_ratings_prompt ON prompt_ratings(prompt_id);
       `),
   },
+  {
+    version: 7,
+    name: 'two-factor authentication',
+    up: (db) =>
+      db.exec(`
+        -- TOTP secret (base32); without totp_enabled_at it is a set-up that was not confirmed yet
+        ALTER TABLE users ADD COLUMN totp_secret TEXT;
+        ALTER TABLE users ADD COLUMN totp_enabled_at INTEGER;
+        -- last accepted time step: a code cannot be used twice
+        ALTER TABLE users ADD COLUMN totp_last_step INTEGER;
+        -- single-use recovery codes (scrypt hashes)
+        CREATE TABLE recovery_codes (
+          id INTEGER PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          code_hash TEXT NOT NULL,
+          used_at INTEGER,
+          created_at INTEGER NOT NULL
+        );
+        CREATE INDEX recovery_codes_user ON recovery_codes(user_id);
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {

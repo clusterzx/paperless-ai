@@ -93,6 +93,7 @@ Upgrading from 3.x is automatic: your `data/.env`, user account, processing stat
 - **Dashboard** with live processing status, coverage, activity, token usage
 - **Logs & diagnostics** – live log stream, connection checks, Paperless API explorer
 - Modern interface: light/dark theme with five accent colours, **⌘K / Ctrl+K command menu** (jump to pages, open documents by number, ask a question), works on mobile
+- **Two-factor authentication** (optional, per user): codes from an authenticator app (Aegis, Google Authenticator, 1Password, Bitwarden …) plus ten single-use recovery codes – *Settings → Account*. API keys for webhooks and scripts keep working without a code
 
 | Manual review | History with undo |
 | --- | --- |
@@ -185,6 +186,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | --- | --- |
 | `PAPERLESS_AI_PORT` | HTTP port (default `3000`) |
 | `PAPERLESS_AI_DATA_DIR` | data directory (default `./data`, `/app/data` in Docker) |
+| `PAPERLESS_AI_RESET_2FA` | username – switches off two-factor authentication of that account at the next start (phone lost and no recovery codes left); remove it afterwards |
 | `PAPERLESS_API_URL` (or `PAPERLESS_URL`), `PAPERLESS_API_TOKEN` | Paperless-ngx URL (with or without `/api`) and token – `PAPERLESS_API_URL` wins when both are set |
 | `PAPERLESS_PUBLIC_URL` | URL for links opened in the browser (optional) |
 | `AI_PROVIDER` | `openai`, `anthropic`, `ollama`, `custom`, `azure` |

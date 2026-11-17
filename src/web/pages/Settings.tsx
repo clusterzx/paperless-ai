@@ -19,6 +19,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import { Page } from '../components/Layout';
+import { TwoFactorCard } from '../components/twoFactor';
 import {
   AiSection,
   ConnectionSection,
@@ -392,7 +393,12 @@ export default function SettingsPage() {
             </Card>
           )}
           {tab === 'integrations' && <IntegrationsTab locked={locked} />}
-          {tab === 'account' && <AccountTab />}
+          {tab === 'account' && (
+            <div className="space-y-6">
+              <AccountTab />
+              <TwoFactorCard />
+            </div>
+          )}
         </div>
       </div>
 
