@@ -85,6 +85,13 @@ manual ──────┘                                   │
 * A document is only marked as processed after the PATCH succeeded. Failures are retried on later
   scans (`maxAttempts`); documents without permission or text are skipped until they change.
 * Every change stores a snapshot of the previous values → *History → Undo* restores them.
+* Calendar (`processing.functions.events`): the schema and the output contract get an `events` list
+  (title, date, time, kind); `suggestion.ts` normalises it and the engine stores it after the PATCH
+  (`calendar_events`, `calendar_scans`; a re-analysis replaces the dates of a document, dismissed ones
+  stay dismissed). `calendar/scanner.ts` searches earlier documents with the same analysis but only
+  the `events` function enabled, so nothing else is asked for or changed. `calendar/ics.ts` writes the
+  iCal feed (RFC 5545: escaping, 75-octet folding, all-day/floating times, alarms) behind a secret
+  token in the URL (`kv: calendar.feedToken`).
 
 ## OCR
 

@@ -339,3 +339,39 @@ test('prompt wizard builds, tests and saves a prompt', async ({ page }) => {
   await expect(page.getByText('in use')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'System prompt' })).toHaveValue(/Erika Musterfrau/);
 });
+
+test('calendar finds dates in documents, lists them and offers an iCal subscription', async ({ page, request }) => {
+  await login(page);
+  await page.goto('/settings?tab=processing');
+  await page.getByRole('switch', { name: 'Appointments & deadlines' }).click();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText(/Settings saved/)).toBeVisible();
+
+  await page.getByRole('link', { name: 'Calendar', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Calendar' })).toBeVisible();
+  await expect(page.getByText('No upcoming dates')).toBeVisible();
+
+  // Documents processed before the calendar was switched on are searched on request.
+  await page.getByRole('button', { name: 'Search documents' }).click();
+  const scan = page.getByRole('dialog', { name: 'Search documents for dates' });
+  await scan.getByLabel('Documents created in the').selectOption('0');
+  await scan.getByRole('button', { name: 'Start' }).click();
+  await expect(page.getByText('Stromrechnung SR-2024-0412 bezahlen')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('Wohnungsbegehung mit der Hausverwaltung')).toBeVisible();
+  await expect(page.getByText('10:30 · in 2 days')).toBeVisible();
+
+  const kfz = page.getByRole('listitem').filter({ hasText: 'Kündigungsfrist Kfz-Versicherung' });
+  await kfz.getByRole('button', { name: 'Hide' }).click();
+  await expect(kfz).toHaveCount(0);
+  await page.getByRole('radio', { name: 'Hidden (1)' }).click();
+  await expect(page.getByText('Kündigungsfrist Kfz-Versicherung')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Subscribe' }).click();
+  const link = page.getByRole('dialog', { name: 'Subscribe in your calendar app' }).getByLabel('Subscription link');
+  await expect(link).toHaveValue(/\/api\/calendar\/feed\/.+\.ics$/);
+  const ics = await request.get(await link.inputValue());
+  expect(ics.headers()['content-type']).toContain('text/calendar');
+  const body = await ics.text();
+  expect(body).toContain('SUMMARY:Stromrechnung SR-2024-0412 bezahlen');
+  expect(body).not.toContain('Kfz-Versicherung');
+});

@@ -24,6 +24,7 @@ import { processingRoutes } from '../routes/processing.js';
 import { documentRoutes } from '../routes/documents.js';
 import { ragRoutes } from '../routes/rag.js';
 import { ocrRoutes } from '../routes/ocr.js';
+import { calendarRoutes } from '../routes/calendar.js';
 
 export interface Services {
   ctx: AppContext;
@@ -174,6 +175,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(documentRoutes(services));
   await app.register(ragRoutes(services));
   await app.register(ocrRoutes(services));
+  await app.register(calendarRoutes(services));
 
   // Web UI (single page app)
   const staticDir = opts.staticDir;

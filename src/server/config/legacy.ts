@@ -147,6 +147,7 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'ACTIVATE_TITLE', path: 'processing.functions.title', parse: b },
   { env: 'ACTIVATE_CUSTOM_FIELDS', path: 'processing.functions.customFields', parse: b },
   { env: 'ACTIVATE_DOCUMENT_DATE', path: 'processing.functions.documentDate', parse: b },
+  { env: 'ACTIVATE_CALENDAR', path: 'processing.functions.events', parse: b },
   { env: 'RESTRICT_TO_EXISTING_TAGS', path: 'processing.restrict.tags', parse: b },
   { env: 'RESTRICT_TO_EXISTING_CORRESPONDENTS', path: 'processing.restrict.correspondents', parse: b },
   { env: 'RESTRICT_TO_EXISTING_DOCUMENT_TYPES', path: 'processing.restrict.documentTypes', parse: b },

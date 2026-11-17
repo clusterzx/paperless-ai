@@ -26,7 +26,7 @@ describe('authentication', () => {
   it('accepts the API key in the x-api-key header and as Bearer token', async () => {
     const viaHeader = await h.inject({ method: 'GET', url: '/api/dashboard', headers: h.apiKeyHeaders() });
     expect(viaHeader.statusCode).toBe(200);
-    expect(viaHeader.json()).toMatchObject({ version: '4.1.1', paperless: { connected: true, documents: 1 }, ai: { provider: 'custom', model: 'test-model' } });
+    expect(viaHeader.json()).toMatchObject({ version: '4.2.0', paperless: { connected: true, documents: 1 }, ai: { provider: 'custom', model: 'test-model' } });
     const viaBearer = await h.inject({ method: 'GET', url: '/api/dashboard', headers: { authorization: `Bearer ${h.ctx.cfg.security.apiKey}` } });
     expect(viaBearer.statusCode).toBe(200);
     const wrong = await h.inject({ method: 'GET', url: '/api/dashboard', headers: { 'x-api-key': 'wrong' } });
@@ -123,7 +123,7 @@ describe('authentication', () => {
 describe('public routes and HTTP basics', () => {
   it('health check', async () => {
     const res = await h.inject({ method: 'GET', url: '/health' });
-    expect(res.json()).toEqual({ status: 'healthy', version: '4.1.1' });
+    expect(res.json()).toEqual({ status: 'healthy', version: '4.2.0' });
   });
 
   it('sets CORS headers and answers preflight requests', async () => {

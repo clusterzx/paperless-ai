@@ -20,6 +20,7 @@ describe('normalizeSuggestion', () => {
       document_date: '2024-03-15',
       language: 'de',
       custom_fields: [{ field_name: 'Amount', value: '12,50 €' }],
+      events: [],
     });
   });
 
@@ -44,7 +45,31 @@ describe('normalizeSuggestion', () => {
       document_date: null,
       language: null,
       custom_fields: [],
+      events: [],
     });
+  });
+
+  it('normalises dates for the calendar: valid date and title, known kind, sorted, no duplicates', () => {
+    const s = normalizeSuggestion({
+      events: [
+        { title: 'Pay invoice SR-2024-0412', date: '30.04.2024', time: '', kind: 'due' },
+        { title: 'Termin Hautarzt', date: '2024-04-12', time: '9.30', kind: 'Arzttermin' },
+        { title: 'Kündigungsfrist Kfz-Versicherung', date: '30. November 2024', time: '25:00', kind: 'Frist' },
+        { title: 'Pay invoice SR-2024-0412', date: '2024-04-30', kind: 'due' },
+        { title: 'Without date', date: 'soon' },
+        { title: '', date: '2024-05-01' },
+        { summary: 'Personalausweis läuft ab', day: '2025-01-15', type: 'Ablauf' },
+        'not an object',
+      ],
+    });
+    expect(s.events).toEqual([
+      { title: 'Termin Hautarzt', date: '2024-04-12', time: '09:30', kind: 'appointment' },
+      { title: 'Pay invoice SR-2024-0412', date: '2024-04-30', time: null, kind: 'due' },
+      { title: 'Kündigungsfrist Kfz-Versicherung', date: '2024-11-30', time: null, kind: 'deadline' },
+      { title: 'Personalausweis läuft ab', date: '2025-01-15', time: null, kind: 'expiry' },
+    ]);
+    expect(normalizeSuggestion({ events: 'none' }).events).toEqual([]);
+    expect(normalizeSuggestion({ events: Array.from({ length: 30 }, (_, i) => ({ title: `E${i}`, date: '2024-01-01' })) }).events).toHaveLength(20);
   });
 
   it('accepts tags as comma/semicolon separated string and caps the count', () => {

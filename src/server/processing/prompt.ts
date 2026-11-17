@@ -10,6 +10,7 @@ import { contextBudget } from '../ai/factory.js';
 import { estimateTokens, truncateToTokens } from '../ai/tokens.js';
 import type { ChatMessage } from '../ai/types.js';
 import { wizardLanguage } from '../../shared/promptWizard.js';
+import { EVENT_KINDS } from '../../shared/api.js';
 
 export interface PromptContext {
   /** Names of existing objects in Paperless (sorted by relevance, most used first). */
@@ -51,6 +52,7 @@ export function enabledFields(p: Processing) {
     documentType: p.functions.documentType,
     documentDate: p.functions.documentDate,
     customFields: p.functions.customFields && p.customFields.length > 0,
+    events: p.functions.events,
   };
 }
 
@@ -128,6 +130,24 @@ export function buildJsonSchema(p: Processing, ctx: PromptContext): Record<strin
       },
     };
   }
+  if (f.events) {
+    properties.events = {
+      type: 'array',
+      description: 'Dates the recipient has to act on or attend; empty list if there are none',
+      items: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'What happens, short and specific' },
+          date: { type: 'string', description: 'YYYY-MM-DD' },
+          time: { type: 'string', description: 'HH:MM, empty for a whole day' },
+          kind: { type: 'string', enum: [...EVENT_KINDS] },
+        },
+        required: ['title', 'date', 'time', 'kind'],
+        additionalProperties: false,
+      },
+    };
+    required.push('events');
+  }
   return { type: 'object', properties, required, additionalProperties: false };
 }
 
@@ -158,17 +178,25 @@ export function buildOutputInstructions(p: Processing, ctx: PromptContext): stri
   if (f.documentDate) example.document_date = 'YYYY-MM-DD';
   example.language = 'de/en/…';
   if (f.customFields) example.custom_fields = [{ field_name: p.customFields[0].name, value: '…' }];
+  if (f.events) example.events = [{ title: '…', date: 'YYYY-MM-DD', time: 'HH:MM or ""', kind: 'due' }];
 
   const lines = [
     'Return the result EXCLUSIVELY as one JSON object (no markdown, no explanations) with exactly this structure:',
     JSON.stringify(example, null, 2),
     'Rules:',
-    `- Tags, title and document type MUST be written in ${wizardLanguage(p.promptWizard) ?? 'the language of the document'}.`,
+    `- Tags, title${f.events ? ', event titles' : ''} and document type MUST be written in ${wizardLanguage(p.promptWizard) ?? 'the language of the document'}.`,
     '- Use an empty string for values that cannot be determined. Never ask questions.',
   ];
   if (f.documentDate) {
     lines.push(
       '- document_date: the date the document was written or issued – not a due date, payment deadline, delivery or service period. It cannot be later than today (see the date above the document).',
+    );
+  }
+  if (f.events) {
+    lines.push(
+      '- events: dates the recipient has to act on or attend – appointments (with the time if given), payment due dates, deadlines (cancellation, objection, application, submission) and expiry or renewal dates (contracts, insurance, warranty, ID documents). ' +
+        'Only dates from today on – not the document date and not past periods. title: what happens, short and specific, with the counterpart (e.g. "Pay invoice 2024-77 to City Power", "Cancellation deadline car insurance"). ' +
+        'kind: appointment, due (payment), deadline, expiry or other. Use an empty list if there are none.',
     );
   }
   if (f.customFields) {

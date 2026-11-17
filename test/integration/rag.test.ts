@@ -399,7 +399,7 @@ describe('RAG without embeddings (keyword only)', () => {
       const res = await h.inject({ method: 'POST', url, headers: h.apiKeyHeaders(), payload: { query: 'x', question: 'x' } });
       expect(res.statusCode, url).toBe(409);
     }
-    expect((await h.inject({ method: 'GET', url: '/api/session' })).json().features).toEqual({ rag: false });
+    expect((await h.inject({ method: 'GET', url: '/api/session' })).json().features).toEqual({ rag: false, calendar: false });
     h.ctx.config.update({ rag: { enabled: true } });
   });
 });
