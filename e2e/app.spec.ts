@@ -4,6 +4,7 @@
  * Tests run in order and share the server state.
  */
 import { expect, test, type Cookie, type Page } from '@playwright/test';
+import { timeStep, totpCode } from '../src/server/totp.js';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -338,4 +339,49 @@ test('prompt wizard builds, tests and saves a prompt', async ({ page }) => {
   });
   await expect(page.getByText('in use')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'System prompt' })).toHaveValue(/Erika Musterfrau/);
+});
+
+test('two-factor authentication: set up, sign in with a code and a recovery code, switch off', async ({ page }) => {
+  await login(page);
+  await page.goto('/settings?tab=account');
+  await page.getByRole('button', { name: 'Set up' }).click();
+  const setup = page.getByRole('dialog', { name: 'Set up two-factor authentication' });
+  await expect(setup.getByRole('img', { name: 'QR code for the authenticator app' })).toBeVisible();
+  const secret = (await setup.getByLabel('Secret key').textContent())!.replace(/\s/g, '');
+  await setup.getByLabel('Code from the app').fill(totpCode(secret, timeStep()));
+  await setup.getByLabel('Current password').fill(PASSWORD);
+  await setup.getByRole('button', { name: 'Enable' }).click();
+
+  const shown = page.getByRole('dialog', { name: 'Your recovery codes' });
+  const items = shown.getByRole('list', { name: 'Recovery codes' }).getByRole('listitem');
+  await expect(items).toHaveCount(10);
+  const codes = await items.allTextContents();
+  await shown.getByRole('button', { name: 'I have stored them' }).click();
+  await expect(page.getByText('10 recovery codes left')).toBeVisible();
+
+  const signIn = async (code: string) => {
+    await page.context().clearCookies();
+    await page.goto('/login');
+    await page.fill('#username', USER);
+    await page.fill('#password', PASSWORD);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('heading', { name: 'Two-factor authentication' })).toBeVisible();
+    await page.getByLabel('Code').fill(code);
+    await page.getByRole('button', { name: 'Verify' }).click();
+    await expect(dashboardHeading(page)).toBeVisible();
+  };
+  // The password alone is not enough any more: the code of the app (each one only once) …
+  await signIn(totpCode(secret, timeStep() + 1));
+  // … or a recovery code.
+  await signIn(codes[0]);
+  await expect(page.getByText('Signed in with a recovery code – 9 left.')).toBeVisible();
+
+  await page.goto('/settings?tab=account');
+  await page.getByRole('button', { name: 'Switch off' }).click();
+  const off = page.getByRole('dialog', { name: 'Switch off two-factor authentication?' });
+  await off.getByLabel('Code').fill(codes[1]);
+  await off.getByLabel('Current password').fill(PASSWORD);
+  await off.getByRole('button', { name: 'Switch off' }).click();
+  await expect(page.getByText('Not enabled.')).toBeVisible();
+  session = await page.context().cookies();
 });

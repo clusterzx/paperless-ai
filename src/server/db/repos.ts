@@ -11,6 +11,14 @@ export interface UserRow {
   token_version: number;
   created_at: number;
   updated_at: number;
+  totp_secret: string | null;
+  totp_enabled_at: number | null;
+  totp_last_step: number | null;
+}
+
+export interface RecoveryCodeRow {
+  id: number;
+  code_hash: string;
 }
 
 export class UsersRepo {
@@ -54,6 +62,57 @@ export class UsersRepo {
 
   delete(id: number): void {
     this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  }
+
+  // ---------------------------------------------------------------- two-factor authentication
+
+  /** Start (or restart) the set-up: the secret only counts once a code from it was confirmed. */
+  setPendingTotp(id: number, secret: string): void {
+    this.db.prepare('UPDATE users SET totp_secret = ?, totp_enabled_at = NULL, totp_last_step = NULL, updated_at = ? WHERE id = ?').run(secret, Date.now(), id);
+  }
+
+  /** Switch 2FA on with new recovery codes; all other sessions end (token_version). */
+  enableTotp(id: number, step: number, recoveryHashes: string[]): void {
+    this.db.transaction(() => {
+      const now = Date.now();
+      this.db
+        .prepare('UPDATE users SET totp_enabled_at = ?, totp_last_step = ?, token_version = token_version + 1, updated_at = ? WHERE id = ?')
+        .run(now, step, now, id);
+      this.replaceRecoveryCodes(id, recoveryHashes);
+    })();
+  }
+
+  disableTotp(id: number): void {
+    this.db.transaction(() => {
+      this.db.prepare('UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, totp_last_step = NULL, updated_at = ? WHERE id = ?').run(Date.now(), id);
+      this.db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').run(id);
+    })();
+  }
+
+  /**
+   * Remember the time step of an accepted code; false when it (or a later one) was used before.
+   * Atomic, so two requests with the same code cannot both succeed.
+   */
+  useTotpStep(id: number, step: number): boolean {
+    return (
+      this.db.prepare('UPDATE users SET totp_last_step = ? WHERE id = ? AND (totp_last_step IS NULL OR totp_last_step < ?)').run(step, id, step).changes > 0
+    );
+  }
+
+  replaceRecoveryCodes(id: number, hashes: string[]): void {
+    const now = Date.now();
+    this.db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').run(id);
+    const insert = this.db.prepare('INSERT INTO recovery_codes (user_id, code_hash, created_at) VALUES (?, ?, ?)');
+    for (const h of hashes) insert.run(id, h, now);
+  }
+
+  unusedRecoveryCodes(id: number): RecoveryCodeRow[] {
+    return this.db.prepare('SELECT id, code_hash FROM recovery_codes WHERE user_id = ? AND used_at IS NULL ORDER BY id').all(id) as RecoveryCodeRow[];
+  }
+
+  /** False when the code was used in the meantime (concurrent request). */
+  useRecoveryCode(codeId: number): boolean {
+    return this.db.prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ? AND used_at IS NULL').run(Date.now(), codeId).changes > 0;
   }
 }
 
