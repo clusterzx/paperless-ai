@@ -43,3 +43,19 @@ export const OCR_QUALITY_PRESETS: Record<OcrQuality, { dpi: number; detMaxSide: 
 
 export const OCR_DEVICES = ['auto', 'cpu', 'cuda'] as const;
 export type OcrDevice = (typeof OCR_DEVICES)[number];
+
+/**
+ * When the OCR models are unloaded – the OCR process ends and gives all of its memory back:
+ * - auto: on the GPU right after each document (before the AI analysis, so that a local model on
+ *   the same GPU gets the memory), on the CPU after 10 minutes without OCR
+ * - document: right after each document
+ * - idle: after 10 minutes without OCR (fastest for many documents)
+ */
+export const OCR_RELEASE = ['auto', 'document', 'idle'] as const;
+export type OcrRelease = (typeof OCR_RELEASE)[number];
+
+export const OCR_RELEASE_LABELS: Record<OcrRelease, string> = {
+  auto: 'Automatic – GPU: after each document',
+  document: 'After each document',
+  idle: 'After 10 idle minutes',
+};
