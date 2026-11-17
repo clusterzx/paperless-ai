@@ -11,7 +11,7 @@ import {
   DEFAULT_SYSTEM_PROMPT,
 } from './defaults.js';
 import { normalizePaperlessUrl } from './url.js';
-import { OCR_DEVICES, OCR_LANGUAGES, OCR_MODES, OCR_QUALITY } from '../../shared/ocr.js';
+import { OCR_DEVICES, OCR_LANGUAGES, OCR_MODES, OCR_QUALITY, OCR_RELEASE } from '../../shared/ocr.js';
 
 const str = (def = '') => z.string().trim().default(def);
 
@@ -228,6 +228,8 @@ export const configSchema = z.object({
       language: z.enum(OCR_LANGUAGES).default('latin'),
       quality: z.enum(OCR_QUALITY).default('balanced'),
       device: z.enum(OCR_DEVICES).default('auto'),
+      /** When the OCR models are unloaded and their (GPU) memory is freed, see OCR_RELEASE. */
+      release: z.enum(OCR_RELEASE).default('auto'),
       /** CPU threads; 0 = automatic. */
       threads: z.coerce.number().int().min(0).max(64).default(0),
       /** Read at most this many pages per document; 0 = all. */

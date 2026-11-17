@@ -30,7 +30,7 @@ src/
     ai/                  OpenAI-compatible/Azure, Anthropic and Ollama clients, JSON extraction, token estimation
     processing/          prompt builder, analyzer, applier (+ undo), engine (queue/scheduler), external API
     rag/                 chunker, SQLite store (FTS5), vector index, local embedder (worker), service, document chat
-    ocr/                 PaddleOCR via ONNX Runtime (worker): rendering, detection post-processing, recognition,
+    ocr/                 PaddleOCR via ONNX Runtime (child process): rendering, detection post-processing, recognition,
                          reading order, text-quality heuristic, service (when to read, write-back, undo)
     http/ routes/        Fastify app, auth levels, SSE helper, route modules
   web/                   React 19 + Tailwind 4 UI (Vite), pages are code-split
@@ -85,6 +85,10 @@ manual ──────┘                                   │
 * A document is only marked as processed after the PATCH succeeded. Failures are retried on later
   scans (`maxAttempts`); documents without permission or text are skipped until they change.
 * Every change stores a snapshot of the previous values → *History → Undo* restores them.
+* The prompt library (`prompts`, `prompt_ratings`; `routes/prompts.ts`) keeps prompts with a use case
+  and ratings per provider/model. Activating one writes it to `processing.systemPrompt`; a prompt made
+  with the wizard brings its answers back (`promptWizard`, e.g. the output language), any other one
+  marks the prompt as hand-written. The same text is never stored twice – saving it again adds a rating.
 * Calendar (`processing.functions.events`): the schema and the output contract get an `events` list
   (title, date, time, kind); `suggestion.ts` normalises it and the engine stores it after the PATCH
   (`calendar_events`, `calendar_scans`; a re-analysis replaces the dates of a document, dismissed ones
@@ -111,8 +115,13 @@ engine job ─▶ needs OCR? (mode: always / missing / poor = text-quality score
   image) or DirectML (Windows) and falls back to the CPU.
 * Models come from the PaddlePaddle repositories on Hugging Face, pinned to a revision, cached in
   `data/models/paddleocr`.
-* The worker is started on demand and stopped after 10 idle minutes; jobs run through the normal
-  processing queue, so a manual OCR request is followed by the AI analysis.
+* The worker is a child process (`ocr/worker.ts`, forked by `ocr/runner.ts`): ending it frees all of
+  its memory – including the CUDA context, which would otherwise stay with the server process – and
+  a crash of a native library cannot take the server down. It is started on demand and ends after
+  each document read on the GPU (`ocr.release: auto`; before the AI analysis, so that a local model
+  on the same GPU gets the memory) or after 10 idle minutes, and on its own when the server goes
+  away. Jobs run through the normal processing queue, so a manual OCR request is followed by the AI
+  analysis.
 * `ocr_documents` holds the text-quality score of every document (refreshed incrementally on the OCR
   page and after each analysis), `ocr_results` the OCR text, the previous Paperless text (undo) and
   the document version it belongs to. Text that is not written back replaces the Paperless text for
@@ -155,5 +164,11 @@ question ─▶ query analysis with the LLM (standalone query for follow-ups + s
   e.g. settings and API key), `setup` (only while no user exists).
 * Session: HS256 JWT in an `httpOnly`, `SameSite=Lax` cookie (`Secure` behind HTTPS); changing the
   password invalidates existing sessions. API key comparison is constant-time. Login is rate limited.
+* Two-factor authentication (`totp.ts`, `twoFactor.ts`, `routes/twoFactor.ts`): TOTP (RFC 6238, SHA-1,
+  6 digits, 30 s, ±1 step) with replay protection (`users.totp_last_step`) and ten recovery codes
+  stored as salted scrypt hashes. With 2FA the password login returns a 5-minute ticket signed with a
+  key derived from the JWT secret – a ticket can never pass as a session – and `/api/auth/login/2fa`
+  turns ticket + code into the session cookie. Enabling 2FA ends all other sessions.
+  `PAPERLESS_AI_RESET_2FA=<user>` switches it off at start-up. API keys are not affected.
 * CORS allows any origin without credentials (API key only), so browser extensions keep working.
 * Server-sent events are used for chats and the live log; disconnecting clients abort the LLM request.

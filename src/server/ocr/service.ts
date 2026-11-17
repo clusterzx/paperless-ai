@@ -6,7 +6,7 @@
  */
 import path from 'node:path';
 import type { OcrStatus } from '../../shared/api.js';
-import { OCR_QUALITY_PRESETS } from '../../shared/ocr.js';
+import { OCR_QUALITY_PRESETS, type OcrRelease } from '../../shared/ocr.js';
 import type { AppConfig } from '../config/schema.js';
 import type { AppContext } from '../context.js';
 import type { OcrAssessment } from '../db/ocrRepo.js';
@@ -36,7 +36,8 @@ export interface ReadResult {
   writtenBack: boolean;
 }
 
-export type EngineFactory = (options: PipelineOptions) => OcrEngine;
+/** `release` is read after every document, so changing the setting needs no restart of the OCR. */
+export type EngineFactory = (options: PipelineOptions, release: () => OcrRelease) => OcrEngine;
 
 export class OcrService {
   private engine: { key: string; engine: OcrEngine } | null = null;
@@ -50,7 +51,7 @@ export class OcrService {
 
   constructor(
     private readonly ctx: AppContext,
-    private readonly engineFactory: EngineFactory = (o) => new OcrWorkerEngine(o),
+    private readonly engineFactory: EngineFactory = (o, release) => new OcrWorkerEngine(o, { release }),
   ) {
     ctx.config.on('change', (next, prev) => {
       if (this.engineKey(next) !== this.engineKey(prev)) void this.disposeEngine();
@@ -91,7 +92,7 @@ export class OcrService {
     const key = this.engineKey(this.ctx.cfg);
     if (this.engine?.key !== key) {
       void this.engine?.engine.dispose();
-      this.engine = { key, engine: this.engineFactory(this.pipelineOptions()) };
+      this.engine = { key, engine: this.engineFactory(this.pipelineOptions(), () => this.cfg.release) };
     }
     return this.engine.engine;
   }

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Bot, Cloud, Cpu, Plug, Plus, Server, Sparkle, Trash2, Wand2 } from 'lucide-react';
 import type { AppConfig } from '../../server/config/schema';
 import type { ConnectionTestResult } from '@shared/api';
-import { OCR_LANGUAGE_LABELS, OCR_LANGUAGES, OCR_QUALITY, OCR_QUALITY_PRESETS } from '@shared/ocr';
+import { OCR_LANGUAGE_LABELS, OCR_LANGUAGES, OCR_QUALITY, OCR_QUALITY_PRESETS, OCR_RELEASE, OCR_RELEASE_LABELS } from '@shared/ocr';
 import { buildWizardPrompt } from '@shared/promptWizard';
 import { errorMessage, post } from '../lib/api';
 import { getIn, SECRET_MASK, type Setter } from '../lib/draft';
@@ -916,6 +916,21 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
             </Field>
             <Field label="Max. pages per document" locked={locked['ocr.maxPages']} hint="0 = all pages.">
               <NumberInput min={0} max={2000} {...bindNumber(draft, set, locked, 'ocr.maxPages')} />
+            </Field>
+          </FormGrid>
+          <FormGrid>
+            <Field
+              label="Unload the OCR models"
+              locked={locked['ocr.release']}
+              hint="Frees their memory. Automatic: on the GPU after each document – before the AI analysis, so that a local model (Ollama, llama.cpp) on the same GPU gets it; on the CPU after 10 idle minutes. Loading them again takes a few seconds."
+            >
+              <Select {...bind(draft, set, locked, 'ocr.release')}>
+                {OCR_RELEASE.map((r) => (
+                  <option key={r} value={r}>
+                    {OCR_RELEASE_LABELS[r]}
+                  </option>
+                ))}
+              </Select>
             </Field>
           </FormGrid>
           <FormGrid>

@@ -1,11 +1,12 @@
 /**
  * Authentication: password hashing, signed session cookies (JWT) and API keys.
  */
-import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
+import { randomBytes, timingSafeEqual, createHash, createHmac } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { jwtVerify, SignJWT } from 'jose';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from './context.js';
+import type { UserRow } from './db/repos.js';
 
 export const SESSION_COOKIE = 'paperless_ai_session';
 const BCRYPT_ROUNDS = 12;
@@ -55,6 +56,33 @@ export async function verifySession(ctx: AppContext, token: string): Promise<Pri
     const user = ctx.repos.users.byId(Number(payload.sub));
     if (!user || user.token_version !== payload.ver) return null;
     return { kind: 'user', userId: user.id, username: user.username };
+  } catch {
+    return null;
+  }
+}
+
+/** Tickets are signed with their own key: one can never pass as a session, whatever it contains. */
+function ticketKey(ctx: AppContext): Uint8Array {
+  return createHmac('sha256', ctx.cfg.security.jwtSecret).update('paperless-ai two-factor login ticket').digest();
+}
+
+/** Proof that the password was right, valid for 5 minutes and only for the second sign-in step. */
+export async function issueTwoFactorTicket(ctx: AppContext, user: { id: number; token_version: number }): Promise<string> {
+  return new SignJWT({ ver: user.token_version, typ: '2fa' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(String(user.id))
+    .setIssuedAt()
+    .setExpirationTime('5m')
+    .sign(ticketKey(ctx));
+}
+
+export async function verifyTwoFactorTicket(ctx: AppContext, ticket: string): Promise<UserRow | null> {
+  try {
+    const { payload } = await jwtVerify(ticket, ticketKey(ctx), { algorithms: ['HS256'] });
+    if (payload.typ !== '2fa') return null;
+    const user = ctx.repos.users.byId(Number(payload.sub));
+    // A changed password (or 2FA switched off) invalidates open tickets.
+    return user && user.token_version === payload.ver && user.totp_enabled_at ? user : null;
   } catch {
     return null;
   }

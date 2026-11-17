@@ -258,6 +258,29 @@ export interface CalendarResponse {
   scan: CalendarScanStatus;
 }
 
+// ---------------------------------------------------------------- two-factor authentication
+
+/** Answer of /api/auth/login when the account uses 2FA: no session yet, continue with /api/auth/login/2fa. */
+export interface LoginTwoFactorRequired {
+  ok: false;
+  twoFactor: true;
+  ticket: string;
+}
+
+export interface TwoFactorStatus {
+  enabled: boolean;
+  enabledAt: number | null;
+  recoveryCodesLeft: number;
+}
+
+export interface TwoFactorSetup {
+  /** Base32 secret for manual entry. */
+  secret: string;
+  otpauthUrl: string;
+  /** QR code of otpauthUrl as SVG markup. */
+  qrSvg: string;
+}
+
 export interface ConnectionTestResult {
   ok: boolean;
   message: string;
@@ -274,6 +297,50 @@ export interface LogEntryDto {
 }
 
 // ------------------------------------------------------------------ OCR
+
+// ---------------------------------------------------------------- prompt library
+
+export interface PromptRating {
+  id: number;
+  provider: string;
+  model: string;
+  /** 1–10 */
+  score: number;
+  note: string;
+  /** Documents of the test run. */
+  documents: number[];
+  createdAt: number;
+}
+
+export interface LibraryPrompt {
+  id: number;
+  name: string;
+  useCase: string;
+  prompt: string;
+  /** Made with the prompt wizard – activating it restores the wizard answers. */
+  fromWizard: boolean;
+  /** The prompt is the system prompt used for automatic processing. */
+  active: boolean;
+  createdAt: number;
+  updatedAt: number;
+  ratings: PromptRating[];
+  /** Mean score of all ratings, null without ratings. */
+  score: number | null;
+  /** Mean score per model, best first. */
+  models: { provider: string; model: string; score: number; count: number }[];
+}
+
+export interface PromptLibrary {
+  prompts: LibraryPrompt[];
+  /** Use cases in use plus common suggestions. */
+  useCases: string[];
+  /** The model used now – default for new ratings. */
+  current: { provider: string; model: string };
+  /** The system prompt in use is not in the library yet (it can be saved). */
+  currentMissing: boolean;
+  /** SYSTEM_PROMPT is set in the environment: activating a prompt is not possible. */
+  locked: boolean;
+}
 
 export type TextQualityLevel = 'missing' | 'poor' | 'fair' | 'good';
 

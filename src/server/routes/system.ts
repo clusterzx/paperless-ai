@@ -8,10 +8,12 @@ import {
   clearSessionCookie,
   hashPassword,
   issueSession,
+  issueTwoFactorTicket,
   setSessionCookie,
   validatePassword,
   verifyPassword,
 } from '../auth.js';
+import { twoFactorStatus } from '../twoFactor.js';
 import { configSchema, type AppConfig, type DeepPartial } from '../config/schema.js';
 import { deepMerge } from '../config/store.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
@@ -70,6 +72,11 @@ export const systemRoutes =
         if (/^\$2[aby]\$1[5-9]\$/.test(user.password_hash)) {
           ctx.repos.users.updatePassword(user.id, await hashPassword(req.body.password));
           Object.assign(user, ctx.repos.users.byId(user.id));
+        }
+        // With 2FA the password alone gives no session – only a ticket for the second step.
+        if (user.totp_enabled_at) {
+          log.info(`Password of "${user.username}" accepted – waiting for the second factor`);
+          return { ok: false, twoFactor: true, ticket: await issueTwoFactorTicket(ctx, user) };
         }
         const token = await issueSession(ctx, user);
         setSessionCookie(reply, req, token, ctx.cfg.security.sessionHours);
@@ -159,7 +166,7 @@ export const systemRoutes =
     app.get('/api/account', { config: { auth: 'session' } }, async (req) => {
       const p = req.principal!;
       const users = ctx.repos.users.list().map((u) => ({ id: u.id, username: u.username, createdAt: u.created_at }));
-      return { user: p.kind === 'user' ? { id: p.userId, username: p.username } : null, users };
+      return { user: p.kind === 'user' ? { id: p.userId, username: p.username } : null, users, twoFactor: p.kind === 'user' ? twoFactorStatus(ctx, p.userId) : null };
     });
 
     app.post(
