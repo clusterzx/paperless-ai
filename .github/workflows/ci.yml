@@ -24,6 +24,12 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      # Native build tools must not need AVX2/BMI2: source installs run on older CPUs (Celeron, Atom, old Xeons).
+      - name: Build on an emulated x86-64-v2 CPU without AVX2/BMI2
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q qemu-user
+          qemu-x86_64 -cpu Nehalem "$(readlink -f "$(command -v node)")" node_modules/vite/bin/vite.js build --outDir "$RUNNER_TEMP/web-x86-64-v2"
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
       - name: End-to-end tests
