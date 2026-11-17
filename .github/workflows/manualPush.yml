@@ -8,6 +8,14 @@ on:
         required: false
         default: 'latest'
         type: string
+      variant:
+        description: 'Image variant: cpu (default image) or cuda (NVIDIA GPU, adds the -cuda suffix to the tags)'
+        required: false
+        default: 'cpu'
+        type: choice
+        options:
+          - cpu
+          - cuda
 
 jobs:
   docker:
@@ -44,6 +52,9 @@ jobs:
           images: |
             ${{ secrets.DOCKER_USERNAME }}/paperless-ai
             ghcr.io/${{ github.repository_owner }}/paperless-ai
+          flavor: |
+            latest=false
+            suffix=${{ inputs.variant == 'cuda' && '-cuda' || '' }}
           tags: |
             type=raw,value=${{ inputs.tag }}
             type=sha,prefix={{branch}}-
@@ -53,15 +64,17 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ inputs.variant == 'cuda' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          build-args: |
+            VARIANT=${{ inputs.variant }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           
       - name: Summary
         run: |
           echo "## 🚀 Docker Build Complete" >> $GITHUB_STEP_SUMMARY
-          echo "Successfully built and pushed Docker images with tag: **${{ inputs.tag }}**" >> $GITHUB_STEP_SUMMARY
+          echo "Successfully built and pushed the **${{ inputs.variant }}** image: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Images pushed to:" >> $GITHUB_STEP_SUMMARY
-          echo "- Docker Hub: \`${{ secrets.DOCKER_USERNAME }}/paperless-ai:${{ inputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- GitHub Container Registry: \`ghcr.io/${{ github.repository_owner }}/paperless-ai:${{ inputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker Hub: \`${{ secrets.DOCKER_USERNAME }}/paperless-ai\`" >> $GITHUB_STEP_SUMMARY
+          echo "- GitHub Container Registry: \`ghcr.io/${{ github.repository_owner }}/paperless-ai\`" >> $GITHUB_STEP_SUMMARY

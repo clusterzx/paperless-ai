@@ -1,4 +1,5 @@
 import type { Db } from './database.js';
+import { OcrRepo } from './ocrRepo.js';
 import type { DocumentSnapshot, HistoryItem, HistoryQuery, UsageStats } from '../../shared/api.js';
 
 // ---------------------------------------------------------------- users
@@ -487,6 +488,7 @@ export interface Repos {
   history: HistoryRepo;
   usage: UsageRepo;
   kv: KvRepo;
+  ocr: OcrRepo;
 }
 
 export function createRepos(db: Db): Repos {
@@ -496,5 +498,6 @@ export function createRepos(db: Db): Repos {
     history: new HistoryRepo(db),
     usage: new UsageRepo(db),
     kv: new KvRepo(db),
+    ocr: new OcrRepo(db),
   };
 }

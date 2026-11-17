@@ -9,6 +9,7 @@ import type { AppConfig, CustomFieldConfig } from '../config/schema.js';
 import { contextBudget } from '../ai/factory.js';
 import { estimateTokens, truncateToTokens } from '../ai/tokens.js';
 import type { ChatMessage } from '../ai/types.js';
+import { wizardLanguage } from '../../shared/promptWizard.js';
 
 export interface PromptContext {
   /** Names of existing objects in Paperless (sorted by relevance, most used first). */
@@ -82,7 +83,8 @@ export function buildJsonSchema(p: Processing, ctx: PromptContext): Record<strin
   const str = (description: string) => ({ type: 'string', description });
 
   if (f.title) {
-    properties.title = str('Short, meaningful document title in the document language');
+    const language = wizardLanguage(p.promptWizard);
+    properties.title = str(`Short, meaningful document title in ${language ?? 'the document language'}`);
     required.push('title');
   }
   if (f.correspondent) {
@@ -161,7 +163,7 @@ export function buildOutputInstructions(p: Processing, ctx: PromptContext): stri
     'Return the result EXCLUSIVELY as one JSON object (no markdown, no explanations) with exactly this structure:',
     JSON.stringify(example, null, 2),
     'Rules:',
-    '- Tags, title and document type MUST be written in the language of the document.',
+    `- Tags, title and document type MUST be written in ${wizardLanguage(p.promptWizard) ?? 'the language of the document'}.`,
     '- Use an empty string for values that cannot be determined. Never ask questions.',
   ];
   if (f.documentDate) {

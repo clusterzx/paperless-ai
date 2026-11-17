@@ -226,6 +226,27 @@ export class PaperlessClient {
     return this.req<PaperlessDocument>(`/documents/${id}/`, { method: 'PATCH', body });
   }
 
+  /**
+   * The document file: the original upload, or (original = false) the archived PDF that Paperless
+   * created (only exists for documents it converted or OCRed).
+   */
+  async download(id: number, original: boolean, signal?: AbortSignal): Promise<{ data: Uint8Array; contentType: string }> {
+    const version = await this.version();
+    try {
+      const res = await request<Response>(`${this.baseUrl}/api/documents/${id}/download/`, {
+        query: { original: original ? 'true' : undefined },
+        headers: { ...this.headers(version), Accept: '*/*' },
+        timeoutMs: 300_000,
+        retries: 1,
+        responseType: 'response',
+        signal,
+      });
+      return { data: new Uint8Array(await res.arrayBuffer()), contentType: res.headers.get('content-type') ?? 'application/octet-stream' };
+    } catch (err) {
+      throw this.wrap(err);
+    }
+  }
+
   async thumbnail(id: number): Promise<{ data: Buffer; contentType: string }> {
     const version = await this.version();
     try {
@@ -291,6 +312,8 @@ export interface DocumentPatch {
   document_type?: number | null;
   created?: string;
   custom_fields?: { field: number; value: unknown }[];
+  /** Searchable text of the document (replaced by the OCR result). */
+  content?: string;
 }
 
 function detail(body: unknown): string {

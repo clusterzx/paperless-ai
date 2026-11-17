@@ -12,6 +12,7 @@ import type { AppContext } from '../context.js';
 import { NotConfiguredError } from '../context.js';
 import type { ProcessingEngine } from '../processing/engine.js';
 import type { RagService } from '../rag/service.js';
+import type { OcrService } from '../ocr/service.js';
 import { authenticate } from '../auth.js';
 import { PaperlessError } from '../paperless/client.js';
 import { AiError } from '../ai/types.js';
@@ -22,11 +23,13 @@ import { settingsRoutes } from '../routes/settings.js';
 import { processingRoutes } from '../routes/processing.js';
 import { documentRoutes } from '../routes/documents.js';
 import { ragRoutes } from '../routes/rag.js';
+import { ocrRoutes } from '../routes/ocr.js';
 
 export interface Services {
   ctx: AppContext;
   engine: ProcessingEngine;
   rag: RagService;
+  ocr: OcrService;
 }
 
 /** Who may call a route. */
@@ -170,6 +173,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(processingRoutes(services));
   await app.register(documentRoutes(services));
   await app.register(ragRoutes(services));
+  await app.register(ocrRoutes(services));
 
   // Web UI (single page app)
   const staticDir = opts.staticDir;

@@ -29,6 +29,8 @@ export interface PaperlessDocument {
   custom_fields?: { field: number; value: unknown }[];
   mime_type?: string;
   notes?: unknown[];
+  /** Paperless-ngx ≥ 2.6. */
+  page_count?: number | null;
 }
 
 export interface PaperlessTag {

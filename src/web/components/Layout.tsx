@@ -12,6 +12,7 @@ import {
   MessageSquareText,
   Monitor,
   Moon,
+  ScanText,
   ScrollText,
   Search,
   Settings,
@@ -247,6 +248,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { href: '/review', label: 'Manual review', icon: <FileSearch />, keywords: 'analyse suggest' },
     { href: '/playground', label: 'Prompt playground', icon: <FlaskConical />, keywords: 'test prompt' },
     { href: '/history', label: 'History', icon: <History />, keywords: 'undo changes' },
+    { href: '/ocr', label: 'OCR', icon: <ScanText />, keywords: 'text recognition scan paddleocr quality' },
   ];
   const secondary: NavItem[] = [
     { href: '/settings', label: 'Settings', icon: <Settings />, keywords: 'configuration preferences' },

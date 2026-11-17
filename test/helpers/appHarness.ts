@@ -10,6 +10,8 @@ import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fas
 import { AppContext } from '../../src/server/context.js';
 import { ProcessingEngine } from '../../src/server/processing/engine.js';
 import { RagService } from '../../src/server/rag/service.js';
+import { OcrService } from '../../src/server/ocr/service.js';
+import { FakeOcrEngine } from './fakeOcr.js';
 import { buildApp } from '../../src/server/http/app.js';
 import { hashPassword, SESSION_COOKIE } from '../../src/server/auth.js';
 import type { AppConfig, DeepPartial } from '../../src/server/config/schema.js';
@@ -39,6 +41,9 @@ export interface Harness {
   ctx: AppContext;
   engine: ProcessingEngine;
   rag: RagService;
+  ocr: OcrService;
+  /** Stand-in for PaddleOCR (set its text/error to control OCR results). */
+  ocrEngine: FakeOcrEngine;
   app: FastifyInstance;
   paperless: MockPaperless;
   llm: MockLlm;
@@ -93,9 +98,12 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
     : { processing: { automatic: false }, rag: { autoSync: false, embeddingProvider: 'none' } };
   ctx.config.update(deepMerge(base, opts.config ?? {}));
 
-  const engine = new ProcessingEngine(ctx);
+  const ocrEngine = new FakeOcrEngine();
+  const ocr = new OcrService(ctx, () => ocrEngine);
+  const engine = new ProcessingEngine(ctx, ocr);
   const rag = new RagService(ctx);
-  const app = await buildApp({ ctx, engine, rag });
+  ocr.onTextChanged = (id) => rag.invalidate(id);
+  const app = await buildApp({ ctx, engine, rag, ocr });
   await app.ready();
 
   let cookie: string | null = null;
@@ -104,6 +112,8 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
     ctx,
     engine,
     rag,
+    ocr,
+    ocrEngine,
     app,
     paperless,
     llm,

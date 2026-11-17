@@ -77,9 +77,9 @@ test('scan processes documents and the dashboard updates', async ({ page }) => {
   await login(page);
   await page.getByRole('button', { name: 'Scan now' }).click();
   await expect(page.getByText(/queued for analysis/)).toBeVisible();
-  // 8 sample documents, one without text content is skipped.
-  await expect(page.getByText('7 of 8 documents')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText('88%', { exact: true })).toBeVisible();
+  // 9 sample documents, one without text content is skipped (OCR is still off here).
+  await expect(page.getByText('8 of 9 documents')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('89%', { exact: true })).toBeVisible();
   const skipped = page.getByRole('button', { name: /^Skipped\s*1$/ });
   await expect(skipped).toBeVisible();
   await skipped.click();
@@ -280,4 +280,60 @@ test('settings form controls are labelled and keep typed numbers', async ({ page
   await page.getByRole('button', { name: 'Add custom field' }).click();
   await expect(page.getByRole('combobox', { name: 'Type' })).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Currency' })).toBeVisible();
+});
+
+test('OCR page finds documents with poor text, reads them and the AI renames them', async ({ page }) => {
+  await login(page);
+  await page.goto('/settings?tab=ocr');
+  await page.getByRole('switch', { name: 'Enable OCR with PaddleOCR' }).click();
+  await page.getByLabel('When should OCR run?').selectOption('manual');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText(/Settings saved/)).toBeVisible();
+
+  await page.getByRole('link', { name: 'OCR', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'OCR' })).toBeVisible();
+  await page.getByRole('button', { name: 'Re-check text quality' }).click();
+  await expect(page.getByRole('tab', { name: /Needs OCR [1-9]/ })).toBeVisible();
+  await expect(page.getByText(/words look garbled|No text/).first()).toBeVisible();
+
+  await page.getByRole('button', { name: /OCR all that need it/ }).click();
+  await page.getByRole('button', { name: 'Start OCR' }).click();
+  await expect(page.getByRole('tab', { name: /Needs OCR 0/ })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('tab', { name: /OCR done/ }).click();
+  await expect(page.getByText('Saved in Paperless').first()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Show text' }).first().click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('PaddleOCR result')).toBeVisible();
+  // Renamed by the AI pipeline from the OCR text.
+  await expect(dialog.getByRole('heading', { name: /Malermeister Kopp/ })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Revert OCR text' })).toBeVisible();
+});
+
+test('prompt wizard builds, tests and saves a prompt', async ({ page }) => {
+  await login(page);
+  await page.goto('/settings?tab=prompt');
+  await page.getByRole('link', { name: /Start wizard|Open wizard/ }).click();
+  await expect(page.getByRole('heading', { name: 'Prompt wizard' })).toBeVisible();
+
+  const owners = page.getByPlaceholder('e.g. Max Mustermann, Mustermann GmbH');
+  await owners.fill('Erika Musterfrau');
+  await owners.press('Enter');
+  const preview = page.locator('pre');
+  await expect(preview).toContainText('The archive belongs to “Erika Musterfrau”');
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('radio', { name: /Always one language/ }).click();
+  await expect(preview).toContainText('Write title, tags and document type in German');
+
+  await page.getByRole('button', { name: /Test & save/ }).click();
+  await page.getByRole('button', { name: /Test on \d document/ }).click();
+  await expect(page.getByText('Test finished')).toBeVisible({ timeout: 20_000 });
+
+  await page.getByRole('button', { name: 'Save prompt' }).click();
+  await page.waitForURL(/tab=prompt/, { timeout: 3000 }).catch(async () => {
+    await page.getByRole('button', { name: 'Replace prompt' }).click();
+    await page.waitForURL(/tab=prompt/);
+  });
+  await expect(page.getByText('in use')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'System prompt' })).toHaveValue(/Erika Musterfrau/);
 });

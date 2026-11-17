@@ -53,6 +53,18 @@ Upgrading from 3.x is automatic: your `data/.env`, user account, processing stat
 - Parallel processing, retries with back-off, failed/skipped documents visible on the dashboard; **rate limits** of the AI provider pause the queue instead of failing documents
 - Existing correspondents are kept unless you allow the AI to overwrite them; created tags/correspondents/types are visible to all Paperless users (configurable)
 
+**OCR with PaddleOCR (optional)**
+- Reads scans and photos **locally** with PaddleOCR (PP-OCRv5) via ONNX Runtime – no extra container, no cloud service; models (~20 MB) are downloaded on first use
+- Runs **before** the AI analysis, so titles, tags and correspondents come from good text: automatically for documents *without text*, with *poor text* (heuristic text-quality score) or *always* – or only on demand
+- **OCR page** lists all documents with their text quality, finds the garbled ones and reads them in bulk; afterwards the AI names and tags them again
+- The text can replace the content in Paperless (better Paperless full-text search) – with **undo**
+- Detects pages scanned sideways or upside down, 30+ Latin-script languages plus Cyrillic, Greek, Arabic, Chinese/Japanese, Korean, …
+- CPU (all platforms) or **NVIDIA GPU** with the `:latest-cuda` image
+
+**Prompt wizard**
+- A few questions instead of prompt engineering: your name (never used as correspondent), output language, title style or pattern, how many and what kind of tags, short company names, document types, own rules
+- Live preview of the generated prompt, test on real documents before saving – the answers are kept, so the wizard can be opened again later
+
 **Ask your archive (RAG)**
 - Hybrid search: SQLite FTS5 (BM25) + compact in-memory vector index (int8)
 - Embeddings: built-in multilingual model (offline, CPU), Ollama, OpenAI, Azure, any OpenAI-compatible API – or keyword-only
@@ -103,6 +115,24 @@ docker compose up -d
 ```
 
 Open `http://<your-server>:3000` – the setup wizard guides you through account, Paperless connection, AI provider and processing options. No restart is needed afterwards.
+
+**Image variants:**
+
+| Tag | For |
+| --- | --- |
+| `latest` (= `latest-cpu`), `4.x.y` | default – amd64 and arm64, OCR and local embeddings on the CPU |
+| `latest-cuda`, `4.x.y-cuda` | NVIDIA GPU for OCR (amd64, CUDA 13 + cuDNN 9). Needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) and a driver ≥ 580; falls back to the CPU when no GPU is found |
+
+```yaml
+    image: clusterzx/paperless-ai:latest-cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+```
 
 **Paperless API user:** create a dedicated user in Paperless-ngx with permission to *view* and *change* documents, tags, correspondents, document types and custom fields, and use its API token (Profile → API Auth Token). Only documents this user may change are processed.
 
@@ -165,11 +195,27 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `CUSTOM_FIELDS` | custom fields (JSON, format of 3.x) |
 | `EXTERNAL_API_ENABLED`, `EXTERNAL_API_URL`, `EXTERNAL_API_METHOD`, `EXTERNAL_API_HEADERS`, `EXTERNAL_API_BODY`, `EXTERNAL_API_TIMEOUT`, `EXTERNAL_API_TRANSFORM` | external data |
 | `RAG_ENABLED` (or `RAG_SERVICE_ENABLED`), `RAG_EMBEDDING_PROVIDER`, `RAG_EMBEDDING_MODEL`, `RAG_QUERY_EXPANSION` | ask your archive |
+| `OCR_ENABLED`, `OCR_MODE` (`manual`, `missing`, `poor`, `always`), `OCR_WRITE_BACK` | OCR on/off, when it runs automatically, replace the text in Paperless (default on) |
+| `OCR_LANGUAGE` (`latin`, `en`, `multi`, `cyrillic`, `eslav`, `greek`, `arabic`, `devanagari`, `korean`, `thai`, `tamil`, `telugu`), `OCR_QUALITY` (`fast`, `balanced`, `accurate`) | OCR model |
+| `OCR_DEVICE` (`auto`, `cpu`, `cuda`), `OCR_THREADS`, `OCR_MAX_PAGES` | OCR hardware and limits (`0` threads = automatic, `0` pages = all) |
 | `API_KEY`, `JWT_SECRET` | secrets (generated automatically when unset; use at least 32 random characters for `JWT_SECRET`) |
 | `LOG_LEVEL`, `LOG_FORMAT=json` | operations |
 | `TRUST_PROXY` | behind a reverse proxy: number of proxy hops (usually `1`) or the proxy addresses – needed for correct client IPs (login rate limit) and secure cookies; off by default |
 
 Empty variables (e.g. `OPENAI_API_KEY=` left in a compose file) are ignored, so they never replace what you configured in the web interface.
+
+### OCR
+
+*Settings → OCR* turns OCR on. The modes:
+
+- **No text or poor text** (recommended): before the AI analysis, documents without text or with garbled text (text-quality score below 50) are read with OCR.
+- **Only documents without text**: for archives where Paperless' own OCR is fine.
+- **Every document**: best text for every document, costs time per document.
+- **Manual**: only from the *OCR* page or the API (`POST /api/ocr/run`). The documents are analyzed by the AI afterwards.
+
+On a 4-core CPU an A4 page takes about 1–2 s (*Balanced*). *Accurate* uses a larger detection model and 300 dpi – noticeably better for small print, but slow without a GPU. Models are stored in the data directory (`models/paddleocr`), so they are downloaded only once; behind a proxy or offline, set `HF_ENDPOINT` to a Hugging Face mirror or copy the folder from another installation.
+
+ONNX Runtime's own usage telemetry is switched off (`ORT_DISABLE_TELEMETRY=1`) – nothing about your documents leaves your server.
 
 ### Local models (Ollama)
 

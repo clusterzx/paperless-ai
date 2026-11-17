@@ -12,18 +12,25 @@ import type { PaperlessDocument } from '../paperless/types.js';
 import { AiError } from '../ai/types.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
+import type { OcrService } from '../ocr/service.js';
 import { analyzeContent } from './analyzer.js';
 import { applyPlannedUpdate, planAutomaticUpdate } from './applier.js';
 
 const log = logger.child({ module: 'processing' });
 
 export interface EnqueueOptions {
-  source: 'scan' | 'webhook' | 'api' | 'manual';
+  source: 'scan' | 'webhook' | 'api' | 'manual' | 'ocr';
   /** Process even if the document was processed before. */
   force?: boolean;
   /** Replace the system prompt for this document (webhook `prompt`). */
   prompt?: string;
+  /** Read the document with OCR first, whatever the automatic OCR mode says. */
+  ocr?: boolean;
 }
+
+/** Reason of documents skipped for missing text – they are picked up again once automatic OCR is enabled. */
+export const NO_TEXT_REASON = 'No text content (OCR not finished or failed)';
+const NO_TEXT_AFTER_OCR = 'No text found, not even with OCR';
 
 interface Job extends EnqueueOptions {
   documentId: number;
@@ -65,7 +72,10 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
   private rateLimitStreak = 0;
   private lastPruneAt = 0;
 
-  constructor(private readonly ctx: AppContext) {
+  constructor(
+    private readonly ctx: AppContext,
+    private readonly ocr: OcrService | null = null,
+  ) {
     super();
     ctx.config.on('change', (next, prev) => this.onConfigChange(next, prev));
   }
@@ -230,15 +240,33 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       case 'failed':
         return state.attempts < p.maxAttempts || changed;
       case 'skipped':
+        // Without text before automatic OCR was enabled: now it can be read.
+        if (state.reason === NO_TEXT_REASON && this.ocrAutomatic()) return true;
         return state.reason !== 'reverted' && changed;
       default:
         return true;
     }
   }
 
+  private ocrAutomatic(): boolean {
+    const o = this.ctx.cfg.ocr;
+    return Boolean(this.ocr) && o.enabled && o.mode !== 'manual';
+  }
+
+  /** Documents waiting in the queue for an OCR run requested on the OCR page. */
+  queuedForOcr(): Set<number> {
+    return new Set(this.queue.filter((j) => j.ocr).map((j) => j.documentId));
+  }
+
   /** Queue a document. Returns false if it is already queued or being processed. */
   enqueue(documentId: number, opts: EnqueueOptions): boolean {
-    if (this.queued.has(documentId) || this.active.has(documentId)) return false;
+    if (this.active.has(documentId)) return false;
+    if (this.queued.has(documentId)) {
+      // Already waiting: an OCR request upgrades the queued job instead of being dropped.
+      const job = this.queue.find((j) => j.documentId === documentId);
+      if (job && opts.ocr && !job.ocr) Object.assign(job, { ocr: true, force: true, source: opts.source });
+      return false;
+    }
     this.queue.push({ documentId, ...opts });
     this.queued.add(documentId);
     queueMicrotask(() => this.pump());
@@ -324,15 +352,42 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
         log.info(`Skipping document ${documentId}: no change permission`);
         return 'skipped';
       }
-      if (!doc.content || doc.content.trim().length < 10) {
-        repo.markSkipped(documentId, doc.title, 'No text content (OCR not finished or failed)', doc.modified ?? null);
-        log.info(`Skipping document ${documentId}: no text content`);
+      let content = doc.content ?? '';
+      let ocrTried = false;
+      let ocrError: string | null = null;
+      if (this.ocr && (job.ocr || this.ocr.autoNeeded(doc))) {
+        // OCR first, so the AI sees the text it produces.
+        ocrTried = true;
+        if (info) info.stage = 'ocr';
+        try {
+          const read = await this.ocr.read(doc, {
+            onProgress: (page, pages) => {
+              if (info) info.stage = `ocr ${page}/${pages}`;
+            },
+          });
+          content = read.text.trim().length >= 10 ? read.text : content;
+          doc = read.doc;
+        } catch (err) {
+          // The Paperless text (if any) is still worth an analysis.
+          ocrError = describeError(err);
+          log.warn(`OCR of document ${documentId} failed – continuing with the text from Paperless: ${ocrError}`);
+        }
+      } else if (this.ocr) {
+        content = this.ocr.storedText(doc) ?? content;
+        if (this.ctx.cfg.ocr.enabled) this.ocr.assess(doc);
+      }
+      if (content.trim().length < 10) {
+        // A failed OCR run is an error (retried up to maxAttempts), not a document without text.
+        if (ocrError) throw new Error(`OCR failed: ${ocrError}`);
+        const reason = ocrTried ? NO_TEXT_AFTER_OCR : NO_TEXT_REASON;
+        repo.markSkipped(documentId, doc.title, reason, doc.modified ?? null);
+        log.info(`Skipping document ${documentId}: ${reason.toLowerCase()}`);
         return 'skipped';
       }
       if (info) info.stage = 'analyzing';
       this.modelUsed = true;
       log.info(`Analyzing document ${documentId} "${doc.title}"`);
-      const analysis = await analyzeContent(this.ctx, doc.content, {
+      const analysis = await analyzeContent(this.ctx, content, {
         feature: 'process',
         documentId,
         customPrompt: job.prompt,
@@ -341,6 +396,9 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       if (info) info.stage = 'saving';
       const plan = await planAutomaticUpdate(this.ctx, doc, analysis.suggestion);
       const updated = await applyPlannedUpdate(this.ctx, doc, plan, { source: job.source, analysis });
+      // Our own change must not make the OCR text look outdated; the OCR page shows the new title.
+      this.ctx.repos.ocr.followVersion(documentId, doc.modified ?? null, updated.modified ?? null);
+      this.ocr?.assess({ ...updated, content: updated.content ?? doc.content });
       log.info(
         `Processed document ${documentId} → "${updated.title}" (${analysis.usage.totalTokens} tokens, ${(analysis.durationMs / 1000).toFixed(1)}s${analysis.truncated ? ', content truncated' : ''})`,
       );

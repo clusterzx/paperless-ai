@@ -11,6 +11,7 @@ import { newApiKey } from '../auth.js';
 import { validateCron } from '../processing/engine.js';
 import { clearExternalApiCache, fetchExternalData } from '../processing/externalApi.js';
 import { localEmbeddingsAvailable } from '../rag/localEmbedder.js';
+import { cudaProviderInstalled } from '../ocr/pipeline.js';
 import { logger } from '../logger.js';
 import { describeError } from '../util/http.js';
 import { storedPaperlessToken, testAiConnection, testPaperlessConnection, withoutMaskedSecrets } from './connectionTests.js';
@@ -18,7 +19,7 @@ import { storedPaperlessToken, testAiConnection, testPaperlessConnection, withou
 const log = logger.child({ module: 'settings' });
 
 export const settingsRoutes =
-  ({ ctx }: Services): FastifyPluginAsync =>
+  ({ ctx, ocr }: Services): FastifyPluginAsync =>
   async (fastify) => {
     const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -27,6 +28,7 @@ export const settingsRoutes =
       locked: ctx.config.lockedPaths,
       defaults: { systemPrompt: DEFAULT_SYSTEM_PROMPT },
       localEmbeddings: await localEmbeddingsAvailable(),
+      ocr: { available: await ocr.isAvailable(), cudaAvailable: cudaProviderInstalled() },
     }));
 
     app.put(

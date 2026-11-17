@@ -6,6 +6,8 @@ import type { Principal } from '../auth.js';
 import type { Services } from '../http/app.js';
 import { sendEventStream } from '../http/helpers.js';
 import { analyzeContent } from '../processing/analyzer.js';
+import { configSchema, type AppConfig, type DeepPartial } from '../config/schema.js';
+import { deepMerge } from '../config/store.js';
 import { applyPlannedUpdate, planManualUpdate } from '../processing/applier.js';
 import { datePart } from '../processing/dates.js';
 import type { PaperlessDocument } from '../paperless/types.js';
@@ -25,7 +27,7 @@ function summary(d: PaperlessDocument): DocumentSummary {
 }
 
 export const documentRoutes =
-  ({ ctx, rag }: Services): FastifyPluginAsync =>
+  ({ ctx, rag, ocr }: Services): FastifyPluginAsync =>
   async (fastify) => {
     const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -86,16 +88,26 @@ export const documentRoutes =
         schema: {
           params: z.object({ id: z.coerce.number().int().positive() }),
           // Fastify validates a missing body as null.
-          body: z.object({ prompt: z.string().max(50_000).optional() }).nullish(),
+          body: z
+            .object({
+              prompt: z.string().max(50_000).optional(),
+              /** Processing settings for this analysis only (prompt wizard test). */
+              processing: z.record(z.string(), z.unknown()).optional(),
+            })
+            .nullish(),
         },
       },
       async (req) => {
         const doc = await ctx.paperless().getDocument(req.params.id);
-        return analyzeContent(ctx, doc.content ?? '', {
-          feature: req.body?.prompt ? 'playground' : 'manual',
+        const processing = req.body?.processing
+          ? configSchema.parse(deepMerge(structuredClone(ctx.cfg), { processing: req.body.processing } as DeepPartial<AppConfig>)).processing
+          : undefined;
+        return analyzeContent(ctx, ocr.storedText(doc) ?? doc.content ?? '', {
+          feature: req.body?.prompt || processing ? 'playground' : 'manual',
           documentId: doc.id,
           customPrompt: req.body?.prompt,
           filename: doc.original_file_name,
+          processing,
         });
       },
     );

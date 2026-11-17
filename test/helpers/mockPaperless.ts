@@ -41,7 +41,15 @@ export interface MockDoc {
   user_can_change: boolean;
   original_file_name: string | null;
   owner: number | null;
+  page_count: number | null;
+  /** The uploaded file (default: a small PDF). */
+  file: { data: Buffer; contentType: string };
+  /** The archived PDF Paperless created (none for documents it did not convert). */
+  archive: Buffer | null;
 }
+
+/** A tiny but valid-looking PDF for download tests. */
+export const SAMPLE_PDF = Buffer.from('%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n', 'latin1');
 
 export interface MockNamed {
   id: number;
@@ -163,6 +171,9 @@ export class MockPaperless {
       user_can_change: d.user_can_change ?? true,
       original_file_name: d.original_file_name ?? `${id}.pdf`,
       owner: d.owner ?? this.user.id,
+      page_count: d.page_count ?? 1,
+      file: d.file ?? { data: SAMPLE_PDF, contentType: 'application/pdf' },
+      archive: d.archive ?? null,
     };
     this.docs.set(id, doc);
     return doc;
@@ -307,6 +318,12 @@ export class MockPaperless {
       if (record.method === 'GET') return send(200, this.serialize(doc, version));
       if (record.method === 'PATCH') return this.patchDocument(doc, body as Record<string, unknown>, version, send);
     }
+    if ((m = /^\/api\/documents\/(\d+)\/download\/$/.exec(path)) && record.method === 'GET') {
+      const doc = this.docs.get(Number(m[1]));
+      if (!doc) return send(404, { detail: 'Not found.' });
+      if (q.get('original') === 'true' || !doc.archive) return send(200, doc.file.data, { 'Content-Type': doc.file.contentType });
+      return send(200, doc.archive, { 'Content-Type': 'application/pdf' });
+    }
     if ((m = /^\/api\/documents\/(\d+)\/thumb\/$/.exec(path)) && record.method === 'GET') {
       if (!this.docs.has(Number(m[1]))) return send(404, { detail: 'Not found.' });
       return send(200, Buffer.from(`THUMB-${m[1]}`));
@@ -358,7 +375,8 @@ export class MockPaperless {
       user_can_change: doc.user_can_change,
       custom_fields: doc.custom_fields.map((f) => ({ ...f })),
       notes: [],
-      mime_type: 'application/pdf',
+      mime_type: doc.file.contentType,
+      page_count: doc.page_count,
     };
     if (version < 9) out.created_date = doc.created;
     return out;
@@ -476,6 +494,10 @@ export class MockPaperless {
     if ('title' in body) {
       if (typeof body.title !== 'string' || body.title.length > 128) errors.title = ['Ensure this field has no more than 128 characters.'];
       else next.title = body.title;
+    }
+    if ('content' in body) {
+      if (typeof body.content !== 'string') errors.content = ['Not a valid string.'];
+      else next.content = body.content;
     }
     if ('tags' in body) {
       const tags = body.tags as unknown[];
