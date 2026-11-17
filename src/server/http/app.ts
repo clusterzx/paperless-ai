@@ -24,6 +24,7 @@ import { processingRoutes } from '../routes/processing.js';
 import { documentRoutes } from '../routes/documents.js';
 import { ragRoutes } from '../routes/rag.js';
 import { ocrRoutes } from '../routes/ocr.js';
+import { promptRoutes } from '../routes/prompts.js';
 import { twoFactorRoutes } from '../routes/twoFactor.js';
 
 export interface Services {
@@ -175,6 +176,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(documentRoutes(services));
   await app.register(ragRoutes(services));
   await app.register(ocrRoutes(services));
+  await app.register(promptRoutes(services));
   await app.register(twoFactorRoutes(services));
 
   // Web UI (single page app)

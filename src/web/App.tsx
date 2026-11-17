@@ -12,6 +12,7 @@ const AskPage = lazy(() => import('./pages/Ask'));
 const ChatPage = lazy(() => import('./pages/Chat'));
 const ReviewPage = lazy(() => import('./pages/Review'));
 const PlaygroundPage = lazy(() => import('./pages/Playground'));
+const PromptsPage = lazy(() => import('./pages/Prompts'));
 const HistoryPage = lazy(() => import('./pages/History'));
 const OcrPage = lazy(() => import('./pages/Ocr'));
 const PromptWizardPage = lazy(() => import('./pages/PromptWizard'));
@@ -110,6 +111,7 @@ function Routes() {
             <Route path="/chat" component={ChatPage} />
             <Route path="/review" component={ReviewPage} />
             <Route path="/playground" component={PlaygroundPage} />
+            <Route path="/prompts" component={PromptsPage} />
             <Route path="/history" component={HistoryPage} />
             <Route path="/ocr" component={OcrPage} />
             <Route path="/prompt-wizard" component={PromptWizardPage} />

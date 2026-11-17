@@ -217,10 +217,11 @@ test('modals keep the focus while typing and trap Tab', async ({ page }) => {
   const open = page.getByRole('button', { name: 'Save & rate' });
   await expect(open).toBeEnabled();
   await open.click();
-  const dialog = page.getByRole('dialog', { name: 'Rate this prompt' });
-  const comment = dialog.getByLabel('Comment');
-  await comment.pressSequentially('Works well for invoices');
-  await expect(comment).toHaveValue('Works well for invoices');
+  const dialog = page.getByRole('dialog', { name: 'Save in the prompt library' });
+  const name = dialog.getByLabel('Name');
+  await name.fill('');
+  await name.pressSequentially('Works well for invoices');
+  await expect(name).toHaveValue('Works well for invoices');
   for (let i = 0; i < 15; i++) await page.keyboard.press('Tab');
   expect(await dialog.evaluate((el) => el.contains(el.ownerDocument.activeElement))).toBe(true);
   await page.keyboard.press('Escape');
@@ -313,6 +314,56 @@ test('OCR page finds documents with poor text, reads them and the AI renames the
   await expect(dialog.getByRole('button', { name: 'Restore the text before OCR' })).toBeVisible();
 });
 
+test('prompt library keeps tested prompts with ratings per model and activates them', async ({ page }) => {
+  await login(page);
+  await page.goto('/playground');
+  await page.getByRole('button', { name: /Analyze \d+ documents?/ }).click();
+  await expect(page.getByText(/tokens · avg\./)).toBeVisible({ timeout: 20_000 });
+
+  // Save the tested prompt: the rating is for the model of the test run.
+  await page.getByRole('button', { name: 'Save & rate' }).click();
+  let dialog = page.getByRole('dialog', { name: 'Save in the prompt library' });
+  await dialog.getByLabel('Name').fill('Invoices, tested');
+  await dialog.getByLabel('Use case').fill('Invoices & receipts');
+  await dialog.getByRole('radio', { name: '9 of 10' }).click();
+  await expect(dialog.getByLabel('Tested with model')).not.toHaveValue('');
+  await dialog.getByLabel('Note').fill('Good titles');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Prompt saved in the library')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Prompt library' }).first().click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Prompt library' })).toBeVisible();
+  const tested = page.getByRole('region', { name: 'Invoices, tested' });
+  await expect(tested.getByRole('button', { name: 'In use' })).toBeDisabled();
+  await expect(tested.getByText('Invoices & receipts')).toBeVisible();
+  await expect(tested.getByText('9/10')).toBeVisible();
+
+  // A new prompt, rated later with another model, then used for processing.
+  await page.getByRole('button', { name: 'New prompt' }).click();
+  await page.getByRole('dialog', { name: 'New prompt' }).getByLabel('Prompt').fill('Write very short titles.');
+  await page.getByRole('button', { name: 'Next' }).click();
+  dialog = page.getByRole('dialog', { name: 'Save in the prompt library' });
+  await dialog.getByLabel('Name').fill('Short titles');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  const short = page.getByRole('region', { name: 'Short titles' });
+  await expect(short.getByText('Not rated')).toBeVisible();
+
+  await short.getByRole('button', { name: 'Rate' }).click();
+  dialog = page.getByRole('dialog', { name: 'Rate “Short titles”' });
+  await dialog.getByRole('radio', { name: '6 of 10' }).click();
+  await dialog.getByLabel('Model').fill('qwen3:8b');
+  await dialog.getByRole('button', { name: 'Save rating' }).click();
+  await expect(short.getByRole('list', { name: 'Ratings per model' })).toContainText('qwen3:8b');
+
+  await short.getByRole('button', { name: 'Use for processing' }).click();
+  await page.getByRole('button', { name: 'Use prompt' }).click();
+  await expect(short.getByRole('button', { name: 'In use' })).toBeDisabled();
+  await expect(tested.getByRole('button', { name: 'Use for processing' })).toBeEnabled();
+
+  await page.goto('/settings?tab=prompt');
+  await expect(page.getByRole('textbox', { name: 'System prompt' })).toHaveValue('Write very short titles.');
+});
+
 test('prompt wizard builds, tests and saves a prompt', async ({ page }) => {
   await login(page);
   await page.goto('/settings?tab=prompt');
@@ -332,6 +383,13 @@ test('prompt wizard builds, tests and saves a prompt', async ({ page }) => {
   await page.getByRole('button', { name: /Test on \d document/ }).click();
   await expect(page.getByText('Test finished')).toBeVisible({ timeout: 20_000 });
 
+  // Keep it in the prompt library as well (with the wizard answers).
+  await page.getByRole('button', { name: 'Save in library' }).click();
+  const keep = page.getByRole('dialog', { name: 'Save in the prompt library' });
+  await keep.getByLabel('Name').fill('Wizard: Erika');
+  await keep.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Prompt saved in the library')).toBeVisible();
+
   await page.getByRole('button', { name: 'Save prompt' }).click();
   await page.waitForURL(/tab=prompt/, { timeout: 3000 }).catch(async () => {
     await page.getByRole('button', { name: 'Replace prompt' }).click();
@@ -339,6 +397,11 @@ test('prompt wizard builds, tests and saves a prompt', async ({ page }) => {
   });
   await expect(page.getByText('in use')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'System prompt' })).toHaveValue(/Erika Musterfrau/);
+
+  await page.goto('/prompts');
+  const wizard = page.getByRole('region', { name: 'Wizard: Erika' });
+  await expect(wizard.getByText('Wizard', { exact: true })).toBeVisible();
+  await expect(wizard.getByRole('button', { name: 'In use' })).toBeDisabled();
 });
 
 test('two-factor authentication: set up, sign in with a code and a recovery code, switch off', async ({ page }) => {

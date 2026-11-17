@@ -1,6 +1,6 @@
 {
   "name": "paperless-ai",
-  "version": "4.1.1",
+  "version": "4.1.2",
   "description": "AI-powered document classification, tagging and RAG chat for Paperless-ngx",
   "type": "module",
   "private": true,

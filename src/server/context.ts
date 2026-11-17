@@ -14,7 +14,7 @@ import { activeModel, aiConfigProblem, createLlmClient } from './ai/factory.js';
 import type { CompletionResult, LlmClient, Usage } from './ai/types.js';
 import { logger } from './logger.js';
 
-export const VERSION = '4.1.1';
+export const VERSION = '4.1.2';
 
 export class NotConfiguredError extends Error {
   constructor(message: string) {

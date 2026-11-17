@@ -1,5 +1,6 @@
 import type { Db } from './database.js';
 import { OcrRepo } from './ocrRepo.js';
+import { PromptsRepo } from './promptsRepo.js';
 import type { DocumentSnapshot, HistoryItem, HistoryQuery, UsageStats } from '../../shared/api.js';
 
 // ---------------------------------------------------------------- users
@@ -548,6 +549,7 @@ export interface Repos {
   usage: UsageRepo;
   kv: KvRepo;
   ocr: OcrRepo;
+  prompts: PromptsRepo;
 }
 
 export function createRepos(db: Db): Repos {
@@ -558,5 +560,6 @@ export function createRepos(db: Db): Repos {
     usage: new UsageRepo(db),
     kv: new KvRepo(db),
     ocr: new OcrRepo(db),
+    prompts: new PromptsRepo(db),
   };
 }

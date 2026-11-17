@@ -1,20 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookmarkPlus, Check, FileText, FlaskConical, Play, Save, Square, Star, Trash2, Wand2 } from 'lucide-react';
-import type { AnalysisResult, DocumentSummary } from '@shared/api';
+import { useLocation } from 'wouter';
+import { BookMarked, BookmarkPlus, Check, FileText, FlaskConical, Play, Save, Square, Wand2 } from 'lucide-react';
+import type { AnalysisResult, DocumentSummary, PromptLibrary } from '@shared/api';
 import { Page } from '../components/Layout';
-import { Alert, Badge, Button, Card, EmptyState, Field, Input, Modal, PageHeader, Skeleton, Textarea, useConfirm, useToast } from '../components/ui';
+import { Alert, Badge, Button, Card, EmptyState, Input, PageHeader, Skeleton, Textarea, useConfirm, useToast } from '../components/ui';
+import { importLegacyPrompts, SavePromptModal, ScoreBadge } from '../components/promptLibrary';
 import { errorMessage, get, post, put, qs } from '../lib/api';
-import { useAsync, useDebounced, useLocalStorage } from '../lib/hooks';
+import { useAsync, useDebounced } from '../lib/hooks';
 import { cn, duration, formatDate, formatNumber } from '../lib/format';
 import { useMetadata } from '../lib/metadata';
-
-interface SavedPrompt {
-  id: string;
-  prompt: string;
-  rating: number;
-  comment: string;
-  savedAt: number;
-}
 
 type RunState = { status: 'pending' | 'running' | 'done' | 'error'; result?: AnalysisResult; error?: string };
 
@@ -40,6 +34,8 @@ export default function PlaygroundPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const meta = useMetadata();
+  const [, navigate] = useLocation();
+  const library = useAsync((signal) => get<PromptLibrary>('/api/prompts', signal), []);
   const settings = useAsync(() => get<{ config: { processing: { systemPrompt: string } }; defaults: { systemPrompt: string } }>('/api/settings'), []);
   const [prompt, setPrompt] = useState('');
   const [query, setQuery] = useState('');
@@ -51,13 +47,29 @@ export default function PlaygroundPage() {
   const [runs, setRuns] = useState<Record<number, RunState>>({});
   const [running, setRunning] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
-  const [saved, setSaved] = useLocalStorage<SavedPrompt[]>('pai-saved-prompts', []);
-  const [rating, setRating] = useState<{ open: boolean; stars: number; comment: string }>({ open: false, stars: 7, comment: '' });
+  const [saving, setSaving] = useState(false);
+  // A prompt of the library to test (?prompt=<id>), otherwise the system prompt in use.
+  const [requested] = useState(() => Number(new URLSearchParams(window.location.search).get('prompt')) || null);
 
   useEffect(() => {
-    if (settings.data && !prompt) setPrompt(settings.data.config.processing.systemPrompt);
+    importLegacyPrompts().then(
+      (n) => {
+        if (n) void library.reload();
+      },
+      () => undefined,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.data]);
+  }, []);
+  useEffect(() => {
+    if (prompt) return;
+    if (requested) {
+      if (!library.data) return;
+      const p = library.data.prompts.find((x) => x.id === requested);
+      if (p) return setPrompt(p.prompt);
+    }
+    if (settings.data) setPrompt(settings.data.config.processing.systemPrompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.data, library.data]);
   useEffect(() => {
     if (docs.data && !pickedManually.current) setSelected(new Map(docs.data.slice(0, 6).map((d) => [d.id, d])));
   }, [docs.data]);
@@ -96,6 +108,13 @@ export default function PlaygroundPage() {
     setRunning(false);
   };
 
+  // The model of the last test run is the one the rating is for.
+  const lastResult = Object.values(runs).find((r) => r.result)?.result;
+  const testedDocs = Object.entries(runs)
+    .filter(([, r]) => r.status === 'done')
+    .map(([id]) => Number(id));
+  const libraryEntry = library.data?.prompts.find((p) => p.prompt.trim() === prompt.trim());
+
   const totals = Object.values(runs).reduce(
     (acc, r) => (r.result ? { tokens: acc.tokens + r.result.usage.totalTokens, ms: acc.ms + r.result.durationMs, n: acc.n + 1 } : acc),
     { tokens: 0, ms: 0, n: 0 },
@@ -118,7 +137,7 @@ export default function PlaygroundPage() {
         description="Try prompts on real documents. Nothing is saved to Paperless – compare the AI's suggestions with the current values."
         actions={
           <>
-            <Button icon={<BookmarkPlus className="size-4" />} onClick={() => setRating((r) => ({ ...r, open: true }))} disabled={!prompt.trim()}>
+            <Button icon={<BookmarkPlus className="size-4" />} onClick={() => setSaving(true)} disabled={!prompt.trim()}>
               Save & rate
             </Button>
             <Button icon={<Save className="size-4" />} onClick={useAsSystemPrompt} disabled={!prompt.trim()}>
@@ -169,31 +188,42 @@ export default function PlaygroundPage() {
               )}
             </div>
           </Card>
-          <Card title="Saved prompts" icon={<Star className="size-4" />} actions={saved.length > 0 && <Button size="sm" variant="ghost" onClick={() => setSaved([])}>Clear</Button>}>
-            {!saved.length ? (
-              <p className="text-sm text-muted">Rate prompts after a test run to keep track of what works best.</p>
+          <Card
+            title="Prompt library"
+            icon={<BookMarked className="size-4" />}
+            actions={
+              <Button size="sm" variant="ghost" onClick={() => navigate('/prompts')}>
+                Open library
+              </Button>
+            }
+          >
+            {libraryEntry && (
+              <p className="mb-3 text-xs text-muted">
+                This prompt is in the library as <span className="font-medium text-fg">“{libraryEntry.name}”</span> – saving adds a rating to it.
+              </p>
+            )}
+            {!library.data?.prompts.length ? (
+              <p className="text-sm text-muted">Rate prompts after a test run and keep the good ones – per use case and model.</p>
             ) : (
-              <ul className="space-y-3">
-                {[...saved]
-                  .sort((a, b) => b.rating - a.rating)
-                  .map((s) => (
-                    <li key={s.id} className="rounded-lg border border-border p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <Badge tone="warn">
-                          <Star className="size-3 fill-current" /> {s.rating}/10
-                        </Badge>
-                        <span className="text-[11px] text-faint">{formatDate(s.savedAt, true)}</span>
+              <ul className="space-y-2">
+                {[...library.data.prompts]
+                  .sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || b.updatedAt - a.updatedAt)
+                  .slice(0, 8)
+                  .map((p) => (
+                    <li key={p.id} className="flex items-center justify-between gap-2 rounded-lg border border-border p-2.5">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium" title={p.name}>
+                          {p.name}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          <ScoreBadge score={p.score} count={p.ratings.length} />
+                          {p.useCase && <Badge tone="accent">{p.useCase}</Badge>}
+                          {p.models[0]?.model && <span className="truncate text-[11px] text-faint">best: {p.models[0].model}</span>}
+                        </div>
                       </div>
-                      <p className="mt-2 line-clamp-3 font-mono text-[11px] text-muted">{s.prompt}</p>
-                      {s.comment && <p className="mt-1.5 text-xs text-fg">{s.comment}</p>}
-                      <div className="mt-2 flex gap-1">
-                        <Button size="sm" variant="subtle" onClick={() => setPrompt(s.prompt)}>
-                          Use
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setSaved((l) => l.filter((x) => x.id !== s.id))} aria-label="Delete">
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </div>
+                      <Button size="sm" variant="subtle" onClick={() => setPrompt(p.prompt)} disabled={p.prompt.trim() === prompt.trim()}>
+                        Load
+                      </Button>
                     </li>
                   ))}
               </ul>
@@ -311,36 +341,21 @@ export default function PlaygroundPage() {
         </Card>
       </div>
 
-      <Modal
-        open={rating.open}
-        onClose={() => setRating((r) => ({ ...r, open: false }))}
-        title="Rate this prompt"
-        footer={
-          <Button
-            variant="primary"
-            onClick={() => {
-              setSaved((l) => [{ id: Math.random().toString(36).slice(2), prompt, rating: rating.stars, comment: rating.comment, savedAt: Date.now() }, ...l].slice(0, 50));
-              setRating({ open: false, stars: 7, comment: '' });
-              toast.success('Prompt saved');
-            }}
-          >
-            Save
-          </Button>
-        }
-      >
-        <div className="space-y-4">
-          <div className="flex gap-1">
-            {Array.from({ length: 10 }, (_, i) => (
-              <button key={i} onClick={() => setRating((r) => ({ ...r, stars: i + 1 }))} aria-label={`${i + 1} stars`}>
-                <Star className={cn('size-6', i < rating.stars ? 'fill-warn text-warn' : 'text-border-strong')} />
-              </button>
-            ))}
-          </div>
-          <Field label="Comment">
-            <Textarea rows={3} value={rating.comment} onChange={(e) => setRating((r) => ({ ...r, comment: e.target.value }))} placeholder="What worked well, what did not?" />
-          </Field>
-        </div>
-      </Modal>
+      <SavePromptModal
+        open={saving}
+        onClose={() => setSaving(false)}
+        prompt={prompt}
+        documents={testedDocs}
+        useCases={library.data?.useCases ?? []}
+        defaults={{
+          name: libraryEntry?.name ?? `Prompt ${formatDate(Date.now())}`,
+          useCase: libraryEntry?.useCase,
+          model: lastResult?.model ?? library.data?.current.model,
+          provider: lastResult?.provider ?? library.data?.current.provider,
+          score: lastResult ? 7 : 0,
+        }}
+        onSaved={() => void library.reload()}
+      />
     </Page>
   );
 }

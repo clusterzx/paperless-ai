@@ -87,7 +87,8 @@ Upgrading from 3.x is automatic: your `data/.env`, user account, processing stat
 **Interactive tools**
 - **Document chat** – ask questions about a single document (long documents are handled automatically)
 - **Manual review** – let the AI suggest metadata and decide yourself what to save
-- **Prompt playground** – test prompts on real documents side by side with the current values, rate and keep prompts
+- **Prompt playground** – test prompts on real documents side by side with the current values
+- **Prompt library** – keep tested prompts per use case (invoices, contracts …) with ratings per model (1–10, note, test documents), see which model a prompt works best with, and use one for automatic processing with a single click; the playground and the prompt wizard save into it
 - **History with undo**, filters and search
 - **Dashboard** with live processing status, coverage, activity, token usage
 - **Logs & diagnostics** – live log stream, connection checks, Paperless API explorer
@@ -156,7 +157,7 @@ Keep your data volume and switch the image – everything else happens on the fi
    docker run --rm -v paperless-ai_data:/data -v "$PWD":/backup alpine \
      tar czf /backup/paperless-ai-3x-backup.tgz -C /data .
    ```
-2. **Update `docker-compose.yml`:** use `image: clusterzx/paperless-ai:latest` (or a fixed version such as `4.1.1`), keep the volume `…:/app/data` and the port. Remove the 3.x lines `RAG_SERVICE_URL`, `PUID` and `PGID` (no longer used) and `RAG_SERVICE_ENABLED` (it would lock the setting in the UI).
+2. **Update `docker-compose.yml`:** use `image: clusterzx/paperless-ai:latest` (or a fixed version such as `4.1.2`), keep the volume `…:/app/data` and the port. Remove the 3.x lines `RAG_SERVICE_URL`, `PUID` and `PGID` (no longer used) and `RAG_SERVICE_ENABLED` (it would lock the setting in the UI).
 3. **Start:** `docker compose pull && docker compose up -d`. The log (`docker compose logs -f paperless-ai`) shows `Migrated legacy data/.env configuration to data/config.json` and `Imported data from legacy documents.db` with the number of migrated users, documents and history entries.
 4. **Sign in** with your previous username and password and review the settings – everything is prefilled; values set by environment variables are shown locked.
 
@@ -209,6 +210,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `OCR_ENABLED`, `OCR_MODE` (`manual`, `missing`, `poor`, `always`), `OCR_WRITE_BACK` | OCR on/off, when it runs automatically, replace the text in Paperless (default on) |
 | `OCR_LANGUAGE` (`latin`, `en`, `multi`, `cyrillic`, `eslav`, `greek`, `arabic`, `devanagari`, `korean`, `thai`, `tamil`, `telugu`), `OCR_QUALITY` (`fast`, `balanced`, `accurate`) | OCR model |
 | `OCR_DEVICE` (`auto`, `cpu`, `cuda`), `OCR_THREADS`, `OCR_MAX_PAGES` | OCR hardware and limits (`0` threads = automatic, `0` pages = all) |
+| `OCR_RELEASE` (`auto`, `document`, `idle`) | When the OCR models are unloaded and their memory is freed: `auto` = on the GPU after each document (before the AI analysis), on the CPU after 10 idle minutes |
 | `API_KEY`, `JWT_SECRET` | secrets (generated automatically when unset; use at least 32 random characters for `JWT_SECRET`) |
 | `LOG_LEVEL`, `LOG_FORMAT=json` | operations |
 | `TRUST_PROXY` | behind a reverse proxy: number of proxy hops (usually `1`) or the proxy addresses – needed for correct client IPs (login rate limit) and secure cookies; off by default |
@@ -225,6 +227,8 @@ Empty variables (e.g. `OPENAI_API_KEY=` left in a compose file) are ignored, so 
 - **Manual**: only from the *OCR* page or the API (`POST /api/ocr/run`). The documents are analyzed by the AI afterwards.
 
 The OCR text replaces the text in Paperless only when its text-quality score is higher than that of the existing text – a clean text layer of a digital PDF or well-read print is never replaced by a weaker OCR result (e.g. of handwriting); the AI then analyses the existing text, too. On the *OCR* page you can compare both texts and save the OCR text anyway.
+
+**GPU memory:** OCR runs in a process of its own. With *Unload the OCR models* on *Automatic*, that process ends after each document read on the GPU – before the AI analysis – so a local model (Ollama, llama.cpp …) on the same GPU gets all of the memory back. Loading the models again takes a few seconds per document; if no model shares the GPU, choose *After 10 idle minutes*. On the CPU the models stay loaded for 10 minutes.
 
 On a 4-core CPU an A4 page takes about 1–2 s (*Balanced*). *Accurate* uses a larger detection model and 300 dpi – noticeably better for small print, but slow without a GPU. Models are stored in the data directory (`models/paddleocr`), so they are downloaded only once; behind a proxy or offline, set `HF_ENDPOINT` to a Hugging Face mirror or copy the folder from another installation.
 
