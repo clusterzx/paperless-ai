@@ -183,6 +183,28 @@ describe('PaperlessClient documents', () => {
 });
 
 describe('PaperlessClient errors', () => {
+  it('explains a host name rejected by Paperless-ngx (ALLOWED_HOSTS, 3.5+)', async () => {
+    const { mock, client } = await setup(PAPERLESS_3);
+    // Django answers before the API: a small HTML page, no JSON.
+    const page = '<!doctype html>\n<html lang="en">\n<head>\n  <title>Bad Request (400)</title>\n</head>\n<body>\n  <h1>Bad Request (400)</h1><p></p>\n</body>\n</html>\n';
+    mock.intercept = () => ({ status: 400, body: Buffer.from(page), headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    const err = (await client.connect().catch((e: unknown) => e)) as PaperlessError;
+    expect(err).toBeInstanceOf(PaperlessError);
+    expect(err.status).toBe(400);
+    expect(err.message).toContain('Paperless-ngx does not accept the host name "127.0.0.1"');
+    expect(err.message).toContain('PAPERLESS_ALLOWED_HOSTS');
+    expect(err.message).not.toContain('<html');
+  });
+
+  it('keeps the details of a JSON 400 from the API', async () => {
+    const { mock, client } = await setup(PAPERLESS_3);
+    await client.connect();
+    mock.intercept = (r) => (r.method === 'PATCH' ? { status: 400, body: { title: ['Ensure this field has no more than 128 characters.'] } } : undefined);
+    mock.addDocument({ id: 5, title: 'x' });
+    const err = (await client.updateDocument(5, { title: 'y' }).catch((e: unknown) => e)) as PaperlessError;
+    expect(err.message).toMatch(/rejected the request \(400\).*no more than 128 characters/);
+  });
+
   it('reports an invalid token (401)', async () => {
     const mock = await new MockPaperless().start();
     servers.push(mock);
