@@ -257,6 +257,11 @@ export interface OcrResultInfo {
   writtenBack: boolean;
   revertedAt: number | null;
   error: string | null;
+  /** Text-quality scores (0–100) of the Paperless text before the OCR and of the OCR text. */
+  scoreBefore: number | null;
+  scoreAfter: number | null;
+  /** The OCR text did not score better than the existing text – Paperless kept its text. */
+  keptOriginal: boolean;
 }
 
 export interface OcrDocumentItem {
@@ -295,8 +300,12 @@ export interface OcrStatus {
 export interface OcrDocumentText {
   id: number;
   title: string;
-  paperlessText: string;
+  /** The text Paperless had before the OCR – or has now, when the OCR text was not saved there. */
+  originalText: string;
+  originalQuality: TextQuality;
   ocrText: string | null;
-  quality: TextQuality;
+  ocrQuality: TextQuality | null;
+  /** The OCR text is what Paperless holds now. */
+  inPaperless: boolean;
   ocr: OcrResultInfo | null;
 }

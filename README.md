@@ -66,7 +66,7 @@ Upgrading from 3.x is automatic: your `data/.env`, user account, processing stat
 - Reads scans and photos **locally** with PaddleOCR (PP-OCRv5) via ONNX Runtime – no extra container, no cloud service; models (~20 MB) are downloaded on first use
 - Runs **before** the AI analysis, so titles, tags and correspondents come from good text: automatically for documents *without text*, with *poor text* (heuristic text-quality score) or *always* – or only on demand
 - **OCR page** lists all documents with their text quality, finds the garbled ones and reads them in bulk; afterwards the AI names and tags them again
-- The text can replace the content in Paperless (better Paperless full-text search) – with **undo**
+- The text replaces the content in Paperless (better Paperless full-text search) **only when it reads better** than the existing text – with a side-by-side comparison and **undo**
 - Detects pages scanned sideways or upside down, 30+ Latin-script languages plus Cyrillic, Greek, Arabic, Chinese/Japanese, Korean, …
 - CPU (all platforms) or **NVIDIA GPU** with the `:latest-cuda` image
 
@@ -221,6 +221,8 @@ Empty variables (e.g. `OPENAI_API_KEY=` left in a compose file) are ignored, so 
 - **Only documents without text**: for archives where Paperless' own OCR is fine.
 - **Every document**: best text for every document, costs time per document.
 - **Manual**: only from the *OCR* page or the API (`POST /api/ocr/run`). The documents are analyzed by the AI afterwards.
+
+The OCR text replaces the text in Paperless only when its text-quality score is higher than that of the existing text – a clean text layer of a digital PDF or well-read print is never replaced by a weaker OCR result (e.g. of handwriting); the AI then analyses the existing text, too. On the *OCR* page you can compare both texts and save the OCR text anyway.
 
 On a 4-core CPU an A4 page takes about 1–2 s (*Balanced*). *Accurate* uses a larger detection model and 300 dpi – noticeably better for small print, but slow without a GPU. Models are stored in the data directory (`models/paddleocr`), so they are downloaded only once; behind a proxy or offline, set `HF_ENDPOINT` to a Hugging Face mirror or copy the folder from another installation.
 

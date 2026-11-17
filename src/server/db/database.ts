@@ -174,6 +174,18 @@ const MIGRATIONS: Migration[] = [
         );
       `),
   },
+  {
+    version: 5,
+    name: 'ocr quality comparison',
+    up: (db) =>
+      db.exec(`
+        -- Text-quality score of the Paperless text before the OCR and of the OCR text
+        ALTER TABLE ocr_results ADD COLUMN score_before INTEGER;
+        ALTER TABLE ocr_results ADD COLUMN score_after INTEGER;
+        -- 1 = the OCR text did not score better: Paperless keeps its text, the AI uses it too
+        ALTER TABLE ocr_results ADD COLUMN kept_original INTEGER NOT NULL DEFAULT 0;
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {

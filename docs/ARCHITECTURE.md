@@ -90,7 +90,8 @@ manual ──────┘                                   │
 
 ```
 engine job ─▶ needs OCR? (mode: always / missing / poor = text-quality score) ─▶ download original
-   (or archived PDF) ─▶ OCR worker ─▶ text ─▶ optional PATCH content (old text kept for undo) ─▶ analyze
+   (or archived PDF) ─▶ OCR worker ─▶ text ─▶ scores better than the Paperless text?
+   ─▶ yes: optional PATCH content (old text kept for undo), analyze the OCR text; no: analyze the Paperless text
 ```
 
 * `ocr/render.ts` turns PDFs into page images with PDFium (WebAssembly) and decodes images with sharp

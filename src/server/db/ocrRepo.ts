@@ -28,6 +28,9 @@ export interface OcrResultRow {
   attempts: number;
   created_at: number;
   reverted_at: number | null;
+  score_before: number | null;
+  score_after: number | null;
+  kept_original: number;
 }
 
 interface AssessmentRow {
@@ -51,6 +54,11 @@ export interface NewOcrResult {
   provider: string;
   durationMs: number;
   sourceModified: string | null;
+  /** Text-quality scores of the Paperless text before the OCR and of the OCR text. */
+  scoreBefore: number;
+  scoreAfter: number;
+  /** The OCR text did not score better – Paperless keeps its text. */
+  keptOriginal: boolean;
 }
 
 export interface OcrListQuery {
@@ -87,6 +95,9 @@ export function resultInfo(r: OcrResultRow | undefined | null): OcrResultInfo | 
     writtenBack: Boolean(r.written_back),
     revertedAt: r.reverted_at,
     error: r.error,
+    scoreBefore: r.score_before,
+    scoreAfter: r.score_after,
+    keptOriginal: Boolean(r.kept_original),
   };
 }
 
@@ -233,7 +244,7 @@ export class OcrRepo {
   /** OCR text that replaces the Paperless text of this document version (kept only locally, not written back). */
   localText(id: number, modified: string | null): string | null {
     const r = this.result(id);
-    if (!r || r.status !== 'done' || r.reverted_at || r.written_back || !r.text) return null;
+    if (!r || r.status !== 'done' || r.reverted_at || r.written_back || r.kept_original || !r.text) return null;
     return r.source_modified === modified ? r.text : null;
   }
 
@@ -241,15 +252,16 @@ export class OcrRepo {
     this.db
       .prepare(
         `INSERT INTO ocr_results (document_id, status, text, previous_text, chars, pages, total_pages, mean_score, provider, duration_ms,
-           source_modified, written_modified, written_back, error, attempts, created_at, reverted_at)
+           source_modified, written_modified, written_back, error, attempts, created_at, reverted_at, score_before, score_after, kept_original)
          VALUES (@id, 'done', @text, NULL, @chars, @pages, @totalPages, @meanScore, @provider, @durationMs, @sourceModified, NULL, 0, NULL,
-           1, @now, NULL)
+           1, @now, NULL, @scoreBefore, @scoreAfter, @keptOriginal)
          ON CONFLICT(document_id) DO UPDATE SET status = 'done', text = excluded.text, previous_text = NULL, chars = excluded.chars,
            pages = excluded.pages, total_pages = excluded.total_pages, mean_score = excluded.mean_score, provider = excluded.provider,
            duration_ms = excluded.duration_ms, source_modified = excluded.source_modified, written_modified = NULL, written_back = 0,
-           error = NULL, attempts = ocr_results.attempts + 1, created_at = excluded.created_at, reverted_at = NULL`,
+           error = NULL, attempts = ocr_results.attempts + 1, created_at = excluded.created_at, reverted_at = NULL,
+           score_before = excluded.score_before, score_after = excluded.score_after, kept_original = excluded.kept_original`,
       )
-      .run({ id, ...r, now: Date.now() });
+      .run({ id, ...r, keptOriginal: r.keptOriginal ? 1 : 0, now: Date.now() });
   }
 
   saveFailure(id: number, error: string, sourceModified: string | null): void {
@@ -261,6 +273,15 @@ export class OcrRepo {
            attempts = ocr_results.attempts + 1, created_at = excluded.created_at`,
       )
       .run({ id, error: error.slice(0, 2000), sourceModified, now: Date.now() });
+  }
+
+  /** The user saved an OCR text in Paperless that was kept back (or reverted) before. */
+  markApplied(id: number, previousText: string, writtenModified: string | null): void {
+    this.db
+      .prepare(
+        'UPDATE ocr_results SET written_back = 1, kept_original = 0, reverted_at = NULL, previous_text = ?, written_modified = ? WHERE document_id = ?',
+      )
+      .run(previousText, writtenModified, id);
   }
 
   markWrittenBack(id: number, previousText: string, writtenModified: string | null): void {

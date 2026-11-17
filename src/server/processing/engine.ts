@@ -375,7 +375,8 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
               if (info) info.stage = `ocr ${page}/${pages}`;
             },
           });
-          content = read.text.trim().length >= 10 ? read.text : content;
+          // A worse OCR text (e.g. of handwriting) does not replace a usable Paperless text for the AI either.
+          if (read.better && read.text.trim().length >= 10) content = read.text;
           doc = read.doc;
         } catch (err) {
           // The Paperless text (if any) is still worth an analysis.

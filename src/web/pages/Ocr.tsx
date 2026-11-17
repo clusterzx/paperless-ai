@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'wouter';
-import { ExternalLink, Eye, Gauge, RefreshCw, ScanText, Search, Settings2, Undo2, Wand2 } from 'lucide-react';
-import type { OcrDocumentItem, OcrDocumentText, OcrFilter, OcrListResponse, OcrStatus, TextQualityLevel } from '@shared/api';
+import { ExternalLink, Eye, Gauge, RefreshCw, Save, ScanText, Search, Settings2, Undo2, Wand2 } from 'lucide-react';
+import type { OcrDocumentItem, OcrDocumentText, OcrFilter, OcrListResponse, OcrStatus, TextQuality, TextQualityLevel } from '@shared/api';
 import { Page } from '../components/Layout';
 import { Alert, Badge, Button, Card, EmptyState, Input, LinkButton, Modal, PageHeader, Pagination, Select, Skeleton, Tabs, useConfirm, useToast } from '../components/ui';
 import { errorMessage, get, post, qs } from '../lib/api';
@@ -71,8 +71,21 @@ function OcrCell({ item }: { item: OcrDocumentItem }) {
   return (
     <div className="text-xs">
       <div className="flex flex-wrap items-center gap-1">
-        <Badge tone={r.revertedAt ? 'warn' : 'success'}>{r.revertedAt ? 'Reverted' : r.writtenBack ? 'Saved in Paperless' : 'Done'}</Badge>
+        {r.revertedAt ? (
+          <Badge tone="warn">Reverted</Badge>
+        ) : r.keptOriginal ? (
+          <Badge tone="warn" title="The OCR text did not score better than the existing text – Paperless keeps its text">
+            Original kept
+          </Badge>
+        ) : (
+          <Badge tone="success">{r.writtenBack ? 'Saved in Paperless' : 'Done'}</Badge>
+        )}
         {r.provider && <Badge>{r.provider.toUpperCase()}</Badge>}
+        {r.scoreBefore !== null && r.scoreAfter !== null && (
+          <span className={cn('tabular-nums', r.scoreAfter > r.scoreBefore ? 'text-success' : 'text-faint')} title="Text quality before → after OCR">
+            {r.scoreBefore} → {r.scoreAfter}
+          </span>
+        )}
       </div>
       <div className="mt-1 text-faint" title={formatDate(r.at, true)}>
         {formatNumber(r.chars)} chars · {r.meanScore !== null ? `${Math.round(r.meanScore * 100)} % conf.` : ''}
@@ -83,9 +96,25 @@ function OcrCell({ item }: { item: OcrDocumentItem }) {
   );
 }
 
-function TextModal({ id, onClose, onRevert }: { id: number | null; onClose: () => void; onRevert: (id: number) => void }) {
+function QualityBadge({ quality }: { quality: TextQuality | null }) {
+  if (!quality) return null;
+  return <Badge tone={LEVEL_TONE[quality.level]}>{`${LEVEL_LABEL[quality.level]} · ${quality.score}/100`}</Badge>;
+}
+
+function TextModal({
+  id,
+  onClose,
+  onRevert,
+  onApply,
+}: {
+  id: number | null;
+  onClose: () => void;
+  onRevert: (id: number) => void;
+  onApply: (id: number) => void;
+}) {
   const data = useAsync((signal) => (id ? get<OcrDocumentText>(`/api/ocr/documents/${id}`, signal) : Promise.resolve(null)), [id]);
   const d = data.data;
+  const done = d?.ocr?.status === 'done' && d.ocrText !== null;
   return (
     <Modal
       open={id !== null}
@@ -93,10 +122,16 @@ function TextModal({ id, onClose, onRevert }: { id: number | null; onClose: () =
       size="xl"
       title={d ? `#${d.id} ${d.title}` : 'Document text'}
       footer={
-        d?.ocr?.status === 'done' && !d.ocr.revertedAt ? (
-          <Button variant="danger" icon={<Undo2 className="size-4" />} onClick={() => onRevert(d.id)}>
-            Revert OCR text
-          </Button>
+        d && done ? (
+          d.inPaperless ? (
+            <Button variant="danger" icon={<Undo2 className="size-4" />} onClick={() => onRevert(d.id)}>
+              Restore the text before OCR
+            </Button>
+          ) : (
+            <Button variant="primary" icon={<Save className="size-4" />} onClick={() => onApply(d.id)}>
+              Save OCR text in Paperless
+            </Button>
+          )
         ) : undefined
       }
     >
@@ -104,21 +139,37 @@ function TextModal({ id, onClose, onRevert }: { id: number | null; onClose: () =
       {!d ? (
         <Skeleton className="h-64" />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {[
-            { label: 'Text in Paperless', text: d.paperlessText, extra: <Badge tone={LEVEL_TONE[d.quality.level]}>{`${LEVEL_LABEL[d.quality.level]} · ${d.quality.score}/100`}</Badge> },
-            { label: 'PaddleOCR result', text: d.ocrText, extra: d.ocr?.writtenBack && !d.ocr.revertedAt ? <Badge tone="success">saved in Paperless</Badge> : null },
-          ].map((col) => (
-            <div key={col.label} className="min-w-0">
-              <div className="mb-2 flex items-center justify-between gap-2 text-xs font-medium tracking-wide text-faint uppercase">
-                {col.label}
-                {col.extra}
+        <div className="space-y-4">
+          {d.ocr?.keptOriginal && !d.inPaperless && (
+            <Alert tone="warn" title="Paperless kept its text">
+              The OCR result did not score better ({d.ocr.scoreAfter}/100) than the existing text ({d.ocr.scoreBefore}/100), so it was not saved and the AI
+              analysed the existing text. If the OCR text is better anyway, save it – the document is then analysed again.
+            </Alert>
+          )}
+          <div className="grid gap-4 md:grid-cols-2">
+            {[
+              {
+                label: d.inPaperless ? 'Before OCR' : 'Text in Paperless',
+                text: d.originalText,
+                extra: <QualityBadge quality={d.originalQuality} />,
+              },
+              {
+                label: d.inPaperless ? 'PaddleOCR result – now in Paperless' : 'PaddleOCR result',
+                text: d.ocrText,
+                extra: <QualityBadge quality={d.ocrQuality} />,
+              },
+            ].map((col) => (
+              <div key={col.label} className="min-w-0">
+                <div className="mb-2 flex items-center justify-between gap-2 text-xs font-medium tracking-wide text-faint uppercase">
+                  <span>{col.label}</span>
+                  {col.extra}
+                </div>
+                <pre className="max-h-[55vh] overflow-auto rounded-xl border border-border bg-surface-2 p-3 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap">
+                  {col.text?.trim() ? col.text : <span className="text-faint">(no text)</span>}
+                </pre>
               </div>
-              <pre className="max-h-[55vh] overflow-auto rounded-xl border border-border bg-surface-2 p-3 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap">
-                {col.text?.trim() ? col.text : <span className="text-faint">(no text)</span>}
-              </pre>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </Modal>
@@ -182,10 +233,23 @@ export default function OcrPage() {
       toast.success(`${res.queued} document(s) queued for OCR`);
     });
 
+  const apply = (id: number) =>
+    act(async () => {
+      const ok = await confirm({
+        title: 'Save the OCR text in Paperless?',
+        message: 'The text of the document in Paperless is replaced with the OCR result (the current text is kept for undo), and the AI analyses the document again.',
+        confirmLabel: 'Save OCR text',
+      });
+      if (!ok) return;
+      await post(`/api/ocr/documents/${id}/apply`);
+      setDetail(null);
+      toast.success('OCR text saved in Paperless – the document is analysed again');
+    });
+
   const revert = (id: number) =>
     act(async () => {
       const ok = await confirm({
-        title: 'Revert the OCR text?',
+        title: 'Restore the text before OCR?',
         message: 'The text Paperless had before the OCR is restored. Title, tags etc. set by the AI stay – undo them in the history if needed.',
         confirmLabel: 'Revert',
         danger: true,
@@ -413,7 +477,7 @@ export default function OcrPage() {
           </div>
         )}
       </Card>
-      <TextModal id={detail} onClose={() => setDetail(null)} onRevert={revert} />
+      <TextModal id={detail} onClose={() => setDetail(null)} onRevert={revert} onApply={apply} />
     </Page>
   );
 }
