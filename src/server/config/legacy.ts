@@ -178,6 +178,20 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'OCR_THREADS', path: 'ocr.threads', parse: i },
   { env: 'OCR_MAX_PAGES', path: 'ocr.maxPages', parse: i },
 
+  { env: 'PAPERLESS_AI_URL', path: 'auth.publicUrl', parse: s },
+  { env: 'PASSWORD_LOGIN', path: 'auth.passwordLogin', parse: b },
+  { env: 'OIDC_ENABLED', path: 'auth.oidc.enabled', parse: b },
+  { env: 'OIDC_ISSUER', path: 'auth.oidc.issuer', parse: s },
+  { env: 'OIDC_CLIENT_ID', path: 'auth.oidc.clientId', parse: s },
+  { env: 'OIDC_CLIENT_SECRET', path: 'auth.oidc.clientSecret', parse: s },
+  { env: 'OIDC_SCOPES', path: 'auth.oidc.scopes', parse: s },
+  { env: 'OIDC_BUTTON_LABEL', path: 'auth.oidc.buttonLabel', parse: s },
+  { env: 'OIDC_USERNAME_CLAIM', path: 'auth.oidc.usernameClaim', parse: s },
+  { env: 'OIDC_GROUPS_CLAIM', path: 'auth.oidc.groupsClaim', parse: s },
+  { env: 'OIDC_ALLOWED_GROUPS', path: 'auth.oidc.allowedGroups', parse: (v) => parseList(v) },
+  { env: 'OIDC_AUTO_CREATE', path: 'auth.oidc.autoCreate', parse: b },
+  { env: 'OIDC_PROVIDER_LOGOUT', path: 'auth.oidc.providerLogout', parse: b },
+
   { env: 'API_KEY', path: 'security.apiKey', parse: s },
   { env: 'JWT_SECRET', path: 'security.jwtSecret', parse: s },
 ];

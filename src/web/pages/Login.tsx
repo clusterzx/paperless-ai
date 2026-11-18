@@ -3,6 +3,7 @@ import { useLocation } from 'wouter';
 import { ArrowLeft, ArrowRight, ShieldCheck, Sparkles, Wand2 } from 'lucide-react';
 import type { LoginTwoFactorRequired } from '@shared/api';
 import { Logo, Wordmark } from '../components/Brand';
+import { SsoButton } from '../components/singleSignOn';
 import { Alert, Button, Field, Input, useToast } from '../components/ui';
 import { ApiError, errorMessage, post } from '../lib/api';
 import { useSession } from '../lib/session';
@@ -86,13 +87,26 @@ function nextPath(): string {
   }
 }
 
+/** "or" between the password form and the single sign-on button. */
+export function OrDivider() {
+  return (
+    <div className="my-5 flex items-center gap-3 text-xs text-faint" aria-hidden>
+      <span className="h-px flex-1 bg-border" />
+      or
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
 export default function LoginPage() {
-  const { refresh } = useSession();
+  const { session, refresh } = useSession();
   const toast = useToast();
   const [, navigate] = useLocation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  // A failed single sign-on comes back as /login?sso_error=…
+  const [error, setError] = useState<string | null>(() => new URLSearchParams(window.location.search).get('sso_error'));
+  const login = session?.login ?? { password: true, sso: null };
   const [busy, setBusy] = useState(false);
   // Accounts with 2FA: the password gives a ticket for the second step.
   const [ticket, setTicket] = useState<string | null>(null);
@@ -190,6 +204,17 @@ export default function LoginPage() {
     );
   }
 
+  if (!login.password && login.sso) {
+    return (
+      <AuthShell title="Welcome back" subtitle="Sign in to continue to Paperless-AI.">
+        <div className="space-y-4">
+          {error && <Alert tone="danger">{error}</Alert>}
+          <SsoButton label={login.sso} next={nextPath()} primary />
+        </div>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell title="Welcome back" subtitle="Sign in to continue to Paperless-AI.">
       <form onSubmit={submit} className="space-y-4">
@@ -204,6 +229,12 @@ export default function LoginPage() {
           Sign in <ArrowRight className="size-4" />
         </Button>
       </form>
+      {login.sso && (
+        <>
+          <OrDivider />
+          <SsoButton label={login.sso} next={nextPath()} />
+        </>
+      )}
     </AuthShell>
   );
 }

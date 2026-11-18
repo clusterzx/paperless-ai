@@ -1,6 +1,7 @@
 /**
  * Demo / end-to-end test server: starts a fake Paperless-ngx with sample
- * documents, a fake OpenAI-compatible LLM and the real Paperless-AI app.
+ * documents, a fake OpenAI-compatible LLM, a fake OpenID Connect provider (signs
+ * everyone in as "erika" at once) and the real Paperless-AI app.
  *
  *   npm run demo                 → configured instance (login admin / demo1234)
  *   DEMO_FRESH=1 npm run demo    → unconfigured instance (setup wizard)
@@ -13,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startMockPaperless } from '../test/helpers/mockPaperless.js';
 import { startMockLlm, type ChatRequestInfo } from '../test/helpers/mockLlm.js';
+import { MockOidc } from '../test/helpers/mockOidc.js';
 import { AppContext } from '../src/server/context.js';
 import { buildApp } from '../src/server/http/app.js';
 import { ProcessingEngine } from '../src/server/processing/engine.js';
@@ -27,6 +29,7 @@ const fresh = process.env.DEMO_FRESH === '1';
 
 const paperless = await startMockPaperless({ maxVersion: 10, minVersion: 9, serverVersion: '3.2.1', token: 'demo-token' });
 const llm = await startMockLlm();
+const oidc = await new MockOidc().start();
 
 // ------------------------------------------------------------------ sample archive
 const t = (name: string) => paperless.addTag(name).id;
@@ -226,7 +229,12 @@ engine.on('idle', () => rag.requestSync());
 ocr.onTextChanged = (id) => rag.invalidate(id);
 const staticDir = path.resolve(here, '..', 'dist', 'public');
 const app = await buildApp({ ctx, engine, rag, ocr }, { staticDir });
-app.get('/__demo/info', { config: { auth: 'public' } }, async () => ({ paperlessUrl: paperless.url, paperlessToken: paperless.token, llmUrl: llm.openaiUrl }));
+app.get('/__demo/info', { config: { auth: 'public' } }, async () => ({
+  paperlessUrl: paperless.url,
+  paperlessToken: paperless.token,
+  llmUrl: llm.openaiUrl,
+  oidc: { issuer: oidc.url, clientId: oidc.clientId, clientSecret: oidc.clientSecret, logouts: oidc.endSessionRequests.length },
+}));
 await app.listen({ port, host: '127.0.0.1' });
 engine.start(false);
 rag.start();
@@ -236,10 +244,11 @@ if (!fresh) {
 }
 console.log(`Demo running on http://127.0.0.1:${port} (${fresh ? 'setup wizard' : 'login admin / demo1234'})`);
 console.log(`Fake Paperless: ${paperless.url} (token ${paperless.token}) · Fake LLM: ${llm.openaiUrl}`);
+console.log(`Fake OpenID Connect provider: ${oidc.url} (client ${oidc.clientId} / ${oidc.clientSecret})`);
 
 const shutdown = async () => {
   await app.close();
-  await Promise.all([engine.stop(), rag.stop(), paperless.close(), llm.close()]);
+  await Promise.all([engine.stop(), rag.stop(), paperless.close(), llm.close(), oidc.close()]);
   ctx.close();
   fs.rmSync(dataDir, { recursive: true, force: true });
   process.exit(0);

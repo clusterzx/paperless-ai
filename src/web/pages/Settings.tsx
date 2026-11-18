@@ -10,6 +10,7 @@ import {
   KeyRound,
   Link2,
   ListChecks,
+  LogIn,
   MessageSquareQuote,
   ScanText,
   RefreshCw,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Page } from '../components/Layout';
 import { TwoFactorCard } from '../components/twoFactor';
+import { SingleSignOnCard } from '../components/singleSignOn';
 import {
   AiSection,
   ConnectionSection,
@@ -30,6 +32,7 @@ import {
   OcrSection,
   PromptSection,
   RagSection,
+  SignInSection,
   type Config,
   type Locked,
 } from '../components/settingsForms';
@@ -46,9 +49,10 @@ import {
   useConfirm,
   useToast,
 } from '../components/ui';
+import type { AccountInfo } from '@shared/api';
 import { ApiError, errorMessage, get, post, put } from '../lib/api';
 import { changedPaths, useDraft } from '../lib/draft';
-import { useUnsavedChanges } from '../lib/hooks';
+import { useAsync, useUnsavedChanges } from '../lib/hooks';
 import { useMetadata } from '../lib/metadata';
 import { useSession } from '../lib/session';
 
@@ -60,7 +64,7 @@ interface SettingsResponse {
   ocr: { available: boolean; cudaAvailable: boolean };
 }
 
-const TAB_IDS = ['connection', 'ai', 'processing', 'prompt', 'fields', 'ocr', 'external', 'rag', 'integrations', 'account'] as const;
+const TAB_IDS = ['connection', 'ai', 'processing', 'prompt', 'fields', 'ocr', 'external', 'rag', 'signin', 'integrations', 'account'] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 function CopyField({ value, secret }: { value: string; secret?: boolean }) {
@@ -180,7 +184,7 @@ function IntegrationsTab({ locked }: { locked: Locked }) {
   );
 }
 
-function AccountTab() {
+function PasswordCard() {
   const toast = useToast();
   const { session, refresh } = useSession();
   const [username, setUsername] = useState(session?.user?.username ?? '');
@@ -236,6 +240,41 @@ function AccountTab() {
   );
 }
 
+/** Settings → Account: password, single sign-on, two-factor authentication. */
+function AccountTab() {
+  const toast = useToast();
+  const search = useSearch();
+  const [, navigate] = useLocation();
+  const account = useAsync((signal) => get<AccountInfo>('/api/account', signal), []);
+  // Back from linking at the provider: ?sso=linked or ?sso_error=…
+  const [ssoError] = useState(() => new URLSearchParams(search).get('sso_error'));
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    if (params.get('sso') === 'linked') toast.success('Your account is now linked with single sign-on');
+    if (params.has('sso') || params.has('sso_error')) navigate('/settings?tab=account', { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (account.error) return <Alert tone="danger">{account.error}</Alert>;
+  const a = account.data;
+  if (!a) return <Skeleton className="h-64 max-w-xl rounded-xl" />;
+  return (
+    <div className="space-y-6">
+      {a.hasPassword ? (
+        <PasswordCard />
+      ) : (
+        <Card title="Your account" icon={<UserCog className="size-4" />} className="max-w-xl">
+          <p className="text-sm">
+            Signed in as <strong>{a.user?.username}</strong>.
+          </p>
+          <p className="mt-1 text-sm text-muted">This account was created by single sign-on – it has no password; the provider takes care of it (including multi-factor authentication).</p>
+        </Card>
+      )}
+      {(a.sso.available || a.sso.linked || ssoError) && <SingleSignOnCard account={a} error={ssoError} onChange={() => void account.reload()} />}
+      {a.hasPassword && <TwoFactorCard />}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const toast = useToast();
   const confirm = useConfirm();
@@ -250,6 +289,8 @@ export default function SettingsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, set, setDraft] = useDraft<Config | null>(null);
   const [saving, setSaving] = useState(false);
+  // Whether the signed-in account is linked with single sign-on (needed to switch off the password login).
+  const account = useAsync((signal) => (tab === 'signin' ? get<AccountInfo>('/api/account', signal) : Promise.resolve(null)), [tab]);
 
   useEffect(() => {
     get<SettingsResponse>('/api/settings')
@@ -277,7 +318,12 @@ export default function SettingsPage() {
     } catch (err) {
       if (err instanceof ApiError && err.body?.canForce && !force) {
         const ok = await confirm({
-          title: err.body.step === 'paperless' ? 'Paperless-ngx connection failed' : 'AI connection failed',
+          title:
+            err.body.step === 'paperless'
+              ? 'Paperless-ngx connection failed'
+              : err.body.step === 'oidc'
+                ? 'Sign-in provider not reachable'
+                : 'AI connection failed',
           message: (
             <>
               <span className="block text-danger">{err.message}</span>
@@ -319,6 +365,7 @@ export default function SettingsPage() {
     { id: 'ocr', label: 'OCR', icon: <ScanText className="size-4" /> },
     { id: 'external', label: 'External data', icon: <Braces className="size-4" /> },
     { id: 'rag', label: 'Ask your archive', icon: <Sparkles className="size-4" /> },
+    { id: 'signin', label: 'Sign-in', icon: <LogIn className="size-4" /> },
     { id: 'integrations', label: 'API & webhooks', icon: <KeyRound className="size-4" /> },
     { id: 'account', label: 'Account', icon: <UserCog className="size-4" /> },
   ];
@@ -392,13 +439,13 @@ export default function SettingsPage() {
               <RagSection {...props} localEmbeddings={loaded.localEmbeddings} />
             </Card>
           )}
-          {tab === 'integrations' && <IntegrationsTab locked={locked} />}
-          {tab === 'account' && (
-            <div className="space-y-6">
-              <AccountTab />
-              <TwoFactorCard />
-            </div>
+          {tab === 'signin' && (
+            <Card title="Sign-in" description="How you sign in to Paperless-AI: user name and password, single sign-on (OpenID Connect) or both.">
+              <SignInSection {...props} linked={Boolean(account.data?.sso.linked)} />
+            </Card>
           )}
+          {tab === 'integrations' && <IntegrationsTab locked={locked} />}
+          {tab === 'account' && <AccountTab />}
         </div>
       </div>
 

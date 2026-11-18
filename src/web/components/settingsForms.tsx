@@ -950,3 +950,122 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
     </div>
   );
 }
+
+/** Sign-in: password and single sign-on with an OpenID Connect provider. */
+export function SignInSection({ draft, set, locked, linked }: SectionProps & { linked: boolean }) {
+  const a = draft.auth;
+  const o = a.oidc;
+  const [test, setTest] = useState<(ConnectionTestResult & { callbackUrl?: string }) | null>(null);
+  const [testing, setTesting] = useState(false);
+  const base = a.publicUrl.replace(/\/+$/, '') || window.location.origin;
+  const callbackUrl = `${base}/api/auth/oidc/callback`;
+  const lockedOidc = (key: keyof typeof o) => locked[`auth.oidc.${key}`];
+  const runTest = async () => {
+    setTesting(true);
+    try {
+      setTest(await post<ConnectionTestResult>('/api/settings/test-oidc', { issuer: o.issuer, clientId: o.clientId, clientSecret: o.clientSecret }));
+    } catch (err) {
+      setTest({ ok: false, message: errorMessage(err) });
+    } finally {
+      setTesting(false);
+    }
+  };
+  return (
+    <div className="space-y-6">
+      <Switch
+        label="Single sign-on (OpenID Connect)"
+        description="Sign in with Authentik, Keycloak, Authelia, Zitadel, Pocket ID or any other OpenID Connect provider."
+        checked={o.enabled}
+        locked={lockedOidc('enabled')}
+        onChange={(v) => set('auth.oidc.enabled', v)}
+      />
+      {o.enabled && (
+        <>
+          <FormGrid>
+            <Field label="Issuer URL" locked={lockedOidc('issuer')} hint="e.g. https://auth.example.com/application/o/paperless-ai/ (Authentik) or https://sso.example.com/realms/home (Keycloak)">
+              <Input placeholder="https://auth.example.com/…" {...bind(draft, set, locked, 'auth.oidc.issuer')} />
+            </Field>
+            <Field label="Public address of Paperless-AI" locked={locked['auth.publicUrl']} hint="As your browser opens it. Empty: the address of the current request.">
+              <Input placeholder={window.location.origin} {...bind(draft, set, locked, 'auth.publicUrl')} />
+            </Field>
+            <Field label="Client ID" locked={lockedOidc('clientId')}>
+              <Input {...bind(draft, set, locked, 'auth.oidc.clientId')} />
+            </Field>
+            <Field label="Client secret" locked={lockedOidc('clientSecret')} hint="Empty for a public client.">
+              <SecretInput value={o.clientSecret} onChange={(v) => set('auth.oidc.clientSecret', v)} disabled={Boolean(lockedOidc('clientSecret'))} />
+            </Field>
+          </FormGrid>
+          <div className="rounded-xl border border-border bg-surface-2 p-3 text-sm">
+            <div className="text-xs text-muted">Redirect URI to register at the provider</div>
+            <code className="mt-1 block font-mono text-[13px] break-all" aria-label="Redirect URI">
+              {test?.callbackUrl && !a.publicUrl ? test.callbackUrl : callbackUrl}
+            </code>
+            <div className="mt-2 text-xs text-muted">
+              Post-logout redirect URI (if the provider asks for one): <code className="font-mono">{base}/login</code>
+            </div>
+          </div>
+          <div>
+            <Button size="sm" icon={<Plug className="size-3.5" />} loading={testing} disabled={!o.issuer} onClick={runTest}>
+              Test provider
+            </Button>
+            <TestResult result={test} />
+          </div>
+          <FormGrid>
+            <Field label="Button label" locked={lockedOidc('buttonLabel')}>
+              <Input {...bind(draft, set, locked, 'auth.oidc.buttonLabel')} />
+            </Field>
+            <Field label="Scopes" locked={lockedOidc('scopes')} hint="Add “groups” if your provider needs it for the groups claim.">
+              <Input {...bind(draft, set, locked, 'auth.oidc.scopes')} />
+            </Field>
+            <Field label="User name claim" locked={lockedOidc('usernameClaim')} hint="For new accounts; falls back to email, name and sub.">
+              <Input {...bind(draft, set, locked, 'auth.oidc.usernameClaim')} />
+            </Field>
+            <Field label="Groups claim" locked={lockedOidc('groupsClaim')}>
+              <Input {...bind(draft, set, locked, 'auth.oidc.groupsClaim')} />
+            </Field>
+          </FormGrid>
+          <Field label="Allowed groups" locked={lockedOidc('allowedGroups')} hint="Only members of one of these groups may sign in. Empty: everyone your provider lets through.">
+            <TagInput value={o.allowedGroups} onChange={(v) => set('auth.oidc.allowedGroups', v)} placeholder="e.g. paperless-admins" disabled={Boolean(lockedOidc('allowedGroups'))} />
+          </Field>
+          {!o.allowedGroups.length && (
+            <Alert tone="warn">
+              Without allowed groups, everyone your provider lets through for this application can sign in – and every Paperless-AI account can change all settings. Restrict access at
+              the provider (e.g. application bindings in Authentik) or name allowed groups here.
+            </Alert>
+          )}
+          <FormGrid>
+            <Switch
+              label="Create accounts automatically"
+              description="On the first sign-in. Off: only accounts linked in Settings → Account can sign in."
+              checked={o.autoCreate}
+              locked={lockedOidc('autoCreate')}
+              onChange={(v) => set('auth.oidc.autoCreate', v)}
+            />
+            <Switch
+              label="Sign out at the provider too"
+              description="Signing out of Paperless-AI also ends the session at the provider (if it supports it)."
+              checked={o.providerLogout}
+              locked={lockedOidc('providerLogout')}
+              onChange={(v) => set('auth.oidc.providerLogout', v)}
+            />
+          </FormGrid>
+        </>
+      )}
+      <div className="border-t border-border pt-5">
+        <Switch
+          label="Sign in with user name and password"
+          description={
+            o.enabled
+              ? linked
+                ? 'Off: only single sign-on. Two-factor authentication applies to the password login only.'
+                : 'To switch it off, link your account with single sign-on first (Settings → Account) – otherwise you could not sign in any more.'
+              : 'Can be switched off once single sign-on is set up.'
+          }
+          checked={a.passwordLogin}
+          locked={locked['auth.passwordLogin']}
+          onChange={(v) => set('auth.passwordLogin', v)}
+        />
+      </div>
+    </div>
+  );
+}

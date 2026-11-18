@@ -545,3 +545,78 @@ test('support reminder opens on the dashboard, can be put off for 7 days and com
   await page.getByRole('button', { name: 'Support the project' }).click();
   await expect(dialog).toBeVisible();
 });
+
+test('single sign-on: set up, link the account, sign in and out at the provider', async ({ page, request }) => {
+  const demoInfo = async () => (await (await request.get('/__demo/info')).json()) as { oidc: { issuer: string; clientId: string; clientSecret: string; logouts: number } };
+  const { oidc } = await demoInfo();
+  await login(page);
+
+  // Settings → Sign-in: connect the provider
+  await page.goto('/settings?tab=signin');
+  await page.getByRole('switch', { name: /Single sign-on \(OpenID Connect\)/ }).click();
+  await page.getByLabel('Issuer URL').fill(oidc.issuer);
+  await page.getByLabel('Client ID').fill(oidc.clientId);
+  await page.getByLabel('Client secret').fill(oidc.clientSecret);
+  await expect(page.getByLabel('Redirect URI')).toHaveText(/\/api\/auth\/oidc\/callback$/);
+  await page.getByRole('button', { name: 'Test provider' }).click();
+  await expect(page.getByText(`Found ${oidc.issuer}`)).toBeVisible();
+  await expect(page.getByText(/Without allowed groups, everyone/)).toBeVisible();
+  const groups = page.getByLabel('Allowed groups');
+  await groups.fill('paperless');
+  await groups.press('Enter');
+  await expect(page.getByText(/Without allowed groups, everyone/)).toBeHidden();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText(/Settings saved/)).toBeVisible();
+
+  // The password login can only be switched off once the own account is linked
+  const passwordLogin = page.getByRole('switch', { name: /Sign in with user name and password/ });
+  await passwordLogin.click();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText(/Link your account with single sign-on first/).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Discard' }).click();
+
+  // Settings → Account: link with the provider (it signs in as "erika" at once and sends the browser back)
+  await page.goto('/settings?tab=account');
+  await page.getByRole('link', { name: 'Link with single sign-on' }).click();
+  await expect(page.getByText('Your account is now linked with single sign-on')).toBeVisible();
+  await expect(page.getByText('Linked', { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\?tab=account$/);
+
+  // Now only single sign-on
+  await page.goto('/settings?tab=signin');
+  await passwordLogin.click();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText(/Settings saved/)).toBeVisible();
+
+  const signOut = async () => {
+    await page.getByRole('button', { name: /Account & appearance/ }).click();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+  };
+  // A password session signs out locally; the login page offers single sign-on only
+  await signOut();
+  const ssoButton = page.getByRole('link', { name: 'Sign in with SSO' });
+  await expect(ssoButton).toBeVisible();
+  await expect(page.locator('#password')).toHaveCount(0);
+  expect((await demoInfo()).oidc.logouts).toBe(oidc.logouts);
+
+  // Signing in with SSO opens the linked account – and the page the browser came from
+  const signedInAsAdmin = page.getByRole('button', { name: new RegExp(`^${USER} Account & appearance`) });
+  await ssoButton.click();
+  await expect(signedInAsAdmin).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\?tab=signin$/);
+
+  // Signing out of an SSO session ends it at the provider, which sends the browser back to the login page
+  await signOut();
+  await expect(ssoButton).toBeVisible();
+  expect((await demoInfo()).oidc.logouts).toBe(oidc.logouts + 1);
+  await ssoButton.click();
+  await expect(signedInAsAdmin).toBeVisible();
+
+  // Back to passwords for the other tests
+  await page.goto('/settings?tab=signin');
+  await passwordLogin.click();
+  await page.getByRole('switch', { name: /Single sign-on \(OpenID Connect\)/ }).click();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText(/Settings saved/)).toBeVisible();
+  session = null;
+});

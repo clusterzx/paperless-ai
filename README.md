@@ -21,6 +21,10 @@ Works with **Paperless-ngx 2.x and 3.x**, OpenAI, Anthropic (Claude), **Ollama (
 
 ---
 
+## ✨ What's new in 4.3
+
+- **Single sign-on (OpenID Connect)** – sign in with Authentik, Keycloak, Authelia, Zitadel, Pocket ID, Microsoft Entra ID or any other OpenID Connect provider. Optional restriction to groups, accounts are created on the first sign-in or linked to existing ones, the password login can be switched off, and signing out ends the session at the provider too. → [Single sign-on](#single-sign-on-openid-connect)
+
 ## ✨ What's new in 4.2
 
 - **Calendar** – appointments, payment due dates, deadlines (cancellation, objection …) and expiry dates are found during the AI analysis – no extra AI request. A calendar page lists what is coming up, and a private **iCal link** brings the dates into Google Calendar, Apple Calendar or Outlook. Documents processed earlier can be searched on request. Off by default. → [Calendar](#calendar)
@@ -105,6 +109,7 @@ Upgrading from 3.x is automatic: your `data/.env`, user account, processing stat
 - **Logs & diagnostics** – live log stream, connection checks, Paperless API explorer
 - Modern interface: light/dark theme with five accent colours, **⌘K / Ctrl+K command menu** (jump to pages, open documents by number, ask a question), works on mobile
 - **Two-factor authentication** (optional, per user): codes from an authenticator app (Aegis, Google Authenticator, 1Password, Bitwarden …) plus ten single-use recovery codes – *Settings → Account*. API keys for webhooks and scripts keep working without a code
+- **Single sign-on** with any OpenID Connect provider (Authentik, Keycloak, Authelia, Zitadel, Pocket ID, Entra ID …): PKCE, allowed groups, automatic accounts or linking of existing ones, optional SSO-only login and logout at the provider – *Settings → Sign-in*
 
 | Manual review | History with undo |
 | --- | --- |
@@ -168,7 +173,7 @@ Keep your data volume and switch the image – everything else happens on the fi
    docker run --rm -v paperless-ai_data:/data -v "$PWD":/backup alpine \
      tar czf /backup/paperless-ai-3x-backup.tgz -C /data .
    ```
-2. **Update `docker-compose.yml`:** use `image: clusterzx/paperless-ai:latest` (or a fixed version such as `4.2.0`), keep the volume `…:/app/data` and the port. Remove the 3.x lines `RAG_SERVICE_URL`, `PUID` and `PGID` (no longer used) and `RAG_SERVICE_ENABLED` (it would lock the setting in the UI).
+2. **Update `docker-compose.yml`:** use `image: clusterzx/paperless-ai:latest` (or a fixed version such as `4.3.0`), keep the volume `…:/app/data` and the port. Remove the 3.x lines `RAG_SERVICE_URL`, `PUID` and `PGID` (no longer used) and `RAG_SERVICE_ENABLED` (it would lock the setting in the UI).
 3. **Start:** `docker compose pull && docker compose up -d`. The log (`docker compose logs -f paperless-ai`) shows `Migrated legacy data/.env configuration to data/config.json` and `Imported data from legacy documents.db` with the number of migrated users, documents and history entries.
 4. **Sign in** with your previous username and password and review the settings – everything is prefilled; values set by environment variables are shown locked.
 
@@ -226,6 +231,11 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `API_KEY`, `JWT_SECRET` | secrets (generated automatically when unset; use at least 32 random characters for `JWT_SECRET`) |
 | `LOG_LEVEL`, `LOG_FORMAT=json` | operations |
 | `TRUST_PROXY` | behind a reverse proxy: number of proxy hops (usually `1`) or the proxy addresses – needed for correct client IPs (login rate limit) and secure cookies; off by default |
+| `PAPERLESS_AI_URL` | address of Paperless-AI as the browser opens it (e.g. `https://paperless-ai.example.com`) – used for the single sign-on redirect URI; default: the address of the request |
+| `OIDC_ENABLED`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | [single sign-on](#single-sign-on-openid-connect) with an OpenID Connect provider (the secret stays empty for a public client) |
+| `OIDC_ALLOWED_GROUPS`, `OIDC_GROUPS_CLAIM`, `OIDC_SCOPES` | only members of these groups may sign in (comma-separated, empty = everyone the provider lets through); claim with the groups (default `groups`); scopes (default `openid profile email`) |
+| `OIDC_AUTO_CREATE`, `OIDC_USERNAME_CLAIM`, `OIDC_BUTTON_LABEL`, `OIDC_PROVIDER_LOGOUT` | create accounts on the first sign-in (default on), claim for their names (default `preferred_username`), label of the login button, sign out at the provider too (default on) |
+| `PASSWORD_LOGIN` | `false` = sign in with single sign-on only (takes effect only while single sign-on is set up) |
 
 Empty variables (e.g. `OPENAI_API_KEY=` left in a compose file) are ignored, so they never replace what you configured in the web interface.
 
@@ -252,6 +262,25 @@ ONNX Runtime's own usage telemetry is switched off (`ORT_DISABLE_TELEMETRY=1`) �
 
 - **Earlier documents:** *Search documents* asks only for the dates of documents processed before (last 3 or 12 months, 3 years or all) – one small AI request per document, titles and tags in Paperless stay untouched.
 - **Subscribe:** *Subscribe* shows a private link (`…/api/calendar/feed/<secret>.ics`). Add it in Google Calendar (*Other calendars → From URL*), Apple Calendar (*File → New Calendar Subscription*) or Outlook (*Subscribe from web*). The calendar app must be able to reach Paperless-AI at that address; anyone with the link can read the dates, so a new link can be created at any time.
+
+### Single sign-on (OpenID Connect)
+
+*Settings → Sign-in* connects Paperless-AI to your identity provider (or use the `OIDC_*` variables above). Register Paperless-AI there as a web application (*confidential* client, authorization code flow):
+
+- **Redirect URI:** `https://paperless-ai.example.com/api/auth/oidc/callback` – shown in the settings, together with the **post-logout redirect URI** `https://paperless-ai.example.com/login`
+- **Issuer URL:** the address in front of `/.well-known/openid-configuration` – *Test provider* checks it
+- **Behind a reverse proxy** set `PAPERLESS_AI_URL` (or *Public address* in the settings) to the address your browser uses, so the redirect URI has the right scheme and host
+
+Who may sign in: everyone the provider lets through for this application, or – with *Allowed groups* – only members of these groups. All Paperless-AI accounts have the same rights (settings included), so restrict access at the provider or name the groups. New accounts are created on the first sign-in; with *Create accounts automatically* off, an existing user signs in with the password once and links the account in *Settings → Account*. Once your account is linked you can switch off the password login – on a fresh installation (`PASSWORD_LOGIN=false`) the first single sign-on creates the first account.
+
+| Provider | Notes |
+| --- | --- |
+| Authentik | *Applications → Providers → OAuth2/OpenID Provider*, redirect URI *strict*; issuer `https://authentik.example.com/application/o/<slug>/`. Groups come with the `profile` scope; bind the application to a group or policy to limit access. |
+| Keycloak | Client with *Client authentication* on and *Standard flow*; issuer `https://keycloak.example.com/realms/<realm>`. For groups add a *Group Membership* mapper (claim `groups`, *Full group path* off) to the client's dedicated scope. |
+| Authelia | Client with `redirect_uris`, `require_pkce: true`, `pkce_challenge_method: S256`, `token_endpoint_auth_method: client_secret_basic` and the scopes `openid profile email groups`; set *Scopes* (`OIDC_SCOPES`) to `openid profile email groups`. Issuer `https://auth.example.com`. |
+| Others | Zitadel, Pocket ID, Kanidm, Entra ID, Google … work the same way. Without a client secret the client is treated as a public client (PKCE only). |
+
+Signing in with single sign-on skips the two-factor code of Paperless-AI – use the multi-factor authentication of your provider. Provider down and the password login switched off? Start with `PASSWORD_LOGIN=true` and sign in with an account that has a password.
 
 ### Local models (Ollama)
 

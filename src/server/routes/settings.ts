@@ -15,6 +15,7 @@ import { cudaProviderInstalled } from '../ocr/pipeline.js';
 import { logger } from '../logger.js';
 import { describeError } from '../util/http.js';
 import { storedPaperlessToken, testAiConnection, testPaperlessConnection, withoutMaskedSecrets } from './connectionTests.js';
+import { describeOidcError, discover, oidcUsable, passwordLoginAllowed } from '../oidc.js';
 
 const log = logger.child({ module: 'settings' });
 
@@ -62,7 +63,36 @@ export const settingsRoutes =
           }
         }
 
+        // Switching the password login off must not lock everybody out.
+        if (!passwordLoginAllowed(next) && passwordLoginAllowed(ctx.cfg)) {
+          const me = req.principal?.kind === 'user' ? ctx.repos.users.byId(req.principal.userId) : undefined;
+          if (!me?.oidc_subject) {
+            return reply.code(400).send({
+              error: 'Link your account with single sign-on first (Settings → Account) – otherwise you could not sign in any more',
+              step: 'oidc',
+            });
+          }
+        }
+        if (!next.auth.passwordLogin && !oidcUsable(next)) {
+          throw badRequest('The password login can only be switched off while single sign-on is set up');
+        }
+
         const warnings: string[] = [];
+        const o = next.auth.oidc;
+        const prevOidc = ctx.cfg.auth.oidc;
+        const oidcChanged = o.issuer !== prevOidc.issuer || o.clientId !== prevOidc.clientId || o.clientSecret !== prevOidc.clientSecret || o.enabled !== prevOidc.enabled;
+        // A provider that cannot be reached is only accepted on request – and never as the only way in.
+        if (oidcUsable(next) && oidcChanged && (!req.body.force || !passwordLoginAllowed(next))) {
+          try {
+            await discover(o.issuer, o.clientId, o.clientSecret);
+          } catch (err) {
+            return reply.code(400).send({
+              error: `No OpenID Connect provider found at ${o.issuer}: ${describeOidcError(err)}`,
+              step: 'oidc',
+              canForce: passwordLoginAllowed(next),
+            });
+          }
+        }
         if (!req.body.force) {
           const prev = ctx.cfg;
           if (next.paperless.url !== prev.paperless.url || next.paperless.token !== prev.paperless.token) {

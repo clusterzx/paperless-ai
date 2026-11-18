@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import type { SessionInfo } from '../../shared/api.js';
+import type { AccountInfo, SessionInfo } from '../../shared/api.js';
 import type { Services } from '../http/app.js';
 import { badRequest, sendEventStream } from '../http/helpers.js';
 import {
@@ -13,6 +13,7 @@ import {
   validatePassword,
   verifyPassword,
 } from '../auth.js';
+import { OIDC_ID_TOKEN_COOKIE, oidcService, oidcUsable, passwordLoginAllowed } from '../oidc.js';
 import { twoFactorStatus } from '../twoFactor.js';
 import { configSchema, type AppConfig, type DeepPartial } from '../config/schema.js';
 import { deepMerge } from '../config/store.js';
@@ -51,6 +52,7 @@ export const systemRoutes =
         user: p?.kind === 'user' ? { id: p.userId, username: p.username } : undefined,
         version: ctx.version,
         features: { rag: ctx.cfg.rag.enabled, calendar: ctx.cfg.processing.functions.events },
+        login: { password: passwordLoginAllowed(ctx.cfg), sso: oidcUsable(ctx.cfg) ? ctx.cfg.auth.oidc.buttonLabel || 'Sign in with SSO' : null },
       };
     });
 
@@ -61,10 +63,14 @@ export const systemRoutes =
         schema: { body: z.object({ username: z.string().min(1).max(200), password: z.string().min(1).max(200) }) },
       },
       async (req, reply) => {
+        if (!passwordLoginAllowed(ctx.cfg)) {
+          return reply.code(403).send({ error: 'Signing in with a password is switched off – use single sign-on', code: 'password_login_disabled' });
+        }
         const user = ctx.repos.users.byUsername(req.body.username.trim());
-        // Compare against a dummy hash for unknown users so response times do not reveal valid usernames.
-        const ok = await verifyPassword(req.body.password, user?.password_hash ?? (await dummyHash()));
-        if (!user || !ok) {
+        // Compare against a dummy hash for unknown users (and accounts without a password, which only
+        // sign in with single sign-on) so response times do not reveal valid usernames.
+        const ok = await verifyPassword(req.body.password, user?.password_hash || (await dummyHash()));
+        if (!user || !user.password_hash || !ok) {
           log.warn(`Failed login attempt for "${req.body.username.slice(0, 50)}" from ${req.ip}`);
           return reply.code(401).send({ error: 'Invalid username or password' });
         }
@@ -85,9 +91,13 @@ export const systemRoutes =
       },
     );
 
-    app.post('/api/auth/logout', { config: { auth: 'public' } }, async (_req, reply) => {
+    app.post('/api/auth/logout', { config: { auth: 'public' } }, async (req, reply) => {
       clearSessionCookie(reply);
-      return { ok: true };
+      // A single sign-on session also ends at the provider – the browser is sent there next.
+      const idToken = req.cookies?.[OIDC_ID_TOKEN_COOKIE];
+      reply.clearCookie(OIDC_ID_TOKEN_COOKIE, { path: '/api/auth' });
+      const redirect = idToken ? await oidcService(ctx).logoutUrl(req, idToken) : null;
+      return { ok: true, redirect };
     });
 
     // ---------------------------------------------------------------- setup wizard
@@ -127,6 +137,7 @@ export const systemRoutes =
       if (!ctx.needsSetup()) return reply.code(409).send({ error: 'Setup has already been completed' });
       const needsUser = ctx.repos.users.count() === 0;
       if (needsUser) {
+        if (!passwordLoginAllowed(ctx.cfg)) throw badRequest('Sign in with single sign-on first – it creates the first account');
         if (!req.body.username) throw badRequest('A username is required');
         const problem = validatePassword(req.body.password ?? '');
         if (problem) throw badRequest(problem);
@@ -163,10 +174,18 @@ export const systemRoutes =
 
     // ---------------------------------------------------------------- account
 
-    app.get('/api/account', { config: { auth: 'session' } }, async (req) => {
+    app.get('/api/account', { config: { auth: 'session' } }, async (req): Promise<AccountInfo> => {
       const p = req.principal!;
       const users = ctx.repos.users.list().map((u) => ({ id: u.id, username: u.username, createdAt: u.created_at }));
-      return { user: p.kind === 'user' ? { id: p.userId, username: p.username } : null, users, twoFactor: p.kind === 'user' ? twoFactorStatus(ctx, p.userId) : null };
+      const me = p.kind === 'user' ? ctx.repos.users.byId(p.userId) : undefined;
+      return {
+        user: p.kind === 'user' ? { id: p.userId, username: p.username } : null,
+        users,
+        twoFactor: p.kind === 'user' ? twoFactorStatus(ctx, p.userId) : null,
+        /** Accounts created by single sign-on have no password (and no local two-factor authentication). */
+        hasPassword: Boolean(me?.password_hash),
+        sso: { available: oidcUsable(ctx.cfg), linked: Boolean(me?.oidc_subject), passwordLogin: passwordLoginAllowed(ctx.cfg) },
+      };
     });
 
     app.post(
