@@ -14,7 +14,7 @@ import { localEmbeddingsAvailable } from '../rag/localEmbedder.js';
 import { cudaProviderInstalled } from '../ocr/pipeline.js';
 import { logger } from '../logger.js';
 import { describeError } from '../util/http.js';
-import { storedPaperlessToken, testAiConnection, testPaperlessConnection, withoutMaskedSecrets } from './connectionTests.js';
+import { secretForAnotherServer, storedPaperlessToken, testAiConnection, testPaperlessConnection, withoutMaskedSecrets } from './connectionTests.js';
 
 const log = logger.child({ module: 'settings' });
 
@@ -47,6 +47,8 @@ export const settingsRoutes =
         delete (patch as Record<string, unknown>).version;
 
         const next = configSchema.parse(deepMerge(structuredClone(ctx.cfg), patch));
+        const secretProblem = secretForAnotherServer(ctx, patch, next);
+        if (secretProblem) throw badRequest(secretProblem);
         const cronProblem = validateCron(next.processing.scanInterval);
         if (cronProblem) throw badRequest(`Invalid scan interval: ${cronProblem}`);
         if (next.externalApi.enabled) {
@@ -100,7 +102,7 @@ export const settingsRoutes =
     app.post(
       '/api/settings/test-paperless',
       { config: { auth: 'session' }, schema: { body: z.object({ url: z.string(), token: z.string().optional() }) } },
-      async (req) => testPaperlessConnection(req.body.url, storedPaperlessToken(ctx, req.body.url, req.body.token, true)),
+      async (req) => testPaperlessConnection(req.body.url, storedPaperlessToken(ctx, req.body.url, req.body.token)),
     );
 
     app.post('/api/settings/test-ai', { config: { auth: 'session' }, schema: { body: z.object({ ai: z.record(z.string(), z.unknown()) }) } }, async (req) =>

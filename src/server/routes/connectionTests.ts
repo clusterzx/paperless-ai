@@ -32,15 +32,44 @@ const origin = (url: string) => {
 const sameServer = (url: string, storedUrl: string) => !storedUrl.trim() || origin(url) === origin(storedUrl);
 
 /**
- * The token for a connection test: the entered one, or the stored one. Without a logged-in user
- * (first setup, e.g. with the token preset by an environment variable) stored secrets are only
- * reused for the server they belong to – otherwise anybody reaching the setup wizard could send
- * them to a server of their choice.
+ * A stored secret belongs to the server it was entered for, or preset for by an environment
+ * variable. It is masked in the web interface and never sent to another server – neither by a
+ * connection test nor by saving a changed URL. Whoever points a setting to another server enters
+ * the secret again.
  */
-export function storedPaperlessToken(ctx: AppContext, url: string, token: string | undefined, trusted: boolean): string {
+const SECRET_SERVERS = [
+  { secret: 'paperless.token', server: 'paperless.url', fallback: '', setting: 'The Paperless URL', name: 'the API token' },
+  { secret: 'ai.anthropic.apiKey', server: 'ai.anthropic.baseUrl', fallback: ANTHROPIC_BASE, setting: 'The Anthropic base URL', name: 'the API key' },
+  { secret: 'ai.custom.apiKey', server: 'ai.custom.baseUrl', fallback: '', setting: 'The base URL of the custom provider', name: 'the API key' },
+  { secret: 'ai.azure.apiKey', server: 'ai.azure.endpoint', fallback: '', setting: 'The Azure endpoint', name: 'the API key' },
+] as const;
+
+/**
+ * Why `next` (the configuration after applying `patch`) cannot be saved: it would leave a stored
+ * secret with another server. Returns null when every secret stays with its server, was entered
+ * again or was removed.
+ */
+export function secretForAnotherServer(ctx: AppContext, patch: DeepPartial<AppConfig>, next: AppConfig): string | null {
+  const locked = ctx.config.lockedPaths;
+  for (const s of SECRET_SERVERS) {
+    // A server set by an environment variable does not change.
+    if (!getPath(ctx.cfg, s.secret) || s.server in locked) continue;
+    const server = (cfg: AppConfig) => String(getPath(cfg, s.server) ?? '') || s.fallback;
+    if (sameServer(server(next), server(ctx.cfg))) continue;
+    if (s.secret in locked) {
+      return `${s.setting} points to another server, but ${s.name} is set by ${locked[s.secret]} – set the URL in the environment as well`;
+    }
+    const entered = getPath(patch, s.secret);
+    if (entered === undefined || entered === SECRET_MASK) return `${s.setting} points to another server – enter ${s.name} again`;
+  }
+  return null;
+}
+
+/** The token for a connection test: the entered one, or the stored one if the test goes to its server. */
+export function storedPaperlessToken(ctx: AppContext, url: string, token: string | undefined): string {
   if (token && token !== SECRET_MASK) return token;
   const stored = ctx.cfg.paperless;
-  return stored.token && (trusted || sameServer(normalizePaperlessUrl(url), stored.url)) ? stored.token : '';
+  return stored.token && sameServer(normalizePaperlessUrl(url), stored.url) ? stored.token : '';
 }
 
 export async function testPaperlessConnection(rawUrl: string, token: string): Promise<ConnectionTestResult> {
@@ -84,8 +113,7 @@ export async function testPaperlessConnection(rawUrl: string, token: string): Pr
 export async function testAiConnection(
   ctx: AppContext,
   ai: DeepPartial<AppConfig['ai']> | AppConfig['ai'],
-  /** trusted: a logged-in user runs the test (see storedPaperlessToken). */
-  opts: { modelsOnly?: boolean; trusted?: boolean } = {},
+  opts: { modelsOnly?: boolean } = {},
 ): Promise<ConnectionTestResult> {
   let merged: AppConfig['ai'];
   try {
@@ -93,15 +121,13 @@ export async function testAiConnection(
   } catch (err) {
     return { ok: false, message: `Invalid AI settings: ${describeError(err)}` };
   }
-  if (opts.trusted === false) {
-    // Stored keys stay bound to their endpoint (see storedPaperlessToken).
-    const stored = ctx.cfg.ai;
-    const own = withoutMaskedSecrets(ai) as DeepPartial<AppConfig['ai']>;
-    if (!own.custom?.apiKey && !sameServer(merged.custom.baseUrl, stored.custom.baseUrl)) merged.custom.apiKey = '';
-    if (!own.azure?.apiKey && !sameServer(merged.azure.endpoint, stored.azure.endpoint)) merged.azure.apiKey = '';
-    if (!own.anthropic?.apiKey && !sameServer(merged.anthropic.baseUrl || ANTHROPIC_BASE, stored.anthropic.baseUrl || ANTHROPIC_BASE)) {
-      merged.anthropic.apiKey = '';
-    }
+  // Stored keys stay with their endpoint (see SECRET_SERVERS).
+  const stored = ctx.cfg.ai;
+  const own = withoutMaskedSecrets(ai) as DeepPartial<AppConfig['ai']>;
+  if (!own.custom?.apiKey && !sameServer(merged.custom.baseUrl, stored.custom.baseUrl)) merged.custom.apiKey = '';
+  if (!own.azure?.apiKey && !sameServer(merged.azure.endpoint, stored.azure.endpoint)) merged.azure.apiKey = '';
+  if (!own.anthropic?.apiKey && !sameServer(merged.anthropic.baseUrl || ANTHROPIC_BASE, stored.anthropic.baseUrl || ANTHROPIC_BASE)) {
+    merged.anthropic.apiKey = '';
   }
   try {
     const client = createLlmClient(merged);

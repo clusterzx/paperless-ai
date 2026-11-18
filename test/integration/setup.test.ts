@@ -65,7 +65,8 @@ describe('setup wizard', () => {
         url: '/api/setup',
         payload: { username: 'evil', password: 'long enough password', config: { paperless: { url: otherPaperless.url } } },
       });
-      expect(setup.json()).toMatchObject({ step: 'paperless' });
+      expect(setup.statusCode).toBe(400);
+      expect(setup.json().error).toBe('The Paperless URL points to another server – enter the API token again');
       expect(otherPaperless.requests).toHaveLength(0);
 
       await h.inject({ method: 'POST', url: '/api/setup/models', payload: { ai: { custom: { baseUrl: otherLlm.openaiUrl, apiKey: SECRET_MASK } } } });
