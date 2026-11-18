@@ -1,14 +1,22 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ChatStreamEvent, RagSource } from '../../src/shared/api.js';
-import { createHarness, parseSsePayload, waitFor, type Harness } from '../helpers/appHarness.js';
+import fs from 'node:fs';
+import { createHarness, makeTempDir, parseSsePayload, waitFor, type Harness } from '../helpers/appHarness.js';
 import { AppContext } from '../../src/server/context.js';
 import type { AppConfig, DeepPartial } from '../../src/server/config/schema.js';
 
 /** A context with configuration only (no Paperless, no AI) – enough to compute the embedding setup. */
-function createConfigOnlyContext(config: DeepPartial<AppConfig>): AppContext {
-  const ctx = new AppContext({ dataDir: '/nonexistent-paperless-ai-test', env: {}, memoryDb: true });
+function createConfigOnlyContext(config: DeepPartial<AppConfig>): { ctx: AppContext; dispose: () => void } {
+  const dataDir = makeTempDir();
+  const ctx = new AppContext({ dataDir, env: {}, memoryDb: true });
   ctx.config.update(config);
-  return ctx;
+  return {
+    ctx,
+    dispose: () => {
+      ctx.close();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    },
+  };
 }
 import type { ChatRequestInfo } from '../helpers/mockLlm.js';
 import { RagService } from '../../src/server/rag/service.js';
@@ -426,11 +434,11 @@ describe('RAG embedding prompts', () => {
       [{ rag: { embeddingProvider: 'ollama', embeddingModel: 'bge-m3' }, ai: { ollama: { url: 'http://ollama:11434' } } }, 'ollama:bge-m3@http://ollama:11434', { query: '', document: '' }],
     ];
     for (const [config, key, prompts] of cases) {
-      const ctx = createConfigOnlyContext(config);
+      const { ctx, dispose } = createConfigOnlyContext(config);
       const service = new RagService(ctx);
       expect(service.embeddingSetup()).toEqual({ key, prompts, upgrade: null });
       await service.stop();
-      ctx.close();
+      dispose();
     }
   });
 });
