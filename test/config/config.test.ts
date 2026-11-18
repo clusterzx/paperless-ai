@@ -110,13 +110,15 @@ describe('legacy helpers', () => {
       DISABLE_AUTOMATIC_PROCESSING: 'yes',
       TOKEN_LIMIT: 'abc',
       TAGS: ' a, b ,,c ',
+      EXCLUDE_TAGS: 'do-not-ai, private',
       UNRELATED: 'x',
     });
-    expect(values).toEqual({ paperless: { url: 'http://p:8000' }, processing: { automatic: false, tags: ['a', 'b', 'c'] } });
+    expect(values).toEqual({ paperless: { url: 'http://p:8000' }, processing: { automatic: false, tags: ['a', 'b', 'c'], excludeTags: ['do-not-ai', 'private'] } });
     expect(Object.fromEntries(paths)).toEqual({
       'paperless.url': 'PAPERLESS_API_URL',
       'processing.automatic': 'DISABLE_AUTOMATIC_PROCESSING',
       'processing.tags': 'TAGS',
+      'processing.excludeTags': 'EXCLUDE_TAGS',
     });
   });
 
