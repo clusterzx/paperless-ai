@@ -455,7 +455,7 @@ export function ProcessingSection({ draft, set, locked, tagSuggestions = [] }: S
         <Field
           label="Exclude tags"
           locked={locked['processing.excludeTags']}
-          hint="Documents with any of these tags are never processed, even if they match the filters above."
+          hint="Documents with any of these tags are never processed automatically (scan or Paperless workflow), even if they match the filters above. Manual review and the OCR page still work."
         >
           <TagInput
             value={p.excludeTags}

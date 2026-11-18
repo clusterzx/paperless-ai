@@ -132,6 +132,7 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'DISABLE_AUTOMATIC_PROCESSING', path: 'processing.automatic', parse: (v) => (parseBool(v) === undefined ? undefined : !parseBool(v)) },
   { env: 'PROCESS_PREDEFINED_DOCUMENTS', path: 'processing.onlyTagged', parse: b },
   { env: 'TAGS', path: 'processing.tags', parse: (v) => parseList(v) },
+  { env: 'EXCLUDE_TAGS', path: 'processing.excludeTags', parse: (v) => parseList(v) },
   { env: 'REMOVE_TRIGGER_TAGS', path: 'processing.removeTriggerTags', parse: b },
   { env: 'ADD_AI_PROCESSED_TAG', path: 'processing.addProcessedTag', parse: b },
   { env: 'AI_PROCESSED_TAG_NAME', path: 'processing.processedTagName', parse: s },

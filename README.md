@@ -62,7 +62,7 @@ Upgrading from 3.x is automatic: your `data/.env`, user account, processing stat
 - Title, tags, correspondent, document type, document date and **custom fields** (text, long text, number, monetary, date, boolean, URL, select)
 - AI providers: **OpenAI**, **Anthropic (Claude)**, **Ollama**, any **OpenAI-compatible** API (DeepSeek, OpenRouter, LiteLLM, vLLM, LM Studio, Gemini …) and **Azure OpenAI** – reasoning/thinking models included
 - Structured JSON output (JSON schema) with automatic fallback for providers without support
-- Process all documents or only documents with **trigger tags** (optionally removed afterwards), mark processed documents with a tag
+- Process all documents or only documents with **trigger tags** (optionally removed afterwards), never documents with **exclude tags**, mark processed documents with a tag
 - Restrict the AI to existing tags / correspondents / document types, or to a fixed tag list
 - Optional context from an **external API** (e.g. your customer list) with an optional JavaScript transformation (runs in a separate worker thread with a time limit)
 - Parallel processing, retries with back-off, failed/skipped documents visible on the dashboard; **rate limits** of the AI provider pause the queue instead of failing documents
@@ -210,6 +210,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `TOKEN_LIMIT`, `RESPONSE_TOKENS`, `AI_TEMPERATURE`, `AI_TIMEOUT_SECONDS` | model limits |
 | `SCAN_INTERVAL`, `DISABLE_AUTOMATIC_PROCESSING`, `PROCESSING_CONCURRENCY` | scheduling |
 | `PROCESS_PREDEFINED_DOCUMENTS`, `TAGS`, `REMOVE_TRIGGER_TAGS` | only process tagged documents |
+| `EXCLUDE_TAGS` | never process documents with one of these tags automatically (comma-separated) – also not when the Paperless workflow webhook sends them; manual review and the OCR page still work |
 | `ADD_AI_PROCESSED_TAG`, `AI_PROCESSED_TAG_NAME` | mark processed documents |
 | `USE_PROMPT_TAGS`, `PROMPT_TAGS`, `USE_EXISTING_DATA`, `SYSTEM_PROMPT` | prompt |
 | `OVERWRITE_CORRESPONDENT`, `SHARE_CREATED_OBJECTS` | replace existing correspondents (default off); create tags/correspondents/types without owner (default on) |
