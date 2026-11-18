@@ -39,6 +39,16 @@ export const ragRoutes =
       return rag.status();
     });
 
+    app.post(
+      '/api/rag/embedding-prompts',
+      { config: { auth: 'session' }, schema: { description: 'Switch an existing index to the prompts its embedding model expects (re-embeds all passages).' } },
+      async () => {
+        requireEnabled();
+        if (!rag.acceptPromptUpgrade()) throw new HttpProblem(409, 'The index already uses the prompts of its embedding model');
+        return rag.status();
+      },
+    );
+
     app.get('/api/rag/filters', async () => ({
       correspondents: rag.store.distinctValues('correspondent').sort((a, b) => a.localeCompare(b)),
       documentTypes: rag.store.distinctValues('document_type').sort((a, b) => a.localeCompare(b)),

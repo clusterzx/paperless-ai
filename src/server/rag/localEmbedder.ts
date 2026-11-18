@@ -5,7 +5,6 @@
  */
 import os from 'node:os';
 import { Worker } from 'node:worker_threads';
-import { embeddingPrefix } from '../ai/factory.js';
 import { AiError, type EmbeddingClient, type EmbeddingKind } from '../ai/types.js';
 import { logger } from '../logger.js';
 
@@ -94,13 +93,13 @@ export class LocalEmbedder implements EmbeddingClient {
     });
   }
 
-  async embed(texts: string[], kind: EmbeddingKind, signal?: AbortSignal): Promise<Float32Array[]> {
-    const prefix = embeddingPrefix(this.model, kind);
+  /** The texts arrive with the prompts the model expects (RagService applies them for every provider). */
+  async embed(texts: string[], _kind: EmbeddingKind, signal?: AbortSignal): Promise<Float32Array[]> {
     const out: Float32Array[] = [];
     try {
       for (let i = 0; i < texts.length; i += this.batchSize) {
         if (signal?.aborted) throw signal.reason;
-        const batch = texts.slice(i, i + this.batchSize).map((t) => prefix + t);
+        const batch = texts.slice(i, i + this.batchSize);
         out.push(...(await this.run(batch)));
       }
     } finally {

@@ -1,3 +1,5 @@
+import { DEFAULT_EMBEDDING_MODELS } from '../../shared/embeddingPrompts.js';
+
 export const DEFAULT_SYSTEM_PROMPT = `You are a personalized document analyzer. Your task is to analyze documents and extract relevant information.
 
 Analyze the document content and extract the following information into a structured JSON object:
@@ -49,6 +51,6 @@ export const DEFAULT_OLLAMA_CONTEXT = 16_384;
 /** Fast and inexpensive – plenty for extracting document metadata. */
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-haiku-4-5';
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21';
-export const DEFAULT_LOCAL_EMBEDDING_MODEL = 'Xenova/multilingual-e5-small';
-export const DEFAULT_OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small';
-export const DEFAULT_OLLAMA_EMBEDDING_MODEL = 'nomic-embed-text';
+export const DEFAULT_LOCAL_EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODELS.local;
+export const DEFAULT_OPENAI_EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODELS.openai;
+export const DEFAULT_OLLAMA_EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODELS.ollama;

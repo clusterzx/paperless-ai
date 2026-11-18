@@ -12,7 +12,15 @@ import { Cron } from 'croner';
 import type { ChatStreamEvent, ChatTurn, RagSource, RagStatus } from '../../shared/api.js';
 import type { AppContext } from '../context.js';
 import type { AppConfig } from '../config/schema.js';
-import { contextBudget, createRemoteEmbeddingClient, embeddingSpec } from '../ai/factory.js';
+import { contextBudget, createRemoteEmbeddingClient, embeddingSpec, legacyEmbeddingPrompts } from '../ai/factory.js';
+import {
+  applyDocumentPrompt,
+  applyQueryPrompt,
+  autoEmbeddingPrompts,
+  NO_EMBEDDING_PROMPTS,
+  samePrompts,
+  type EmbeddingPrompts,
+} from '../../shared/embeddingPrompts.js';
 import { extractJsonObject } from '../ai/json.js';
 import { estimateTokens, normalizeContent, truncateToTokens } from '../ai/tokens.js';
 import type { ChatMessage, EmbeddingClient, Usage } from '../ai/types.js';
@@ -151,11 +159,54 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
   // ------------------------------------------------------------------ embeddings
 
   private embeddingKey(cfg: AppConfig): string {
+    return this.embeddingSetup(cfg).key;
+  }
+
+  /**
+   * Which prompts are used for embedding, and the key the stored embeddings belong to.
+   *
+   * The key is the one of earlier versions as long as the embedded texts stay the same, so an update
+   * never re-embeds on its own. An installation that already embedded its archive with a model that
+   * now gets prompts automatically keeps embedding without them – until the admin switches to them
+   * (`acceptPromptUpgrade`), changes the model, or sets own prompts.
+   */
+  embeddingSetup(cfg: AppConfig = this.cfg): { key: string; prompts: EmbeddingPrompts; upgrade: { prompts: EmbeddingPrompts; key: string } | null } {
     const spec = embeddingSpec(cfg);
-    if (spec.provider === 'none') return 'none';
-    const base =
+    if (spec.provider === 'none') return { key: 'none', prompts: NO_EMBEDDING_PROMPTS, upgrade: null };
+    const host =
       spec.provider === 'ollama' ? cfg.ai.ollama.url : spec.provider === 'custom' ? cfg.ai.custom.baseUrl : spec.provider === 'azure' ? cfg.ai.azure.endpoint : '';
-    return `${spec.provider}:${spec.model}@${base}`;
+    const base = `${spec.provider}:${spec.model}@${host}`;
+    const auto = autoEmbeddingPrompts(spec.provider, spec.model);
+    // Own prompts win; a bare "{query}" / "{text}" means "no prompt".
+    const own = (value: string, bare: string[]) => (!value.trim() ? null : bare.includes(value.trim()) ? '' : value);
+    const ownQuery = own(cfg.rag.queryPrompt, ['{query}']);
+    const ownDocument = own(cfg.rag.documentPrompt, ['{text}', '{content}']);
+    const wanted = { query: ownQuery ?? auto.query, document: ownDocument ?? auto.document };
+    const legacy = legacyEmbeddingPrompts(spec.provider, spec.model);
+    if (samePrompts(wanted, legacy)) return { key: base, prompts: legacy, upgrade: null };
+    const key = `${base}#${createHash('sha256').update(JSON.stringify(wanted)).digest('hex').slice(0, 12)}`;
+    const kv = this.ctx.repos.kv;
+    if (ownQuery === null && ownDocument === null && kv.get<string>('rag_embedding_key') === base && kv.get<string>('rag_prompts_accepted') !== key) {
+      return { key: base, prompts: legacy, upgrade: { prompts: wanted, key } };
+    }
+    return { key, prompts: wanted, upgrade: null };
+  }
+
+  /** Switch an existing index to the prompts its model expects – all passages are embedded again. */
+  acceptPromptUpgrade(): boolean {
+    const { upgrade } = this.embeddingSetup();
+    if (!upgrade) return false;
+    this.ctx.repos.kv.set('rag_prompts_accepted', upgrade.key);
+    log.info(`Embedding prompts switched on for ${embeddingSpec(this.cfg).model} – all passages are embedded again`);
+    this.abort?.abort(new Error('embedding configuration changed'));
+    void this.embedder?.client.dispose?.();
+    this.embedder = null;
+    // The next run sees the new key, drops the old vectors and embeds everything again.
+    const restart = () => void this.sync().catch(() => undefined);
+    if (this.syncing) void this.syncing.finally(restart);
+    else restart();
+    this.emitStatus();
+    return true;
   }
 
   private async getEmbedder(): Promise<EmbeddingClient | null> {
@@ -182,7 +233,10 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     const key = this.embeddingKey(this.cfg);
     const storedKey = this.ctx.repos.kv.get<string>('rag_embedding_key');
     if (storedKey !== key) {
-      if (storedKey) log.info(`Embedding model changed (${storedKey} → ${key}) – passages will be re-embedded`);
+      if (storedKey) {
+        const promptsOnly = storedKey.split('#')[0] === key.split('#')[0];
+        log.info(`Embedding ${promptsOnly ? 'prompts' : 'model'} changed (${storedKey} → ${key}) – passages will be re-embedded`);
+      }
       this.resetVectors();
       this.store.clearEmbeddings();
       this.ctx.repos.kv.set('rag_embedding_key', key);
@@ -237,6 +291,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
   status(): RagStatus {
     const stats = this.store.stats();
     const spec = embeddingSpec(this.cfg);
+    const setup = this.embeddingSetup();
     return {
       enabled: this.enabled,
       state: !this.enabled ? 'disabled' : this.syncing ? 'indexing' : this.lastError ? 'error' : 'idle',
@@ -249,6 +304,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
       lastError: this.lastError,
       progress: this.progress,
       vectorSearch: spec.provider !== 'none' && stats.embedded > 0,
+      embeddingPrompts: { ...setup.prompts, upgrade: setup.upgrade?.prompts ?? null },
     };
   }
 
@@ -391,7 +447,12 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
       this.setProgress('embedding', done, total);
       let vectors: Float32Array[];
       try {
-        vectors = await embedder.embed(pending.map((p) => truncateToTokens(p.text, 480).text), 'passage', signal);
+        const { document } = this.embeddingSetup().prompts;
+        vectors = await embedder.embed(
+          pending.map((p) => applyDocumentPrompt(document, truncateToTokens(p.text, 480).text, p.title)),
+          'passage',
+          signal,
+        );
       } catch (err) {
         if (signal.aborted) throw signal.reason;
         this.lastError = `Embedding failed – keyword search still works: ${describeError(err)}`;
@@ -485,7 +546,12 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
         const embedder = await this.getEmbedder();
         if (embedder) {
           const inputs = keywords.length ? [question, keywords.join(', ')] : [question];
-          const [qv, kv] = await embedder.embed(inputs, 'query', opts.signal);
+          const { query } = this.embeddingSetup().prompts;
+          const [qv, kv] = await embedder.embed(
+            inputs.map((q) => applyQueryPrompt(query, q)),
+            'query',
+            opts.signal,
+          );
           const hits = this.vectors.search(qv, CANDIDATES, allowDocs);
           for (const h of hits) chunkDoc.set(h.id, h.documentId);
           lists.push({ weight: 1, ids: hits.map((h) => h.id) });

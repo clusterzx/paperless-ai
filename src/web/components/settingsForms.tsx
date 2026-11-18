@@ -4,7 +4,10 @@ import type { AppConfig } from '../../server/config/schema';
 import type { ConnectionTestResult } from '@shared/api';
 import { OCR_LANGUAGE_LABELS, OCR_LANGUAGES, OCR_QUALITY, OCR_QUALITY_PRESETS, OCR_RELEASE, OCR_RELEASE_LABELS } from '@shared/ocr';
 import { buildWizardPrompt } from '@shared/promptWizard';
-import { errorMessage, post } from '../lib/api';
+import { autoEmbeddingPrompts, DEFAULT_EMBEDDING_MODELS, promptTemplate } from '@shared/embeddingPrompts';
+import type { RagStatus } from '@shared/api';
+import { errorMessage, get, post } from '../lib/api';
+import { useAsync } from '../lib/hooks';
 import { getIn, SECRET_MASK, type Setter } from '../lib/draft';
 import { cn } from '../lib/format';
 import { Link } from 'wouter';
@@ -784,6 +787,80 @@ export function ExternalApiSection({ draft, set, locked }: SectionProps) {
 
 // ------------------------------------------------------------------ RAG
 
+/**
+ * Prompts in front of questions and passages when embedding. Shows what "automatic" means for the
+ * chosen model, and offers to switch an older index to the prompts its model expects.
+ */
+function EmbeddingPromptFields({ draft, set, locked }: SectionProps) {
+  const r = draft.rag;
+  const model = r.embeddingModel || DEFAULT_EMBEDDING_MODELS[r.embeddingProvider] || '';
+  const auto = autoEmbeddingPrompts(r.embeddingProvider, model);
+  const status = useAsync((signal) => get<RagStatus>('/api/rag/status', signal), []);
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const upgrade = status.data?.embeddingPrompts.upgrade;
+  // Only for the saved model – a changed model is embedded again anyway.
+  const saved = status.data && status.data.embeddingProvider === r.embeddingProvider && status.data.embeddingModel === (model || null);
+  const switchOn = async () => {
+    setSwitching(true);
+    setSwitchError(null);
+    try {
+      await post('/api/rag/embedding-prompts');
+      await status.reload();
+    } catch (err) {
+      setSwitchError(errorMessage(err));
+    } finally {
+      setSwitching(false);
+    }
+  };
+  return (
+    <div className="space-y-3">
+      <FormGrid>
+        <Field
+          label="Prompt for questions"
+          locked={locked['rag.queryPrompt']}
+          hint={auto.query ? 'Empty: automatic (shown) for this model.' : 'Empty: no prompt – this model gets none automatically.'}
+        >
+          <Input placeholder={auto.query ? promptTemplate(auto.query, '{query}') : '{query}'} spellCheck={false} {...bind(draft, set, locked, 'rag.queryPrompt')} />
+        </Field>
+        <Field
+          label="Prompt for documents"
+          locked={locked['rag.documentPrompt']}
+          hint={auto.document ? 'Empty: automatic (shown) for this model.' : 'Empty: no prompt – this model gets none automatically.'}
+        >
+          <Input placeholder={auto.document ? promptTemplate(auto.document, '{text}') : '{text}'} spellCheck={false} {...bind(draft, set, locked, 'rag.documentPrompt')} />
+        </Field>
+      </FormGrid>
+      <p className="text-xs text-muted">
+        Some embedding models expect a prompt in front of the text. In a prompt, <code className="font-mono">{'{query}'}</code> stands for the question,{' '}
+        <code className="font-mono">{'{text}'}</code> for the passage and <code className="font-mono">{'{title}'}</code> for the document title. Example EmbeddingGemma:{' '}
+        <code className="font-mono">task: search result | query: {'{query}'}</code> and <code className="font-mono">title: none | text: {'{text}'}</code>. Changing a prompt embeds
+        all documents again.
+      </p>
+      {saved && upgrade && (
+        <Alert tone="accent">
+          <div className="space-y-2">
+            <p>
+              Your index was built without the prompts this model works better with (<code className="font-mono">{promptTemplate(upgrade.query, '{query}')}</code>
+              {upgrade.document && (
+                <>
+                  {' '}
+                  / <code className="font-mono">{promptTemplate(upgrade.document, '{text}')}</code>
+                </>
+              )}
+              ). Switching to them embeds all documents again; until that is done, the search finds fewer documents by meaning.
+            </p>
+            {switchError && <p className="text-danger">{switchError}</p>}
+            <Button size="sm" loading={switching} onClick={switchOn}>
+              Use the prompts and re-embed
+            </Button>
+          </div>
+        </Alert>
+      )}
+    </div>
+  );
+}
+
 export function RagSection({ draft, set, locked, localEmbeddings }: SectionProps & { localEmbeddings: boolean }) {
   const r = draft.rag;
   const hints: Record<Config['rag']['embeddingProvider'], string> = {
@@ -824,6 +901,7 @@ export function RagSection({ draft, set, locked, localEmbeddings }: SectionProps
               </Field>
             )}
           </FormGrid>
+          {r.embeddingProvider !== 'none' && <EmbeddingPromptFields draft={draft} set={set} locked={locked} />}
           <FormGrid className="lg:grid-cols-3">
             <Field label="Documents per answer" locked={locked['rag.topK']} hint="How many documents are given to the AI.">
               <NumberInput min={2} max={40} {...bindNumber(draft, set, locked, 'rag.topK')} />

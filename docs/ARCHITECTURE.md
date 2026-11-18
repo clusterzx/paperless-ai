@@ -157,6 +157,12 @@ question ─▶ query analysis with the LLM (standalone query for follow-ups + s
   same bonus) so that they never prefer newer documents; only “latest …” questions add a recency bonus.
 * Local embeddings run in a worker thread (`transformers.js`/ONNX, limited threads) that is stopped
   after 5 minutes of inactivity.
+* Embedding prompts (`shared/embeddingPrompts.ts`) are applied by `RagService` for every provider:
+  own prompts (`rag.queryPrompt`/`rag.documentPrompt`) or automatic ones for measured model families.
+  The stored embedding key (`kv.rag_embedding_key`) only gets a prompt hash when the embedded texts
+  differ from earlier versions, so updates never re-embed by themselves. An index made without the
+  prompts its model now gets automatically keeps them off until the admin switches
+  (`POST /api/rag/embedding-prompts`, `kv.rag_prompts_accepted`).
 
 ## HTTP API & security
 

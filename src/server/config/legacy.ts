@@ -167,6 +167,8 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'RAG_ENABLED', path: 'rag.enabled', parse: b },
   { env: 'RAG_EMBEDDING_PROVIDER', path: 'rag.embeddingProvider', parse: (v) => v.trim().toLowerCase() },
   { env: 'RAG_EMBEDDING_MODEL', path: 'rag.embeddingModel', parse: s },
+  { env: 'RAG_QUERY_PROMPT', path: 'rag.queryPrompt', parse: (v) => v },
+  { env: 'RAG_DOCUMENT_PROMPT', path: 'rag.documentPrompt', parse: (v) => v },
   { env: 'RAG_QUERY_EXPANSION', path: 'rag.queryExpansion', parse: b },
 
   { env: 'OCR_ENABLED', path: 'ocr.enabled', parse: b },

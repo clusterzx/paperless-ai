@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { OpenAiCompatibleClient, OpenAiEmbeddingClient, REASONING_RESERVE } from '../../src/server/ai/openai.js';
-import { azureDeploymentUrl, createLlmClient, aiConfigProblem, embeddingPrefix } from '../../src/server/ai/factory.js';
+import { azureDeploymentUrl, createLlmClient, aiConfigProblem, legacyEmbeddingPrompts } from '../../src/server/ai/factory.js';
 import { configSchema } from '../../src/server/config/schema.js';
 import { AiError, type StreamChunk } from '../../src/server/ai/types.js';
 import { EMBEDDING_DIMS, MockLlm, mockEmbedding } from '../helpers/mockLlm.js';
@@ -433,9 +433,10 @@ describe('factory', () => {
     expect(custom).toMatchObject({ provider: 'custom', model: 'm', contextWindow: 128_000 });
   });
 
-  it('knows embedding prefixes', () => {
-    expect(embeddingPrefix('Xenova/multilingual-e5-small', 'query')).toBe('query: ');
-    expect(embeddingPrefix('nomic-embed-text', 'passage')).toBe('search_document: ');
-    expect(embeddingPrefix('text-embedding-3-small', 'query')).toBe('');
+  it('keeps the prompts earlier versions used (built-in model only)', () => {
+    expect(legacyEmbeddingPrompts('local', 'Xenova/multilingual-e5-small')).toEqual({ query: 'query: ', document: 'passage: ' });
+    expect(legacyEmbeddingPrompts('local', 'nomic-embed-text')).toEqual({ query: 'search_query: ', document: 'search_document: ' });
+    expect(legacyEmbeddingPrompts('local', 'text-embedding-3-small')).toEqual({ query: '', document: '' });
+    expect(legacyEmbeddingPrompts('ollama', 'nomic-embed-text')).toEqual({ query: '', document: '' });
   });
 });

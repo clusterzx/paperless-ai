@@ -5,6 +5,7 @@ import {
   DEFAULT_OPENAI_EMBEDDING_MODEL,
 } from '../config/defaults.js';
 import { trimSlash } from '../util/http.js';
+import { NO_EMBEDDING_PROMPTS, type EmbeddingPrompts } from '../../shared/embeddingPrompts.js';
 import { AnthropicClient } from './anthropic.js';
 import { OllamaClient, OllamaEmbeddingClient } from './ollama.js';
 import { OpenAiCompatibleClient, OpenAiEmbeddingClient } from './openai.js';
@@ -183,11 +184,15 @@ export function createRemoteEmbeddingClient(cfg: AppConfig): EmbeddingClient | n
   }
 }
 
-/** Instruction prefixes some embedding model families expect. */
-export function embeddingPrefix(model: string, kind: 'query' | 'passage'): string {
+/**
+ * The prompts used before embedding prompts were configurable: only the built-in local model got
+ * them. Stored embeddings made this way stay valid – see RagService.embeddingSetup().
+ */
+export function legacyEmbeddingPrompts(provider: AppConfig['rag']['embeddingProvider'], model: string): EmbeddingPrompts {
+  if (provider !== 'local') return NO_EMBEDDING_PROMPTS;
   const m = model.toLowerCase();
-  if (m.includes('e5')) return kind === 'query' ? 'query: ' : 'passage: ';
-  if (m.includes('nomic-embed')) return kind === 'query' ? 'search_query: ' : 'search_document: ';
-  if (m.includes('mxbai-embed') && kind === 'query') return 'Represent this sentence for searching relevant passages: ';
-  return '';
+  if (m.includes('e5')) return { query: 'query: ', document: 'passage: ' };
+  if (m.includes('nomic-embed')) return { query: 'search_query: ', document: 'search_document: ' };
+  if (m.includes('mxbai-embed')) return { query: 'Represent this sentence for searching relevant passages: ', document: '' };
+  return NO_EMBEDDING_PROMPTS;
 }

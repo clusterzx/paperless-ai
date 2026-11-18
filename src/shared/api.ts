@@ -189,6 +189,8 @@ export interface RagStatus {
   lastError: string | null;
   progress: { phase: string; done: number; total: number } | null;
   vectorSearch: boolean;
+  /** Prompts used when embedding; `upgrade`: the ones the model expects, not used yet by this (older) index. */
+  embeddingPrompts: { query: string; document: string; upgrade: { query: string; document: string } | null };
 }
 
 export interface RagSource {
