@@ -325,7 +325,12 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     if (hasUnsavedChanges() && !(await confirmDiscard())) return;
-    await post('/api/auth/logout').catch(() => undefined);
+    const res = await post<{ ok: boolean; redirect?: string | null }>('/api/auth/logout').catch(() => null);
+    // Signed in with single sign-on: end the session at the provider too (it sends the browser back to /login).
+    if (res?.redirect) {
+      clearUserData();
+      return window.location.assign(res.redirect);
+    }
     await refresh();
     clearUserData();
   };

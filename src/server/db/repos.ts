@@ -16,6 +16,9 @@ export interface UserRow {
   totp_secret: string | null;
   totp_enabled_at: number | null;
   totp_last_step: number | null;
+  /** Single sign-on identity; an empty password_hash means the account can only sign in with it. */
+  oidc_issuer: string | null;
+  oidc_subject: string | null;
 }
 
 export interface RecoveryCodeRow {
@@ -64,6 +67,28 @@ export class UsersRepo {
 
   delete(id: number): void {
     this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  }
+
+  // ---------------------------------------------------------------- single sign-on
+
+  byOidc(issuer: string, subject: string): UserRow | undefined {
+    return this.db.prepare('SELECT * FROM users WHERE oidc_issuer = ? AND oidc_subject = ?').get(issuer, subject) as UserRow | undefined;
+  }
+
+  /** An account that signs in only with single sign-on (no password). */
+  createOidc(username: string, issuer: string, subject: string): number {
+    const now = Date.now();
+    return Number(
+      this.db
+        .prepare("INSERT INTO users (username, password_hash, oidc_issuer, oidc_subject, created_at, updated_at) VALUES (?, '', ?, ?, ?, ?)")
+        .run(username, issuer, subject, now, now).lastInsertRowid,
+    );
+  }
+
+  setOidc(id: number, identity: { issuer: string; subject: string } | null): void {
+    this.db
+      .prepare('UPDATE users SET oidc_issuer = ?, oidc_subject = ?, updated_at = ? WHERE id = ?')
+      .run(identity?.issuer ?? null, identity?.subject ?? null, Date.now(), id);
   }
 
   // ---------------------------------------------------------------- two-factor authentication

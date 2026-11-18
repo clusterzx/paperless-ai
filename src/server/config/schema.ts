@@ -249,6 +249,36 @@ export const configSchema = z.object({
       sessionHours: z.coerce.number().int().min(1).max(24 * 365).default(24 * 7),
     })
     .prefault({}),
+  /** How users sign in: password and/or single sign-on with an OpenID Connect provider. */
+  auth: z
+    .object({
+      /** Address of Paperless-AI as the browser sees it, e.g. https://ai.example.com – for the OIDC callback. Empty: the address of the request. */
+      publicUrl: str().transform((v) => v.replace(/\/+$/, '')),
+      /** Sign in with user name and password. Can only be switched off while OIDC is set up (otherwise nobody could sign in). */
+      passwordLogin: bool(true),
+      oidc: z
+        .object({
+          enabled: bool(false),
+          /** Issuer URL, e.g. https://auth.example.com/application/o/paperless-ai/ (Authentik) or https://sso.example.com/realms/home (Keycloak). */
+          issuer: str(),
+          clientId: str(),
+          /** Empty for a public client (PKCE only). */
+          clientSecret: str(),
+          scopes: str('openid profile email'),
+          buttonLabel: str('Sign in with SSO'),
+          /** Claim used as user name for new accounts. */
+          usernameClaim: str('preferred_username'),
+          groupsClaim: str('groups'),
+          /** Only members of one of these groups may sign in; empty: everyone the provider lets through. */
+          allowedGroups: tagList,
+          /** Create a Paperless-AI account on the first sign-in (otherwise only linked accounts can sign in). */
+          autoCreate: bool(true),
+          /** Signing out also ends the session at the provider (if it supports it). */
+          providerLogout: bool(true),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
 });
 
 export type AppConfig = z.output<typeof configSchema>;
@@ -273,6 +303,7 @@ export const SECRET_PATHS = [
   'ai.azure.apiKey',
   'security.apiKey',
   'security.jwtSecret',
+  'auth.oidc.clientSecret',
 ] as const;
 
 export const SECRET_MASK = '••••••••';

@@ -226,6 +226,8 @@ export interface SessionInfo {
   user?: { id: number; username: string };
   version: string;
   features: { rag: boolean; calendar: boolean };
+  /** How to sign in: with a password, and/or with single sign-on (its button label). */
+  login: { password: boolean; sso: string | null };
 }
 
 // ---------------------------------------------------------------- calendar
@@ -271,6 +273,16 @@ export interface TwoFactorStatus {
   enabled: boolean;
   enabledAt: number | null;
   recoveryCodesLeft: number;
+}
+
+/** Answer of /api/account. */
+export interface AccountInfo {
+  user: { id: number; username: string } | null;
+  users: { id: number; username: string; createdAt: number }[];
+  twoFactor: TwoFactorStatus | null;
+  /** Accounts created by single sign-on have no password (and no local two-factor authentication). */
+  hasPassword: boolean;
+  sso: { available: boolean; linked: boolean; passwordLogin: boolean };
 }
 
 export interface TwoFactorSetup {

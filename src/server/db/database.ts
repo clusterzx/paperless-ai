@@ -266,6 +266,17 @@ const MIGRATIONS: Migration[] = [
         );
       `),
   },
+  {
+    version: 9,
+    name: 'single sign-on',
+    up: (db) =>
+      db.exec(`
+        -- Identity at the OpenID Connect provider (issuer + subject); accounts created by it have no password
+        ALTER TABLE users ADD COLUMN oidc_issuer TEXT;
+        ALTER TABLE users ADD COLUMN oidc_subject TEXT;
+        CREATE UNIQUE INDEX users_oidc ON users(oidc_issuer, oidc_subject) WHERE oidc_subject IS NOT NULL;
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {

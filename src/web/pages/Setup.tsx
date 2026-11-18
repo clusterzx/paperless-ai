@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, Bot, Check, Plug, Rocket, Sparkles, Workflow } from 'lucide-react';
-import type { ConnectionTestResult } from '@shared/api';
-import { AuthShell } from './Login';
+import type { ConnectionTestResult, SessionInfo } from '@shared/api';
+import { AuthShell, OrDivider } from './Login';
+import { SsoButton } from '../components/singleSignOn';
 import { AiSection, ConnectionSection, FunctionsSection, modelOf, ProcessingSection, type Config, type Locked } from '../components/settingsForms';
 import { Alert, Button, Field, IconChip, Input, Spinner } from '../components/ui';
 import { ApiError, errorMessage, get, post } from '../lib/api';
@@ -29,7 +30,7 @@ function passwordScore(pw: string): { score: number; label: string } {
 }
 
 export default function SetupPage() {
-  const { refresh } = useSession();
+  const { session, refresh } = useSession();
   const [defaults, setDefaults] = useState<Defaults | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   useEffect(() => {
@@ -52,12 +53,12 @@ export default function SetupPage() {
       </div>
     );
   }
-  return <Wizard defaults={defaults} onDone={refresh} />;
+  return <Wizard defaults={defaults} login={session?.login ?? { password: true, sso: null }} onDone={refresh} />;
 }
 
 type StepId = 'account' | 'paperless' | 'ai' | 'processing' | 'finish';
 
-function Wizard({ defaults, onDone }: { defaults: Defaults; onDone: () => Promise<unknown> }) {
+function Wizard({ defaults, login, onDone }: { defaults: Defaults; login: SessionInfo['login']; onDone: () => Promise<unknown> }) {
   const [draft, set] = useDraft<Config>(defaults.config);
   const locked = defaults.locked;
   const steps = useMemo<{ id: StepId; label: string }[]>(
@@ -75,9 +76,12 @@ function Wizard({ defaults, onDone }: { defaults: Defaults; onDone: () => Promis
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  // A failed single sign-on on a fresh installation comes back as /setup?sso_error=…
+  const [error, setError] = useState<string | null>(() => new URLSearchParams(window.location.search).get('sso_error'));
   const [busy, setBusy] = useState(false);
   const [canForce, setCanForce] = useState(false);
+  /** Without the password login the first account can only come from single sign-on. */
+  const ssoOnly = !login.password && Boolean(login.sso);
   const pw = passwordScore(password);
 
   const next = async () => {
@@ -169,7 +173,18 @@ function Wizard({ defaults, onDone }: { defaults: Defaults; onDone: () => Promis
       </div>
 
       <div>
-        {step === 'account' && (
+        {step === 'account' && login.sso && (
+          <div className="max-w-md">
+            <p className="mb-4 text-sm text-muted">
+              {ssoOnly
+                ? 'Sign in with your single sign-on account – it becomes the first Paperless-AI account. You come back here afterwards.'
+                : 'Sign in with your single sign-on account – or create a local account with a password below.'}
+            </p>
+            <SsoButton label={login.sso} next="/setup" primary={ssoOnly} />
+            {!ssoOnly && <OrDivider />}
+          </div>
+        )}
+        {step === 'account' && !ssoOnly && (
           <div className="max-w-md space-y-4">
             <Field label="Username">
               <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus />
@@ -268,7 +283,7 @@ function Wizard({ defaults, onDone }: { defaults: Defaults; onDone: () => Promis
                 Finish setup
               </Button>
             </div>
-          ) : (
+          ) : step === 'account' && ssoOnly ? null : (
             <Button variant="primary" size="lg" loading={busy} onClick={next}>
               Continue <ArrowRight className="size-4" />
             </Button>
