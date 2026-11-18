@@ -8,6 +8,13 @@ import { timeStep, totpCode } from '../src/server/totp.js';
 
 test.describe.configure({ mode: 'serial' });
 
+// The support reminder would open on the dashboard in every test – it has a test of its own.
+test.beforeEach(async ({ context }) => {
+  await context.addInitScript(() => {
+    if (!sessionStorage.getItem('e2e-support-reminder')) localStorage.setItem('pai-support-snoozed-until', String(Date.now() + 86_400_000));
+  });
+});
+
 const USER = 'admin';
 const PASSWORD = 'e2e-password-123';
 
@@ -483,4 +490,58 @@ test('calendar finds dates in documents, lists them and offers an iCal subscript
   const body = await ics.text();
   expect(body).toContain('SUMMARY:Stromrechnung SR-2024-0412 bezahlen');
   expect(body).not.toContain('Kfz-Versicherung');
+});
+
+test('support reminder opens on the dashboard, can be put off for 7 days and comes back', async ({ page }) => {
+  await login(page);
+  await page.evaluate(() => {
+    sessionStorage.setItem('e2e-support-reminder', '1');
+    localStorage.removeItem('pai-support-snoozed-until');
+  });
+  await page.goto('/');
+  const dialog = page.getByRole('dialog', { name: 'Enjoying Paperless-AI?' });
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+
+  // The shields.io badges, served by Paperless-AI itself.
+  const links = dialog.getByRole('list', { name: 'Ways to support the project' }).getByRole('link');
+  expect(await links.evaluateAll((as) => as.map((a) => a.getAttribute('href')))).toEqual([
+    'https://www.patreon.com/c/clusterzx',
+    'https://www.paypal.com/paypalme/bech0r',
+    'https://www.buymeacoffee.com/clusterzx',
+    'https://ko-fi.com/clusterzx',
+  ]);
+  const images = dialog.getByRole('img');
+  await expect(images).toHaveCount(4);
+  expect(await images.evaluateAll((imgs) => imgs.map((i) => i.getAttribute('src')))).toEqual([
+    '/support/patreon.svg',
+    '/support/paypal.svg',
+    '/support/buymeacoffee.svg',
+    '/support/kofi.svg',
+  ]);
+  for (const img of await images.all()) {
+    await expect.poll(() => img.evaluate((i) => (i as unknown as { naturalWidth: number }).naturalWidth)).toBeGreaterThan(0);
+  }
+
+  await dialog.getByRole('button', { name: 'Maybe later' }).click();
+  await expect(dialog).toBeHidden();
+  const until = Number(await page.evaluate(() => localStorage.getItem('pai-support-snoozed-until')));
+  expect(until - Date.now()).toBeGreaterThan(6.9 * 86_400_000);
+  expect(until - Date.now()).toBeLessThanOrEqual(7 * 86_400_000);
+
+  // Not again on the next visit …
+  await page.reload();
+  await expect(dashboardHeading(page)).toBeVisible();
+  await page.waitForTimeout(3500);
+  await expect(dialog).toBeHidden();
+  // … but once the 7 days are over.
+  await page.evaluate(() => localStorage.setItem('pai-support-snoozed-until', String(Date.now() - 1000)));
+  await page.reload();
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+
+  // At any time from the account menu.
+  await page.getByRole('button', { name: /Account & appearance/ }).click();
+  await page.getByRole('button', { name: 'Support the project' }).click();
+  await expect(dialog).toBeVisible();
 });

@@ -6,6 +6,7 @@ import {
   FileSearch,
   FlaskConical,
   BookMarked,
+  Heart,
   CalendarDays,
   History,
   LayoutDashboard,
@@ -29,6 +30,7 @@ import { cn } from '../lib/format';
 import { hasUnsavedChanges, useInterval } from '../lib/hooks';
 import { ACCENTS, clearUserData, useAccent, useSession, useTheme, type ThemePref } from '../lib/session';
 import { Wordmark } from './Brand';
+import { SupportModal, useSupportReminder } from './SupportReminder';
 import { CommandPalette, type Command } from './CommandPalette';
 import { Avatar, rovingKeyDown, useConfirm, useDialog, useToast } from './ui';
 
@@ -106,7 +108,7 @@ function AccentPicker() {
 }
 
 /** Account button with a menu for appearance, links and sign-out. */
-function UserMenu({ onLogout }: { onLogout: () => void }) {
+function UserMenu({ onLogout, onSupport }: { onLogout: () => void; onSupport: () => void }) {
   const { session } = useSession();
   const [open, setOpen] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
@@ -143,6 +145,15 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
               </div>
             </div>
             <div className="mt-1.5 space-y-0.5">
+              <button
+                onClick={() => {
+                  close();
+                  onSupport();
+                }}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-muted transition hover:bg-surface-2 hover:text-fg"
+              >
+                <Heart className="size-4" /> Support the project
+              </button>
               <a
                 className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-muted transition hover:bg-surface-2 hover:text-fg"
                 href="https://github.com/clusterzx/paperless-ai"
@@ -222,6 +233,8 @@ export function Layout({ children }: { children: ReactNode }) {
   const [location, navigate] = useLocation();
   const [open, setOpen] = useState(false);
   const [palette, setPalette] = useState(false);
+  // Asks for support on the dashboard, at most once every 7 days.
+  const support = useSupportReminder(location === '/');
   const drawer = useRef<HTMLElement>(null);
   useDialog(drawer, open, () => setOpen(false));
   useEffect(() => setOpen(false), [location]);
@@ -340,7 +353,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </nav>
       <div className="space-y-2 p-3">
         <ProcessingPulse />
-        <UserMenu onLogout={() => void logout()} />
+        <UserMenu onLogout={() => void logout()} onSupport={support.show} />
       </div>
     </div>
   );
@@ -379,6 +392,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <main className="min-h-0 flex-1 overflow-y-auto bg-sheet lg:rounded-[18px] lg:border lg:border-border lg:shadow-card">{children}</main>
       </div>
       <CommandPalette open={palette} onClose={() => setPalette(false)} pages={pageCommands} navigate={(href) => void go(href)} rag={rag} onScan={() => void scan()} />
+      <SupportModal open={support.open} onClose={support.close} />
     </div>
   );
 }
