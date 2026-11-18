@@ -4,7 +4,7 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 4.0.x   | :white_check_mark: |
+| >4.x   | :white_check_mark: |
 | < 4.0   | :x: – please upgrade, see [Upgrading from 3.x](README.md#upgrading-from-3x) |
 
 ## Reporting a Vulnerability
