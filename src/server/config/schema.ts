@@ -150,6 +150,8 @@ export const configSchema = z.object({
       /** Only process documents carrying one of `tags`. */
       onlyTagged: bool(false),
       tags: tagList,
+      /** Never process documents carrying one of these tags, regardless of the filters above. */
+      excludeTags: tagList,
       /** Remove the trigger tags from a document once it has been processed. */
       removeTriggerTags: bool(false),
       addProcessedTag: bool(false),
