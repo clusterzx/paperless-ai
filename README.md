@@ -16,9 +16,6 @@ Works with **Paperless-ngx 2.x and 3.x**, OpenAI, Anthropic (Claude), **Ollama (
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
-> [!IMPORTANT]
-> **Security notice for 3.x:** in all Paperless-AI versions before 4.0, the setup wizard can be used without logging in. Anyone who can reach such an instance can replace its user account and its configuration (Paperless token, AI provider), and this is being exploited. **Update to 4.0** – it is not affected. If your 3.x instance was reachable from the internet, read [Upgrading from 3.x](#upgrading-from-3x) before you migrate.
-
 ---
 
 ## 🚀 Features
