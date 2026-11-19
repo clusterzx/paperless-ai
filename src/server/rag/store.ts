@@ -116,7 +116,7 @@ export class RagStore {
   }
 
   /** Chunks without an embedding (to be embedded), with the text used for embedding. */
-  pendingEmbeddings(limit: number): { id: number; documentId: number; text: string }[] {
+  pendingEmbeddings(limit: number): { id: number; documentId: number; title: string; text: string }[] {
     return this.db
       .prepare(
         `SELECT c.id, c.document_id AS documentId, c.text, d.title, d.correspondent, d.document_type, d.tags, d.created
@@ -127,7 +127,7 @@ export class RagStore {
       .map((r) => {
         const row = r as { id: number; documentId: number; text: string; title: string; correspondent: string | null; document_type: string | null; tags: string; created: string | null };
         const meta = metaLine({ title: row.title, correspondent: row.correspondent, documentType: row.document_type, tags: splitTags(row.tags), created: row.created });
-        return { id: row.id, documentId: row.documentId, text: `${meta}\n${row.text}` };
+        return { id: row.id, documentId: row.documentId, title: row.title, text: `${meta}\n${row.text}` };
       });
   }
 

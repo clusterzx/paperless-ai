@@ -151,6 +151,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `CUSTOM_FIELDS` | custom fields (JSON, format of 3.x) |
 | `EXTERNAL_API_ENABLED`, `EXTERNAL_API_URL`, `EXTERNAL_API_METHOD`, `EXTERNAL_API_HEADERS`, `EXTERNAL_API_BODY`, `EXTERNAL_API_TIMEOUT`, `EXTERNAL_API_TRANSFORM` | external data |
 | `RAG_ENABLED` (or `RAG_SERVICE_ENABLED`), `RAG_EMBEDDING_PROVIDER`, `RAG_EMBEDDING_MODEL`, `RAG_QUERY_EXPANSION` | ask your archive |
+| `RAG_QUERY_PROMPT`, `RAG_DOCUMENT_PROMPT` | [embedding prompts](#embedding-prompts) for questions (`{query}`) and passages (`{text}`, `{title}`); empty = automatic |
 | `ACTIVATE_CALENDAR` | find appointments, due dates and deadlines for the calendar (default off) |
 | `OCR_ENABLED`, `OCR_MODE` (`manual`, `missing`, `poor`, `always`), `OCR_WRITE_BACK` | OCR on/off, when it runs automatically, replace the text in Paperless (default on) |
 | `OCR_LANGUAGE` (`latin`, `en`, `multi`, `cyrillic`, `eslav`, `greek`, `arabic`, `devanagari`, `korean`, `thai`, `tamil`, `telugu`), `OCR_QUALITY` (`fast`, `balanced`, `accurate`) | OCR model |
@@ -238,6 +239,14 @@ As a last resort, `NODE_TLS_REJECT_UNAUTHORIZED=0` turns certificate checks off 
 | None | keyword search only (BM25) – smallest footprint |
 
 Changing the embedding model re-embeds the passages automatically; the keyword search keeps working meanwhile.
+
+#### Embedding prompts
+
+Many embedding models expect a prompt in front of questions and passages. *Settings → Ask your archive* has a field for each: `{query}` stands for the question, `{text}` for the passage and `{title}` for the document title; without a placeholder the text is appended. A bare `{query}` or `{text}` means no prompt.
+
+Left empty, these models get their prompts automatically – each found more with them in both a pure vector search and the complete search of Paperless-AI (German/English test archive): **e5** (`query: ` / `passage: `), **mxbai-embed-large**, **snowflake-arctic-embed** v1/v1.5 and **Qwen3-Embedding**. The built-in local model keeps its prompts as before. *nomic-embed-text*, *EmbeddingGemma*, *snowflake-arctic-embed2* and *e5-…-instruct* get none automatically – the complete search did not get better with them; set them yourself if you like, e.g. EmbeddingGemma `task: search result | query: {query}` and `title: none | text: {text}`.
+
+An index built before this existed keeps working unchanged after an update. If its model now has automatic prompts, the settings offer to switch – all passages are embedded again.
 
 Memory: the vector index keeps one byte per dimension and passage in RAM (a document has about one passage per 1,000 characters) – e.g. 100,000 passages need ≈ 40 MB with the local model (384 dimensions) and ≈ 155 MB with `text-embedding-3-small` (1,536 dimensions).
 

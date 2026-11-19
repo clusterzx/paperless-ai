@@ -1,6 +1,23 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ChatStreamEvent, RagSource } from '../../src/shared/api.js';
-import { createHarness, parseSsePayload, waitFor, type Harness } from '../helpers/appHarness.js';
+import fs from 'node:fs';
+import { createHarness, makeTempDir, parseSsePayload, waitFor, type Harness } from '../helpers/appHarness.js';
+import { AppContext } from '../../src/server/context.js';
+import type { AppConfig, DeepPartial } from '../../src/server/config/schema.js';
+
+/** A context with configuration only (no Paperless, no AI) – enough to compute the embedding setup. */
+function createConfigOnlyContext(config: DeepPartial<AppConfig>): { ctx: AppContext; dispose: () => void } {
+  const dataDir = makeTempDir();
+  const ctx = new AppContext({ dataDir, env: {}, memoryDb: true });
+  ctx.config.update(config);
+  return {
+    ctx,
+    dispose: () => {
+      ctx.close();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    },
+  };
+}
 import type { ChatRequestInfo } from '../helpers/mockLlm.js';
 import { RagService } from '../../src/server/rag/service.js';
 
@@ -319,6 +336,110 @@ describe('RAG with embeddings (hybrid search)', () => {
     delete h.llm.opts.embeddingErrorStatus;
     await h.rag.sync();
     expect(h.rag.status()).toMatchObject({ state: 'idle', lastError: null, vectorSearch: true });
+  });
+});
+
+describe('RAG embedding prompts', () => {
+  const inputs = (h: Harness) => h.llm.embeddingRequests().flatMap((r) => r.body!.input as string[]);
+  let h: Harness | null = null;
+  afterEach(async () => {
+    await h?.close();
+    h = null;
+  });
+
+  it('uses the prompts the model expects – for remote providers too', async () => {
+    h = await createHarness({ embedding: 'custom', config: { rag: { embeddingModel: 'intfloat/multilingual-e5-large' } } });
+    seed(h);
+    await h.rag.sync();
+    const passages = inputs(h);
+    expect(passages.length).toBe(h.rag.status().chunks);
+    expect(passages.every((t) => t.startsWith('passage: Title: '))).toBe(true);
+    h.llm.clearRequests();
+    await search(h, { query: 'electricity' });
+    expect(inputs(h)).toEqual(['query: electricity']);
+    expect(h.rag.status().embeddingPrompts).toEqual({ query: 'query: ', document: 'passage: ', upgrade: null });
+  });
+
+  it('keeps an index made by an earlier version as it is until the prompts are switched on', async () => {
+    // An earlier version embedded remote models without prompts – the same as own prompts "{query}" / "{text}".
+    h = await createHarness({ embedding: 'custom', config: { rag: { embeddingModel: 'intfloat/multilingual-e5-large', queryPrompt: '{query}', documentPrompt: '{text}' } } });
+    seed(h);
+    await h.rag.sync();
+    const chunks = h.rag.status().chunks;
+    expect(inputs(h).every((t) => t.startsWith('Title: '))).toBe(true);
+
+    // After the update: automatic prompts would apply, but the stored vectors stay valid – nothing is embedded again.
+    h.ctx.config.update({ rag: { queryPrompt: '', documentPrompt: '' } });
+    h.llm.clearRequests();
+    await h.rag.sync();
+    expect(inputs(h)).toEqual([]);
+    expect(h.rag.status()).toMatchObject({
+      embedded: chunks,
+      vectorSearch: true,
+      embeddingPrompts: { query: '', document: '', upgrade: { query: 'query: ', document: 'passage: ' } },
+    });
+    await search(h, { query: 'electricity' });
+    expect(inputs(h)).toEqual(['electricity']);
+
+    // Switching on re-embeds everything with the prompts (logged-in users only).
+    expect((await h.inject({ method: 'POST', url: '/api/rag/embedding-prompts', headers: h.apiKeyHeaders() })).statusCode).toBe(403);
+    const cookie = await h.login();
+    h.llm.clearRequests();
+    expect((await h.inject({ method: 'POST', url: '/api/rag/embedding-prompts', headers: { cookie } })).statusCode).toBe(200);
+    await waitFor(() => h!.rag.status().state === 'idle' && h!.rag.status().embedded === chunks);
+    const passages = inputs(h);
+    expect(passages).toHaveLength(chunks);
+    expect(passages.every((t) => t.startsWith('passage: '))).toBe(true);
+    expect(h.rag.status().embeddingPrompts).toEqual({ query: 'query: ', document: 'passage: ', upgrade: null });
+    expect((await h.inject({ method: 'POST', url: '/api/rag/embedding-prompts', headers: { cookie } })).statusCode).toBe(409);
+    // stays switched on after a restart of the service
+    const again = new RagService(h.ctx);
+    expect(again.embeddingSetup().prompts).toEqual({ query: 'query: ', document: 'passage: ' });
+    await again.stop();
+  });
+
+  it('a new embedding model gets its prompts right away', async () => {
+    h = await createHarness({ embedding: 'custom' });
+    seed(h);
+    await h.rag.sync();
+    expect(inputs(h).every((t) => t.startsWith('Title: '))).toBe(true);
+    h.ctx.config.update({ rag: { embeddingModel: 'jeffh/intfloat-multilingual-e5-large:f16' } });
+    h.llm.clearRequests();
+    await h.rag.sync();
+    expect(inputs(h).every((t) => t.startsWith('passage: Title: '))).toBe(true);
+    expect(h.rag.status().embeddingPrompts.upgrade).toBeNull();
+  });
+
+  it('uses own prompts with placeholders and re-embeds when they change', async () => {
+    h = await createHarness({ embedding: 'custom', config: { rag: { queryPrompt: 'task: question answering | query: {query}', documentPrompt: 'title: {title} | text: {text}' } } });
+    seed(h);
+    await h.rag.sync();
+    expect(inputs(h).find((t) => t.includes('City Power electricity'))).toMatch(/^title: Electricity bill \| text: Title: Electricity bill \| From: City Power/);
+    h.llm.clearRequests();
+    await search(h, { query: 'premium' });
+    expect(inputs(h)).toEqual(['task: question answering | query: premium']);
+    const chunks = h.rag.status().chunks;
+    h.ctx.config.update({ rag: { documentPrompt: 'passage: ' } });
+    h.llm.clearRequests();
+    await h.rag.sync();
+    expect(inputs(h)).toHaveLength(chunks);
+    expect(inputs(h).every((t) => t.startsWith('passage: '))).toBe(true);
+  });
+
+  it('leaves the built-in model and models without prompts exactly as before', async () => {
+    // The keys are the ones of earlier versions, so existing indexes stay valid.
+    const cases: [DeepPartial<AppConfig>, string, { query: string; document: string }][] = [
+      [{ rag: { embeddingProvider: 'local', embeddingModel: '' } }, 'local:Xenova/multilingual-e5-small@', { query: 'query: ', document: 'passage: ' }],
+      [{ rag: { embeddingProvider: 'openai', embeddingModel: '' } }, 'openai:text-embedding-3-small@', { query: '', document: '' }],
+      [{ rag: { embeddingProvider: 'ollama', embeddingModel: 'bge-m3' }, ai: { ollama: { url: 'http://ollama:11434' } } }, 'ollama:bge-m3@http://ollama:11434', { query: '', document: '' }],
+    ];
+    for (const [config, key, prompts] of cases) {
+      const { ctx, dispose } = createConfigOnlyContext(config);
+      const service = new RagService(ctx);
+      expect(service.embeddingSetup()).toEqual({ key, prompts, upgrade: null });
+      await service.stop();
+      dispose();
+    }
   });
 });
 

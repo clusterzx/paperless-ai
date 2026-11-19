@@ -209,6 +209,12 @@ export const configSchema = z.object({
       embeddingProvider: z.enum(EMBEDDING_PROVIDERS).default('local'),
       /** Empty = provider default. */
       embeddingModel: str(),
+      /**
+       * Prompts in front of questions / passages when embedding ({query}, {text}, {title}). Empty =
+       * automatic for the model. Not trimmed: a prefix such as "query: " needs its space.
+       */
+      queryPrompt: z.string().max(1000).default(''),
+      documentPrompt: z.string().max(1000).default(''),
       /** Keep the index in sync automatically. */
       autoSync: bool(true),
       /** Let the AI extract search keywords/synonyms/translations from each question. */
