@@ -9,7 +9,9 @@ import type {
   PaperlessCustomField,
   PaperlessCustomFieldType,
   PaperlessDocumentType,
+  PaperlessStoragePath,
   PaperlessTag,
+  PaperlessUser,
 } from './types.js';
 
 const log = logger.child({ module: 'paperless' });
@@ -39,8 +41,17 @@ export interface MetadataOptions {
   shareCreated?: () => boolean;
 }
 
+/** Storage paths and users – only loaded when needed (prompt rules), empty without permission. */
+export interface MetadataExtras {
+  storagePaths: PaperlessStoragePath[];
+  users: PaperlessUser[];
+  loadedAt: number;
+}
+
 export class PaperlessMetadata {
   private snap: MetadataSnapshot | null = null;
+  private extrasCache: Promise<MetadataExtras> | null = null;
+  private extrasAt = 0;
   private loading: Promise<MetadataSnapshot> | null = null;
   private readonly pending = new Map<string, Promise<ResolveResult>>();
   /** Lists the API user may not read (403): nothing is created there – it could exist already. */
@@ -54,6 +65,23 @@ export class PaperlessMetadata {
 
   invalidate(): void {
     this.snap = null;
+    this.extrasCache = null;
+  }
+
+  /** Storage paths and users (cached like the snapshot). Lists the API user may not read are empty. */
+  extras(): Promise<MetadataExtras> {
+    if (!this.extrasCache || Date.now() - this.extrasAt > this.ttlMs) {
+      const readable = <T>(label: string, load: () => Promise<T[]>) =>
+        load().catch((err: unknown) => {
+          log.debug(`Could not load ${label}: ${err instanceof Error ? err.message : String(err)}`);
+          return [] as T[];
+        });
+      this.extrasAt = Date.now();
+      this.extrasCache = Promise.all([readable('storage paths', () => this.client.storagePaths()), readable('users', () => this.client.users())]).then(
+        ([storagePaths, users]) => ({ storagePaths, users, loadedAt: Date.now() }),
+      );
+    }
+    return this.extrasCache;
   }
 
   async snapshot(force = false): Promise<MetadataSnapshot> {

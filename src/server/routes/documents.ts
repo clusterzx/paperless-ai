@@ -6,6 +6,7 @@ import type { Principal } from '../auth.js';
 import type { Services } from '../http/app.js';
 import { sendEventStream } from '../http/helpers.js';
 import { analyzeContent } from '../processing/analyzer.js';
+import { describeMatch, matchPromptRule } from '../processing/promptRules.js';
 import { configSchema, type AppConfig, type DeepPartial } from '../config/schema.js';
 import { deepMerge } from '../config/store.js';
 import { applyPlannedUpdate, planManualUpdate } from '../processing/applier.js';
@@ -102,13 +103,17 @@ export const documentRoutes =
         const processing = req.body?.processing
           ? configSchema.parse(deepMerge(structuredClone(ctx.cfg), { processing: req.body.processing } as DeepPartial<AppConfig>)).processing
           : undefined;
-        return analyzeContent(ctx, ocr.storedText(doc) ?? doc.content ?? '', {
+        // The manual review analyses like the automatic processing: with the prompt rule that applies.
+        const rule = req.body?.prompt || processing ? null : await matchPromptRule(ctx, doc);
+        const result = await analyzeContent(ctx, ocr.storedText(doc) ?? doc.content ?? '', {
           feature: req.body?.prompt || processing ? 'playground' : 'manual',
           documentId: doc.id,
-          customPrompt: req.body?.prompt,
+          customPrompt: req.body?.prompt ?? rule?.prompt.prompt,
           filename: doc.original_file_name,
-          processing,
+          processing: processing ?? rule?.processing,
+          model: rule?.model,
         });
+        return { ...result, rule: rule ? describeMatch(rule) : null };
       },
     );
 
@@ -124,13 +129,16 @@ export const documentRoutes =
             tags: z.array(z.string().max(128)).max(200).optional(),
             created: z.string().max(40).nullable().optional(),
             customFields: z.array(z.object({ field_name: z.string(), value: z.string() })).optional(),
+            /** Library prompt of the prompt rule the suggestion came from (recorded in the history). */
+            promptId: z.number().int().positive().optional(),
           }),
         },
       },
       async (req) => {
         const doc = await ctx.paperless().getDocument(req.params.id);
         const plan = await planManualUpdate(ctx, doc, req.body);
-        const updated = await applyPlannedUpdate(ctx, doc, plan, { source: 'manual' });
+        const prompt = req.body.promptId ? ctx.repos.prompts.get(req.body.promptId) : undefined;
+        const updated = await applyPlannedUpdate(ctx, doc, plan, { source: 'manual', prompt: prompt ? { id: prompt.id, name: prompt.name } : null });
         rag.requestSync();
         return { document: summary(updated), notes: plan.notes, changed: Object.keys(plan.patch) };
       },

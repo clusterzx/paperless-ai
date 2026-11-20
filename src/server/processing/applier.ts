@@ -4,6 +4,7 @@
  */
 import type { AnalysisResult, DocumentSnapshot, DocumentSuggestion } from '../../shared/api.js';
 import type { AppContext } from '../context.js';
+import type { AppConfig } from '../config/schema.js';
 import type { DocumentPatch } from '../paperless/client.js';
 import { normalizeName } from '../paperless/metadata.js';
 import type { PaperlessCustomField, PaperlessCustomFieldType, PaperlessDocument } from '../paperless/types.js';
@@ -115,13 +116,14 @@ async function resolveCustomFields(
   values: { field_name: string; value: string }[],
   onlyConfigured: boolean,
   notes: string[],
+  configuredFields = ctx.cfg.processing.customFields,
 ): Promise<{ field: number; value: unknown }[] | undefined> {
   if (!values.length) return undefined;
   const meta = ctx.metadata();
   const merged = new Map<number, unknown>((doc.custom_fields ?? []).map((f) => [f.field, f.value]));
   let changed = false;
   for (const { field_name, value } of values) {
-    const configured = ctx.cfg.processing.customFields.find((c) => normalizeName(c.name) === normalizeName(field_name));
+    const configured = configuredFields.find((c) => normalizeName(c.name) === normalizeName(field_name));
     if (onlyConfigured && !configured) continue;
     try {
       const type = (configured?.type ?? 'string') as PaperlessCustomFieldType;
@@ -149,9 +151,16 @@ async function resolveCustomFields(
   return changed ? [...merged.entries()].map(([field, value]) => ({ field, value })) : undefined;
 }
 
-/** Plan the update for an automatic AI run, honouring all processing settings. */
-export async function planAutomaticUpdate(ctx: AppContext, doc: PaperlessDocument, s: DocumentSuggestion): Promise<PlannedUpdate> {
-  const p = ctx.cfg.processing;
+/**
+ * Plan the update for an automatic AI run, honouring all processing settings – those of a prompt
+ * rule, if one applies to the document.
+ */
+export async function planAutomaticUpdate(
+  ctx: AppContext,
+  doc: PaperlessDocument,
+  s: DocumentSuggestion,
+  p: AppConfig['processing'] = ctx.cfg.processing,
+): Promise<PlannedUpdate> {
   const meta = ctx.metadata();
   await meta.snapshot();
   const patch: DocumentPatch = {};
@@ -195,11 +204,17 @@ export async function planAutomaticUpdate(ctx: AppContext, doc: PaperlessDocumen
 
   let documentType = meta.documentTypeName(doc.document_type);
   if (p.functions.documentType && s.document_type) {
-    const res = await meta.resolveDocumentType(s.document_type, !p.restrict.documentTypes);
-    if (res.id == null) notes.push(`Document type "${s.document_type}" does not exist (restricted to existing types)`);
+    // A fixed list (prompt rules): only its types, created when missing.
+    const suggested = s.document_type;
+    const fixed = p.allowedDocumentTypes.length ? p.allowedDocumentTypes.find((t: string) => normalizeName(t) === normalizeName(suggested)) : undefined;
+    if (p.allowedDocumentTypes.length && !fixed) notes.push(`Ignored document type "${s.document_type}" (not in the allowed list)`);
     else {
-      documentType = res.name;
-      if (res.id !== doc.document_type) patch.document_type = res.id;
+      const res = await meta.resolveDocumentType(fixed ?? s.document_type, fixed ? true : !p.restrict.documentTypes);
+      if (res.id == null) notes.push(`Document type "${s.document_type}" does not exist (restricted to existing types)`);
+      else {
+        documentType = res.name;
+        if (res.id !== doc.document_type) patch.document_type = res.id;
+      }
     }
   }
 
@@ -220,7 +235,7 @@ export async function planAutomaticUpdate(ctx: AppContext, doc: PaperlessDocumen
   }
 
   if (p.functions.customFields && p.customFields.length) {
-    const cf = await resolveCustomFields(ctx, doc, s.custom_fields, true, notes);
+    const cf = await resolveCustomFields(ctx, doc, s.custom_fields, true, notes, p.customFields);
     if (cf) patch.custom_fields = cf;
   }
 
@@ -291,6 +306,8 @@ export async function planManualUpdate(ctx: AppContext, doc: PaperlessDocument, 
 export interface ApplyMeta {
   source: string;
   analysis?: AnalysisResult;
+  /** Library prompt of the prompt rule that applied. */
+  prompt?: { id: number; name: string } | null;
 }
 
 /** PATCH the document, then record history and processing state (only after success). */
@@ -362,6 +379,7 @@ function recordApplied(ctx: AppContext, doc: PaperlessDocument, updated: Paperle
       completionTokens: info.analysis?.usage.completionTokens,
       totalTokens: info.analysis?.usage.totalTokens,
       durationMs: info.analysis?.durationMs,
+      prompt: info.prompt ?? null,
     });
   }
   ctx.repos.documents.markProcessed(doc.id, updated.title ?? doc.title, updated.modified ?? null);

@@ -41,6 +41,7 @@ export interface MockDoc {
   user_can_change: boolean;
   original_file_name: string | null;
   owner: number | null;
+  storage_path: number | null;
   page_count: number | null;
   /** The uploaded file (default: a small PDF). */
   file: { data: Buffer; contentType: string };
@@ -98,6 +99,9 @@ export class MockPaperless {
   readonly tags = new Map<number, MockNamed>();
   readonly correspondents = new Map<number, MockNamed>();
   readonly documentTypes = new Map<number, MockNamed>();
+  readonly storagePaths = new Map<number, MockNamed>();
+  /** Paperless users; `null` = the API user may not view users (403). */
+  users: { id: number; username: string }[] | null = [];
   readonly customFields = new Map<number, MockCustomField>();
   readonly requests: RecordedRequest[] = [];
   /** Optional hook to fake errors / slow responses for specific requests. */
@@ -171,6 +175,7 @@ export class MockPaperless {
       user_can_change: d.user_can_change ?? true,
       original_file_name: d.original_file_name ?? `${id}.pdf`,
       owner: d.owner ?? this.user.id,
+      storage_path: d.storage_path ?? null,
       page_count: d.page_count ?? 1,
       file: d.file ?? { data: SAMPLE_PDF, contentType: 'application/pdf' },
       archive: d.archive ?? null,
@@ -207,6 +212,10 @@ export class MockPaperless {
 
   addDocumentType(name: string, id?: number): MockNamed {
     return this.addNamed(this.documentTypes, name, id);
+  }
+
+  addStoragePath(name: string, id?: number): MockNamed {
+    return this.addNamed(this.storagePaths, name, id);
   }
 
   addCustomField(name: string, dataType: string, extra: Record<string, unknown> | null = null, id?: number): MockCustomField {
@@ -312,6 +321,14 @@ export class MockPaperless {
       });
     }
     if (path === '/api/documents/' && record.method === 'GET') return send(200, this.listDocuments(q, version, u));
+    if (path === '/api/storage_paths/' && record.method === 'GET') {
+      const items = [...this.storagePaths.values()].sort((a, b) => a.name.localeCompare(b.name));
+      return send(200, this.paginate(items, q, version, u, items.map((i) => i.id)));
+    }
+    if (path === '/api/users/' && record.method === 'GET') {
+      if (!this.users) return send(403, { detail: 'You do not have permission to perform this action.' });
+      return send(200, this.paginate(this.users, q, version, u, this.users.map((i) => i.id)));
+    }
     if ((m = /^\/api\/documents\/(\d+)\/$/.exec(path))) {
       const doc = this.docs.get(Number(m[1]));
       if (!doc) return send(404, { detail: 'No Document matches the given query.' });
@@ -365,7 +382,7 @@ export class MockPaperless {
       tags: [...doc.tags],
       correspondent: doc.correspondent,
       document_type: doc.document_type,
-      storage_path: null,
+      storage_path: doc.storage_path,
       created: version >= 9 ? doc.created : `${doc.created}T00:00:00+01:00`,
       modified: doc.modified,
       added: doc.added,

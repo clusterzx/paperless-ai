@@ -78,6 +78,13 @@ function allowedTags(p: Processing, ctx: PromptContext): string[] | null {
   return null;
 }
 
+/** A fixed list (prompt rules), or the existing types when restricted. */
+function allowedDocumentTypes(p: Processing, ctx: PromptContext): string[] | null {
+  if (p.allowedDocumentTypes.length) return p.allowedDocumentTypes;
+  if (p.restrict.documentTypes) return ctx.documentTypes;
+  return null;
+}
+
 export function buildJsonSchema(p: Processing, ctx: PromptContext): Record<string, unknown> {
   const f = enabledFields(p);
   const properties: Record<string, unknown> = {};
@@ -103,7 +110,8 @@ export function buildJsonSchema(p: Processing, ctx: PromptContext): Record<strin
     required.push('tags');
   }
   if (f.documentType) {
-    const allowed = p.restrict.documentTypes && ctx.documentTypes.length <= MAX_ENUM_VALUES ? ctx.documentTypes : null;
+    const types = allowedDocumentTypes(p, ctx);
+    const allowed = types && types.length <= MAX_ENUM_VALUES ? types : null;
     properties.document_type = allowed?.length
       ? { type: 'string', enum: [...allowed, ''], description: 'Type of the document' }
       : str('Type of the document, e.g. Invoice, Contract, Letter');
@@ -208,8 +216,9 @@ export function buildOutputInstructions(p: Processing, ctx: PromptContext): stri
   if (f.correspondent && p.restrict.correspondents) {
     lines.push(`- correspondent: ONLY use one of: ${joinLimited(ctx.correspondents, MAX_LIST_TOKENS)} (empty string if none fits)`);
   }
-  if (f.documentType && p.restrict.documentTypes) {
-    lines.push(`- document_type: ONLY use one of: ${joinLimited(ctx.documentTypes, MAX_LIST_TOKENS / 2)} (empty string if none fits)`);
+  const types = allowedDocumentTypes(p, ctx);
+  if (f.documentType && types) {
+    lines.push(`- document_type: ONLY use one of: ${joinLimited(types, MAX_LIST_TOKENS / 2)} (empty string if none fits)`);
   }
   return lines.join('\n');
 }
@@ -227,7 +236,7 @@ function replacePlaceholders(prompt: string, p: Processing, ctx: PromptContext):
   return prompt
     .replace(/%RESTRICTED_TAGS%/g, joinLimited(allowedTags(p, ctx) ?? ctx.tags, MAX_LIST_TOKENS))
     .replace(/%RESTRICTED_CORRESPONDENTS%/g, joinLimited(ctx.correspondents, MAX_LIST_TOKENS))
-    .replace(/%RESTRICTED_DOCUMENT_TYPES%/g, joinLimited(ctx.documentTypes, MAX_LIST_TOKENS / 2))
+    .replace(/%RESTRICTED_DOCUMENT_TYPES%/g, joinLimited(allowedDocumentTypes(p, ctx) ?? ctx.documentTypes, MAX_LIST_TOKENS / 2))
     .replace(/%CUSTOMFIELDS%/g, customFieldList);
 }
 
@@ -243,7 +252,7 @@ export function buildSystemPrompt(p: Processing, ctx: PromptContext, opts: Promp
     if (f.correspondent && !p.restrict.correspondents) {
       existing.push(`Existing correspondents (prefer these): ${joinLimited(ctx.correspondents, MAX_LIST_TOKENS)}`);
     }
-    if (f.documentType && !p.restrict.documentTypes) {
+    if (f.documentType && !allowedDocumentTypes(p, ctx)) {
       existing.push(`Existing document types (prefer these): ${joinLimited(ctx.documentTypes, MAX_LIST_TOKENS / 2)}`);
     }
     if (existing.length) parts.push(existing.join('\n\n'));

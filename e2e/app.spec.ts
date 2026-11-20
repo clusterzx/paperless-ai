@@ -620,3 +620,51 @@ test('single sign-on: set up, link the account, sign in and out at the provider'
   await expect(page.getByText(/Settings saved/)).toBeVisible();
   session = null;
 });
+
+test('prompt rules: a rule analyses matching documents with its own prompt and settings', async ({ page }) => {
+  await login(page);
+  await page.goto('/prompts');
+  await expect(page.getByText('No rules yet – every document is analysed with the system prompt.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add rule' }).click();
+  const editor = page.getByRole('dialog', { name: 'New prompt rule' });
+  await editor.getByLabel('Name').fill('Utility bills');
+  await editor.getByLabel('Prompt from the library').selectOption({ label: 'Invoices, tested (Invoices & receipts)' });
+  const correspondent = editor.getByLabel('Correspondent', { exact: true });
+  await correspondent.first().fill('Stadtwerke München');
+  await correspondent.first().press('Enter');
+  await editor.getByRole('combobox', { name: 'Correspondent', exact: true }).last().selectOption('off');
+  await editor.getByLabel('Model').fill('mock-gpt-small');
+  await editor.getByRole('button', { name: 'Save rule' }).click();
+  await expect(page.getByText('Prompt rules saved')).toBeVisible();
+  const rule = page.getByRole('listitem', { name: 'Utility bills' });
+  await expect(rule).toContainText('Invoices, tested');
+  await expect(rule).toContainText('From Stadtwerke München');
+  await expect(rule).toContainText('no correspondent · model mock-gpt-small');
+  await expect(page.getByRole('region', { name: 'Invoices, tested' }).getByText('Utility bills')).toBeVisible();
+
+  // The manual review shows the rule before and after the analysis
+  await page.goto('/review?doc=2');
+  await expect(page.getByText('Will be analysed with')).toBeVisible();
+  await expect(page.getByText(/Invoices, tested\s*· Utility bills/).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Analyze with AI' }).click();
+  await expect(page.getByText('Analysed with', { exact: true })).toBeVisible();
+  await expect(page.getByText(/AI suggestion by mock-gpt-small/)).toBeVisible();
+  await page.getByLabel('Title').fill('Stromrechnung April (Regel)');
+  await page.getByRole('button', { name: 'Save to Paperless' }).click();
+  await expect(page.getByText(/Saved: /)).toBeVisible();
+
+  // The history shows the prompt
+  await page.goto('/history');
+  await expect(page.getByRole('row', { name: /Stromrechnung April \(Regel\)/ }).getByText('Invoices, tested')).toBeVisible();
+
+  // Documents without a match get the system prompt; the rule can be switched off and deleted
+  await page.goto('/review?doc=3');
+  await expect(page.getByText('System prompt', { exact: true })).toBeVisible();
+  await page.goto('/prompts');
+  await rule.getByRole('switch').click();
+  await expect(rule.getByText('off', { exact: true })).toBeVisible();
+  await rule.getByRole('button', { name: 'Delete rule' }).click();
+  await page.getByRole('dialog', { name: 'Delete “Utility bills”?' }).getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByText('No rules yet – every document is analysed with the system prompt.')).toBeVisible();
+});

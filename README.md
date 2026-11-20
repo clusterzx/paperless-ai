@@ -24,6 +24,7 @@ Works with **Paperless-ngx 2.x and 3.x**, OpenAI, Anthropic (Claude), **Ollama (
 - Title, tags, correspondent, document type, date and **custom fields** for new documents – on a schedule or instantly via a Paperless **workflow webhook**
 - **OpenAI**, **Anthropic (Claude)**, **Ollama**, **Azure OpenAI** and any **OpenAI-compatible** API – reasoning models included
 - Process everything or only documents with **trigger tags**, skip documents with **exclude tags**; restrict the AI to existing tags, correspondents and document types
+- **Prompt rules** – different prompts and settings per kind of document, e.g. household papers and teaching material in one archive → [Prompt rules](#prompt-rules)
 - Optional context from an **external API** (e.g. your customer list); parallel processing, retries, rate limits pause the queue instead of failing documents
 
 **OCR** (optional) – reads scans and photos locally with PaddleOCR before the AI analysis, replaces the Paperless text only when it reads better (with undo), on the CPU or an NVIDIA GPU. → [OCR](#ocr)
@@ -149,6 +150,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `ACTIVATE_TAGGING`, `ACTIVATE_CORRESPONDENTS`, `ACTIVATE_DOCUMENT_TYPE`, `ACTIVATE_TITLE`, `ACTIVATE_CUSTOM_FIELDS`, `ACTIVATE_DOCUMENT_DATE` | enabled functions |
 | `RESTRICT_TO_EXISTING_TAGS`, `RESTRICT_TO_EXISTING_CORRESPONDENTS`, `RESTRICT_TO_EXISTING_DOCUMENT_TYPES` | restrictions |
 | `CUSTOM_FIELDS` | custom fields (JSON, format of 3.x) |
+| `PROMPT_RULES` | [prompt rules](#prompt-rules) as JSON (locks them in the web interface) |
 | `EXTERNAL_API_ENABLED`, `EXTERNAL_API_URL`, `EXTERNAL_API_METHOD`, `EXTERNAL_API_HEADERS`, `EXTERNAL_API_BODY`, `EXTERNAL_API_TIMEOUT`, `EXTERNAL_API_TRANSFORM` | external data |
 | `RAG_ENABLED` (or `RAG_SERVICE_ENABLED`), `RAG_EMBEDDING_PROVIDER`, `RAG_EMBEDDING_MODEL`, `RAG_QUERY_EXPANSION` | ask your archive |
 | `RAG_QUERY_PROMPT`, `RAG_DOCUMENT_PROMPT` | [embedding prompts](#embedding-prompts) for questions (`{query}`) and passages (`{text}`, `{title}`); empty = automatic |
@@ -182,6 +184,25 @@ The OCR text replaces the text in Paperless only when its text-quality score is 
 - **Speed:** on a 4-core CPU an A4 page takes about 1–2 s (*Balanced*); *Accurate* reads small print better but is slow without a GPU.
 - **GPU memory:** on the GPU the OCR models are unloaded after each document (*Unload the OCR models: Automatic*), so a local model (Ollama, llama.cpp …) on the same GPU gets all of the memory back. Without such a model choose *After 10 idle minutes*.
 - **Models** (~20 MB) are stored in `data/models/paddleocr` and downloaded once; behind a proxy or offline set `HF_ENDPOINT` to a Hugging Face mirror. ONNX Runtime telemetry is switched off.
+
+### Prompt rules
+
+One prompt rarely fits every document: household papers need a correspondent, a document type and the tax year – teaching material needs a subject, a grade and no correspondent at all. *Prompt library → Prompt rules* analyses matching documents with another prompt from the library and, if wanted, with other settings. The first matching rule wins; all other documents get the system prompt.
+
+- **Conditions** (all that are filled in must match): one of / all of these tags, document type, correspondent, storage path, owner, a custom field (with a value). A rule without conditions applies to every document – useful as the last rule. Paperless can set a routing tag on consumption, e.g. with a workflow or `CONSUMER_SUBDIRS_AS_TAGS`.
+- **Settings per rule**: which fields the AI fills (e.g. no correspondent), which of the configured custom fields, only existing tags / correspondents / document types, a fixed list of allowed tags or document types, and another model of the AI provider (e.g. a larger one for difficult documents).
+- The manual review and the playground show which rule applies to a document, the history and the library which prompt was used. A prompt sent with the webhook (`prompt`) wins over the rules.
+- Rules look at the document as it is when it is analysed: if a trigger tag is a condition and is removed after processing, a later re-run without the tag uses the system prompt.
+
+For Docker deployments the rules can be set with `PROMPT_RULES` – prompts are referred to by their name in the library:
+
+```json
+[
+  { "name": "Teaching material", "prompt": "Teaching material", "match": { "tagsAny": ["Unterricht"] },
+    "overrides": { "functions": { "correspondent": false }, "customFields": ["Subject", "Grade"], "allowedDocumentTypes": ["Worksheet", "Test"] } },
+  { "name": "Household", "prompt": "Household", "match": {} }
+]
+```
 
 ### Calendar
 

@@ -277,6 +277,17 @@ const MIGRATIONS: Migration[] = [
         CREATE UNIQUE INDEX users_oidc ON users(oidc_issuer, oidc_subject) WHERE oidc_subject IS NOT NULL;
       `),
   },
+  {
+    version: 10,
+    name: 'prompt rules',
+    up: (db) =>
+      db.exec(`
+        -- The library prompt a document was processed with (prompt rules); the name stays when the prompt is deleted
+        ALTER TABLE history ADD COLUMN prompt_id INTEGER;
+        ALTER TABLE history ADD COLUMN prompt_name TEXT;
+        CREATE INDEX history_prompt ON history(prompt_id) WHERE prompt_id IS NOT NULL;
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {

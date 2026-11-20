@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'wouter';
-import { BookMarked, Check, ChevronDown, FlaskConical, Pencil, Plus, Power, Search, Star, Trash2, Wand2 } from 'lucide-react';
+import { BookMarked, Check, ChevronDown, FileText, FlaskConical, Pencil, Plus, Power, Search, Split, Star, Trash2, Wand2 } from 'lucide-react';
 import type { LibraryPrompt, PromptLibrary } from '@shared/api';
 import { Page } from '../components/Layout';
 import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Input, Modal, PageHeader, Select, Skeleton, Textarea, useConfirm, useToast } from '../components/ui';
 import { importLegacyPrompts, RatePromptModal, SavePromptModal, ScoreBadge } from '../components/promptLibrary';
+import { PromptRulesCard } from '../components/promptRules';
 import { api, errorMessage, get, post } from '../lib/api';
 import { useAsync } from '../lib/hooks';
 import { cn, formatDate, timeAgo } from '../lib/format';
@@ -124,6 +125,7 @@ export default function PromptsPage() {
           The system prompt is set by the environment variable SYSTEM_PROMPT – prompts can be kept and rated here, but not activated.
         </Alert>
       )}
+      {lib.data && <PromptRulesCard prompts={prompts} onChanged={() => void lib.reload()} />}
 
       {lib.loading && !lib.data ? (
         <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
@@ -206,6 +208,16 @@ export default function PromptsPage() {
                             </Badge>
                           )}
                           <ScoreBadge score={p.score} count={p.ratings.length} />
+                          {p.rules.map((r) => (
+                            <Badge key={r} tone="info" title="Used by this prompt rule">
+                              <Split className="size-3" /> {r}
+                            </Badge>
+                          ))}
+                          {p.documents > 0 && (
+                            <Badge title="Documents processed with this prompt through a prompt rule">
+                              <FileText className="size-3" /> {p.documents} document{p.documents === 1 ? '' : 's'}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                       <div className="flex shrink-0 gap-0.5">

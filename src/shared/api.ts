@@ -1,3 +1,5 @@
+import type { MatchedPromptRule } from './promptRules.js';
+
 /**
  * Types shared between the server and the web UI (API contract).
  * Only types live here so the browser bundle does not pull in server code.
@@ -35,6 +37,8 @@ export interface HistoryItem {
   before: DocumentSnapshot;
   after: Record<string, unknown>;
   suggestion: unknown;
+  /** Library prompt of the prompt rule the document was processed with (null: system prompt). */
+  prompt: { id: number | null; name: string } | null;
 }
 
 export interface HistoryQuery {
@@ -104,6 +108,8 @@ export interface AnalysisResult {
   provider: string;
   durationMs: number;
   truncated: boolean;
+  /** The prompt rule the analysis used (manual review), null: the system prompt. */
+  rule?: MatchedPromptRule | null;
 }
 
 export interface NamedItem {
@@ -342,6 +348,10 @@ export interface LibraryPrompt {
   score: number | null;
   /** Mean score per model, best first. */
   models: { provider: string; model: string; score: number; count: number }[];
+  /** Documents processed with the prompt through a prompt rule. */
+  documents: number;
+  /** Prompt rules that use the prompt (their labels). */
+  rules: string[];
 }
 
 export interface PromptLibrary {

@@ -10,7 +10,7 @@ import { importLegacyDatabase, openDatabase, type Db } from './db/database.js';
 import { createRepos, type NewUsage, type Repos } from './db/repos.js';
 import { PaperlessClient, documentUrl } from './paperless/client.js';
 import { PaperlessMetadata } from './paperless/metadata.js';
-import { activeModel, aiConfigProblem, createLlmClient } from './ai/factory.js';
+import { activeModel, aiConfigProblem, createLlmClient, withModel } from './ai/factory.js';
 import type { CompletionResult, LlmClient, Usage } from './ai/types.js';
 import { logger } from './logger.js';
 
@@ -39,6 +39,8 @@ export class AppContext {
 
   private paperlessCache: { key: string; client: PaperlessClient; metadata: PaperlessMetadata } | null = null;
   private llmCache: { key: string; client: LlmClient } | null = null;
+  /** Clients for other models of the provider (prompt rules), by model. */
+  private readonly modelClients = new Map<string, { key: string; client: LlmClient }>();
 
   constructor(opts: ContextOptions) {
     this.dataDir = opts.dataDir;
@@ -56,7 +58,10 @@ export class AppContext {
 
   private onConfigChange(next: AppConfig, prev: AppConfig): void {
     if (JSON.stringify(next.paperless) !== JSON.stringify(prev.paperless)) this.paperlessCache = null;
-    if (JSON.stringify(next.ai) !== JSON.stringify(prev.ai)) this.llmCache = null;
+    if (JSON.stringify(next.ai) !== JSON.stringify(prev.ai)) {
+      this.llmCache = null;
+      this.modelClients.clear();
+    }
     logger.child({ module: 'config' }).info('Configuration updated');
   }
 
@@ -92,7 +97,21 @@ export class AppContext {
     return this.paperlessEntry().metadata;
   }
 
-  llm(): LlmClient {
+  /** The AI client – with another model of the configured provider, if given (prompt rules). */
+  llm(model?: string | null): LlmClient {
+    if (model && model !== activeModel(this.cfg.ai)) {
+      const ai = withModel(this.cfg.ai, model);
+      const key = JSON.stringify(ai);
+      let entry = this.modelClients.get(model);
+      if (entry?.key !== key) {
+        const problem = aiConfigProblem(ai);
+        if (problem) throw new NotConfiguredError(problem);
+        if (this.modelClients.size >= 16) this.modelClients.clear();
+        entry = { key, client: createLlmClient(ai) };
+        this.modelClients.set(model, entry);
+      }
+      return entry.client;
+    }
     const key = JSON.stringify(this.cfg.ai);
     if (this.llmCache?.key !== key) {
       const problem = aiConfigProblem(this.cfg.ai);

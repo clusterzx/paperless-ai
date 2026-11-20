@@ -59,6 +59,16 @@ export interface PaperlessDocumentType {
   owner?: number | null;
 }
 
+export interface PaperlessStoragePath {
+  id: number;
+  name: string;
+}
+
+export interface PaperlessUser {
+  id: number;
+  username: string;
+}
+
 export type PaperlessCustomFieldType =
   | 'string'
   | 'url'

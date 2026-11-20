@@ -15,6 +15,8 @@ import { logger } from '../logger.js';
 import type { OcrService } from '../ocr/service.js';
 import { analyzeContent } from './analyzer.js';
 import { applyPlannedUpdate, planAutomaticUpdate } from './applier.js';
+import { matchPromptRule } from './promptRules.js';
+import { ruleLabel } from '../../shared/promptRules.js';
 
 const log = logger.child({ module: 'processing' });
 
@@ -67,7 +69,8 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
   private lastScanAt: number | null = null;
   private lastError: string | null = null;
   /** The AI model was used since the queue was last empty. */
-  private modelUsed = false;
+  /** Models used since the queue was last empty (null = the one of the AI settings). */
+  private readonly modelsUsed = new Set<string | null>();
   /** Rate limited by the AI provider: no new analyses before this time. */
   private cooldownUntil = 0;
   private cooldownTimer: NodeJS.Timeout | null = null;
@@ -350,17 +353,18 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
 
   private onIdle(): void {
     this.emit('idle');
-    if (!this.modelUsed) return;
-    this.modelUsed = false;
+    if (!this.modelsUsed.size) return;
+    const models = [...this.modelsUsed];
+    this.modelsUsed.clear();
     const ai = this.ctx.cfg.ai;
     if (ai.provider !== 'ollama' || !ai.ollama.unloadWhenIdle) return;
     // Free the GPU memory for other applications until the next document arrives.
-    void this.unloadModel();
+    for (const model of models) void this.unloadModel(model);
   }
 
-  private async unloadModel(): Promise<void> {
+  private async unloadModel(model: string | null): Promise<void> {
     try {
-      const llm = this.ctx.llm();
+      const llm = this.ctx.llm(model);
       await llm.unload?.();
       log.info(`Queue is empty – unloaded ${llm.model} from Ollama`);
     } catch (err) {
@@ -429,20 +433,29 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
         return 'skipped';
       }
       if (info) info.stage = 'analyzing';
-      this.modelUsed = true;
-      log.info(`Analyzing document ${documentId} "${doc.title}"`);
+      // A prompt sent with the request (webhook, API) wins; otherwise the first matching prompt rule.
+      const rule = job.prompt ? null : await matchPromptRule(this.ctx, doc);
+      const processing = rule?.processing ?? this.ctx.cfg.processing;
+      this.modelsUsed.add(rule?.model ?? null);
+      log.info(`Analyzing document ${documentId} "${doc.title}"${rule ? ` with the prompt "${rule.prompt.name}" (${ruleLabel(rule.rule, rule.index)})` : ''}`);
       const analysis = await analyzeContent(this.ctx, content, {
         feature: 'process',
         documentId,
-        customPrompt: job.prompt,
+        customPrompt: job.prompt ?? rule?.prompt.prompt,
         filename: doc.original_file_name,
+        processing: rule?.processing,
+        model: rule?.model,
       });
       if (info) info.stage = 'saving';
-      const plan = await planAutomaticUpdate(this.ctx, doc, analysis.suggestion);
-      const updated = await applyPlannedUpdate(this.ctx, doc, plan, { source: job.source, analysis });
+      const plan = await planAutomaticUpdate(this.ctx, doc, analysis.suggestion, processing);
+      const updated = await applyPlannedUpdate(this.ctx, doc, plan, {
+        source: job.source,
+        analysis,
+        prompt: rule ? { id: rule.prompt.id, name: rule.prompt.name } : null,
+      });
       // Our own change must not make the OCR text look outdated; the OCR page shows the new title.
       this.ctx.repos.ocr.followVersion(documentId, doc.modified ?? null, updated.modified ?? null);
-      if (this.ctx.cfg.processing.functions.events) {
+      if (processing.functions.events) {
         const found = this.ctx.repos.calendar.replaceForDocument(documentId, updated.title ?? null, analysis.suggestion.events ?? []);
         if (found) log.info(`Found ${found} date(s) for the calendar in document ${documentId}`);
       }

@@ -18,11 +18,13 @@ export interface AnalyzeOptions {
   customPrompt?: string;
   filename?: string | null;
   signal?: AbortSignal;
-  /** Processing settings for this analysis only (testing the prompt wizard before saving). */
+  /** Processing settings for this analysis only (prompt rules, testing the prompt wizard before saving). */
   processing?: AppConfig['processing'];
+  /** Another model of the configured provider (prompt rules). */
+  model?: string | null;
 }
 
-export async function buildPromptContext(ctx: AppContext): Promise<PromptContext> {
+export async function buildPromptContext(ctx: AppContext, processing: AppConfig['processing'] = ctx.cfg.processing): Promise<PromptContext> {
   const meta = await ctx.metadata().snapshot();
   const byUsage = <T extends { name: string; document_count?: number }>(items: T[]) =>
     [...items].sort((a, b) => (b.document_count ?? 0) - (a.document_count ?? 0) || a.name.localeCompare(b.name)).map((i) => i.name);
@@ -33,7 +35,7 @@ export async function buildPromptContext(ctx: AppContext): Promise<PromptContext
     tags: byUsage(meta.tags).filter((t) => t.toLowerCase() !== processedTag && !triggerTags.has(t.toLowerCase())),
     correspondents: byUsage(meta.correspondents),
     documentTypes: byUsage(meta.documentTypes),
-    customFields: ctx.cfg.processing.customFields,
+    customFields: processing.customFields,
     selectOptions: Object.fromEntries(
       meta.customFields
         .filter((f) => f.data_type === 'select')
@@ -48,8 +50,8 @@ export async function analyzeContent(ctx: AppContext, rawContent: string, opts: 
   const content = normalizeContent(rawContent);
   if (content.length < 10) throw new UserError('The document has no (or almost no) text content. Is OCR finished?');
   const cfg = opts.processing ? { ...ctx.cfg, processing: opts.processing } : ctx.cfg;
-  const llm = ctx.llm();
-  const promptCtx = await buildPromptContext(ctx);
+  const llm = ctx.llm(opts.model);
+  const promptCtx = await buildPromptContext(ctx, cfg.processing);
   const promptOpts = { customPrompt: opts.customPrompt, filename: opts.filename };
   let built = buildAnalysisPrompt(cfg, content, promptCtx, promptOpts);
   let maxTokens = cfg.ai.responseTokens;

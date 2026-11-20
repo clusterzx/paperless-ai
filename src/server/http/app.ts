@@ -26,6 +26,7 @@ import { ragRoutes } from '../routes/rag.js';
 import { ocrRoutes } from '../routes/ocr.js';
 import { oidcRoutes } from '../routes/oidc.js';
 import { promptRoutes } from '../routes/prompts.js';
+import { promptRuleRoutes } from '../routes/promptRules.js';
 import { twoFactorRoutes } from '../routes/twoFactor.js';
 import { calendarRoutes } from '../routes/calendar.js';
 
@@ -180,6 +181,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(ocrRoutes(services));
   await app.register(oidcRoutes(services));
   await app.register(promptRoutes(services));
+  await app.register(promptRuleRoutes(services));
   await app.register(twoFactorRoutes(services));
   await app.register(calendarRoutes(services));
 

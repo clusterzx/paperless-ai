@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
-import { ArrowDown, ArrowUp, ExternalLink, Eye, History as HistoryIcon, MessageSquareText, RefreshCw, RotateCcw, Search, Undo2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ExternalLink, Eye, History as HistoryIcon, MessageSquareText, RefreshCw, RotateCcw, Search, Split, Undo2 } from 'lucide-react';
 import type { HistoryPage as HistoryPageData } from '@shared/api';
 import { Page } from '../components/Layout';
 import { Alert, Badge, Button, Card, EmptyState, Input, LinkButton, Modal, PageHeader, Pagination, Select, Skeleton, Switch, useConfirm, useToast } from '../components/ui';
@@ -45,6 +45,11 @@ function DetailModal({ item, onClose }: { item: Item | null; onClose: () => void
           <Badge>{formatDate(item.createdAt, true)}</Badge>
           <Badge tone="info">{item.source}</Badge>
           {item.model && <Badge>{item.model}</Badge>}
+          {item.prompt && (
+            <Badge tone="accent" title="Library prompt of the prompt rule the document was analysed with">
+              <Split className="size-3" /> {item.prompt.name}
+            </Badge>
+          )}
           {item.totalTokens > 0 && <Badge>{formatNumber(item.totalTokens)} tokens</Badge>}
           {item.revertedAt && <Badge tone="warn">reverted {formatDate(item.revertedAt, true)}</Badge>}
         </div>
@@ -288,6 +293,11 @@ export default function HistoryPage() {
                         <div className="mt-1 flex flex-wrap gap-1">
                           {i.documentType && <Badge tone="accent">{i.documentType}</Badge>}
                           <Badge>{i.source}</Badge>
+                          {i.prompt && (
+                            <Badge tone="accent" title={`Analysed with the prompt “${i.prompt.name}” (prompt rule)`}>
+                              <Split className="size-3" /> {i.prompt.name}
+                            </Badge>
+                          )}
                           {i.revertedAt && <Badge tone="warn">reverted</Badge>}
                         </div>
                       </td>
