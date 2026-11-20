@@ -27,7 +27,7 @@ describe('setup wizard', () => {
   it('reports that setup is required', async () => {
     const res = await h.inject({ method: 'GET', url: '/api/session' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ authenticated: false, setupRequired: true, needsUser: true, version: '4.3.0' });
+    expect(res.json()).toMatchObject({ authenticated: false, setupRequired: true, needsUser: true, version: '4.4.0' });
     const health = await h.inject({ method: 'GET', url: '/health' });
     expect(health.json()).toMatchObject({ status: 'not_configured' });
   });
