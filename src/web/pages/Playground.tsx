@@ -2,15 +2,28 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { BookMarked, BookmarkPlus, Check, FileText, FlaskConical, Play, Save, Square, Wand2 } from 'lucide-react';
 import type { AnalysisResult, DocumentSummary, PromptLibrary } from '@shared/api';
+import type { MatchedPromptRule } from '@shared/promptRules';
 import { Page } from '../components/Layout';
 import { Alert, Badge, Button, Card, EmptyState, Input, PageHeader, Skeleton, Textarea, useConfirm, useToast } from '../components/ui';
 import { importLegacyPrompts, SavePromptModal, ScoreBadge } from '../components/promptLibrary';
+import { RuleBadge } from '../components/promptRules';
 import { errorMessage, get, post, put, qs } from '../lib/api';
 import { useAsync, useDebounced } from '../lib/hooks';
 import { cn, duration, formatDate, formatNumber } from '../lib/format';
 import { useMetadata } from '../lib/metadata';
 
 type RunState = { status: 'pending' | 'running' | 'done' | 'error'; result?: AnalysisResult; error?: string };
+
+/** The prompt rule the automatic processing would use for the document. */
+function AutomaticRule({ documentId }: { documentId: number }) {
+  const match = useAsync((signal) => get<{ rule: MatchedPromptRule | null }>(`/api/prompt-rules/match/${documentId}`, signal), [documentId]);
+  if (!match.data) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1 text-[11px] text-faint">
+      Automatic: <RuleBadge rule={match.data.rule} />
+    </div>
+  );
+}
 
 function Diff({ label, before, after }: { label: string; before: string | null; after: string | null }) {
   if (!after) return null;
@@ -305,6 +318,7 @@ export default function PlaygroundPage() {
                       <div className="text-[11px] text-faint">
                         #{d.id} · {formatDate(d.created)}
                       </div>
+                      {isSel && <AutomaticRule documentId={d.id} />}
                       {r?.status === 'error' && <p className="text-xs text-danger">{r.error}</p>}
                       {s && (
                         <div className="mt-1 space-y-1 border-t border-border pt-2">

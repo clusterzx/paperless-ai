@@ -32,6 +32,57 @@ const tagList = z
 
 export const CUSTOM_FIELD_TYPES = ['string', 'longtext', 'integer', 'float', 'monetary', 'date', 'boolean', 'url', 'select'] as const;
 
+const nameList = z
+  .array(z.string().trim().min(1).max(200))
+  .max(200)
+  .default([])
+  .transform((names) => [...new Set(names)]);
+/** Not set = as in the processing settings. */
+const inherit = z.boolean().optional();
+
+/**
+ * A prompt rule: documents matching the conditions are analysed with a prompt from the prompt
+ * library and, optionally, with their own processing settings. The first matching rule wins.
+ */
+export const promptRuleSchema = z.object({
+  name: z.string().trim().max(100).default(''),
+  enabled: z.boolean().default(true),
+  /** Library prompt: its id, or its name (for rules from the environment). */
+  prompt: z.union([z.number().int().positive(), z.string().trim().min(1).max(200)]),
+  /** All conditions that are set must match; no condition = every document. Names, case-insensitive. */
+  match: z
+    .object({
+      tagsAny: nameList,
+      tagsAll: nameList,
+      documentTypes: nameList,
+      correspondents: nameList,
+      storagePaths: nameList,
+      /** Paperless user names (or user ids) of the owner. */
+      owners: nameList,
+      /** A custom field is set – to `value`, if given (case-insensitive). */
+      customField: z
+        .object({ name: z.string().trim().min(1).max(128), value: z.string().trim().max(500).default('') })
+        .nullable()
+        .default(null),
+    })
+    .prefault({}),
+  overrides: z
+    .object({
+      functions: z
+        .object({ tags: inherit, correspondent: inherit, documentType: inherit, title: inherit, customFields: inherit, documentDate: inherit, events: inherit })
+        .prefault({}),
+      /** Fill only these of the configured custom fields; null = all. */
+      customFields: nameList.nullable().default(null),
+      restrict: z.object({ tags: inherit, correspondents: inherit, documentTypes: inherit }).prefault({}),
+      /** The AI may only use these tags / document types (created when missing); null = no list. */
+      allowedTags: nameList.nullable().default(null),
+      allowedDocumentTypes: nameList.nullable().default(null),
+      /** Model of the configured AI provider for these documents; empty = the one in the AI settings. */
+      model: z.string().trim().max(200).default(''),
+    })
+    .prefault({}),
+});
+
 export const customFieldSchema = z.object({
   name: z.string().trim().min(1).max(128),
   type: z.enum(CUSTOM_FIELD_TYPES).default('string'),
@@ -183,6 +234,10 @@ export const configSchema = z.object({
         .object({ tags: bool(false), correspondents: bool(false), documentTypes: bool(false) })
         .prefault({}),
       customFields: z.array(customFieldSchema).default([]),
+      /** The AI may only choose these document types (created when missing); empty = no list. Set by prompt rules. */
+      allowedDocumentTypes: tagList,
+      /** Prompt rules (prompt library): which prompt and settings a document is analysed with. */
+      promptRules: z.array(promptRuleSchema).max(50).default([]),
       /** Documents analysed in parallel. */
       concurrency: z.coerce.number().int().min(1).max(8).default(1),
       /** Failed documents are retried on later scans until this many attempts were made. */
@@ -289,6 +344,8 @@ export const configSchema = z.object({
 
 export type AppConfig = z.output<typeof configSchema>;
 export type CustomFieldConfig = z.output<typeof customFieldSchema>;
+export type PromptRule = z.output<typeof promptRuleSchema>;
+export type PromptRuleInput = z.input<typeof promptRuleSchema>;
 export type PromptWizardAnswers = z.output<typeof promptWizardSchema>;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 export type OllamaThink = (typeof OLLAMA_THINK)[number];

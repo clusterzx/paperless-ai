@@ -38,6 +38,22 @@ export function contextBudget(ai: AppConfig['ai']): number {
 }
 
 /** Name of the active model for display purposes. */
+/** The AI settings with another model of the same provider (prompt rules). */
+export function withModel(ai: AppConfig['ai'], model: string): AppConfig['ai'] {
+  switch (ai.provider) {
+    case 'openai':
+      return { ...ai, openai: { ...ai.openai, model } };
+    case 'anthropic':
+      return { ...ai, anthropic: { ...ai.anthropic, model } };
+    case 'ollama':
+      return { ...ai, ollama: { ...ai.ollama, model } };
+    case 'custom':
+      return { ...ai, custom: { ...ai.custom, model } };
+    case 'azure':
+      return { ...ai, azure: { ...ai.azure, deployment: model } };
+  }
+}
+
 export function activeModel(ai: AppConfig['ai']): string {
   switch (ai.provider) {
     case 'openai':

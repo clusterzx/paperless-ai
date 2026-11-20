@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useSearch } from 'wouter';
 import { Check, ExternalLink, FileSearch, MessageSquareText, PanelLeft, Plus, Save, Sparkles, Undo2 } from 'lucide-react';
 import type { AnalysisResult, DocumentDetail } from '@shared/api';
+import type { MatchedPromptRule } from '@shared/promptRules';
 import { DocumentPicker } from '../components/DocumentPicker';
+import { RuleBadge } from '../components/promptRules';
 import { Alert, Badge, Button, Card, EmptyState, Field, Input, LinkButton, Modal, Skeleton, TagInput, useToast } from '../components/ui';
 import { errorMessage, get, post } from '../lib/api';
 import { useAsync } from '../lib/hooks';
@@ -40,6 +42,8 @@ function ReviewDocument({ documentId }: { documentId: number }) {
   const toast = useToast();
   const [, navigate] = useLocation();
   const doc = useAsync((signal) => get<DocumentDetail>(`/api/documents/${documentId}`, signal), [documentId]);
+  // The prompt rule the document would be analysed with (before an analysis).
+  const ruleMatch = useAsync((signal) => get<{ rule: MatchedPromptRule | null }>(`/api/prompt-rules/match/${documentId}`, signal), [documentId]);
   const original = useMemo(() => (doc.data && meta.loaded ? fromDocument(doc.data, meta) : null), [doc.data, meta.loaded]); // eslint-disable-line react-hooks/exhaustive-deps
   const [form, setForm] = useState<FormState | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
@@ -86,6 +90,7 @@ function ReviewDocument({ documentId }: { documentId: number }) {
       if (form.created !== original.created && form.created) body.created = form.created;
       if (JSON.stringify(form.tags) !== JSON.stringify(original.tags)) body.tags = form.tags;
       if (JSON.stringify(form.customFields) !== JSON.stringify(original.customFields)) body.customFields = form.customFields.filter((c) => c.value.trim());
+      if (analysis?.rule) body.promptId = analysis.rule.promptId;
       const res = await post<{ changed: string[]; notes: string[] }>(`/api/documents/${documentId}/apply`, body);
       toast.success(res.changed.length ? `Saved: ${res.changed.join(', ')}` : 'No changes to save');
       for (const n of res.notes) toast.info(n);
@@ -145,6 +150,12 @@ function ReviewDocument({ documentId }: { documentId: number }) {
           }
         >
           <div className="space-y-4">
+            {(analysis || ruleMatch.data) && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                <span>{analysis ? 'Analysed with' : 'Will be analysed with'}</span>
+                <RuleBadge rule={analysis ? analysis.rule : ruleMatch.data?.rule} />
+              </div>
+            )}
             <Field label={<>Title<Changed on={form.title !== original.title} /></>}>
               <Input value={form.title} onChange={(e) => set('title', e.target.value)} maxLength={128} />
             </Field>

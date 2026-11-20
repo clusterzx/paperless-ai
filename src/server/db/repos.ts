@@ -283,6 +283,8 @@ export interface NewHistoryEntry {
   completionTokens?: number;
   totalTokens?: number;
   durationMs?: number;
+  /** Library prompt of a prompt rule. */
+  prompt?: { id: number; name: string } | null;
 }
 
 interface HistoryRow {
@@ -301,6 +303,8 @@ interface HistoryRow {
   suggestion: string | null;
   total_tokens: number;
   reverted_at: number | null;
+  prompt_id: number | null;
+  prompt_name: string | null;
 }
 
 const HISTORY_SORT: Record<string, string> = {
@@ -318,9 +322,9 @@ export class HistoryRepo {
       this.db
         .prepare(
           `INSERT INTO history (document_id, created_at, source, provider, model, title, correspondent, document_type,
-             tags, before, after, suggestion, prompt_tokens, completion_tokens, total_tokens, duration_ms)
+             tags, before, after, suggestion, prompt_tokens, completion_tokens, total_tokens, duration_ms, prompt_id, prompt_name)
            VALUES (@documentId, @createdAt, @source, @provider, @model, @title, @correspondent, @documentType,
-             @tags, @before, @after, @suggestion, @promptTokens, @completionTokens, @totalTokens, @durationMs)`,
+             @tags, @before, @after, @suggestion, @promptTokens, @completionTokens, @totalTokens, @durationMs, @promptId, @promptName)`,
         )
         .run({
           documentId: e.documentId,
@@ -339,6 +343,8 @@ export class HistoryRepo {
           completionTokens: e.completionTokens ?? 0,
           totalTokens: e.totalTokens ?? 0,
           durationMs: e.durationMs ?? null,
+          promptId: e.prompt?.id ?? null,
+          promptName: e.prompt?.name ?? null,
         }).lastInsertRowid,
     );
   }
@@ -362,7 +368,16 @@ export class HistoryRepo {
       before,
       after: safeJson<Record<string, unknown>>(r.after, {}),
       suggestion: r.suggestion ? safeJson<unknown>(r.suggestion, null) : null,
+      prompt: r.prompt_name ? { id: r.prompt_id, name: r.prompt_name } : null,
     };
+  }
+
+  /** How many documents were processed with each library prompt (prompt rules). */
+  promptUsage(): Map<number, number> {
+    const rows = this.db
+      .prepare('SELECT prompt_id AS id, COUNT(DISTINCT document_id) AS count FROM history WHERE prompt_id IS NOT NULL GROUP BY prompt_id')
+      .all() as { id: number; count: number }[];
+    return new Map(rows.map((r) => [r.id, r.count]));
   }
 
   get(id: number): HistoryItem | undefined {

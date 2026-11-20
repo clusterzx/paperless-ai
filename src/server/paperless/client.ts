@@ -16,8 +16,10 @@ import type {
   PaperlessCustomFieldType,
   PaperlessDocument,
   PaperlessDocumentType,
+  PaperlessStoragePath,
   PaperlessTag,
   PaperlessUiSettings,
+  PaperlessUser,
 } from './types.js';
 
 const log = logger.child({ module: 'paperless' });
@@ -286,6 +288,15 @@ export class PaperlessClient {
 
   customFields(): Promise<PaperlessCustomField[]> {
     return this.listAll<PaperlessCustomField>('/custom_fields/', {}, 1000);
+  }
+
+  storagePaths(): Promise<PaperlessStoragePath[]> {
+    return this.listAll<PaperlessStoragePath>('/storage_paths/', { ordering: 'name' }, 1000);
+  }
+
+  /** Needs the "view users" permission in Paperless. */
+  users(): Promise<PaperlessUser[]> {
+    return this.listAll<PaperlessUser>('/users/', { ordering: 'username' }, 1000);
   }
 
   createTag(name: string, extra: Partial<PaperlessTag> = {}): Promise<PaperlessTag> {

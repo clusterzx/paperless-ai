@@ -579,6 +579,15 @@ export function PromptSection({ draft, set, locked, defaultPrompt, tagSuggestion
           {p.promptWizard.used ? 'Open wizard' : 'Start wizard'}
         </Link>
       </div>
+      {p.promptRules.some((r) => r.enabled) && (
+        <Alert tone="info">
+          {p.promptRules.filter((r) => r.enabled).length} prompt rule{p.promptRules.filter((r) => r.enabled).length === 1 ? '' : 's'} analyse matching documents with other prompts
+          and settings – the system prompt applies to all other documents.{' '}
+          <Link href="/prompts" className="font-medium underline">
+            Prompt library
+          </Link>
+        </Alert>
+      )}
       <Field
         label="System prompt"
         locked={locked['processing.systemPrompt']}

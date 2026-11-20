@@ -157,6 +157,13 @@ question ─▶ query analysis with the LLM (standalone query for follow-ups + s
   same bonus) so that they never prefer newer documents; only “latest …” questions add a recency bonus.
 * Local embeddings run in a worker thread (`transformers.js`/ONNX, limited threads) that is stopped
   after 5 minutes of inactivity.
+* Prompt rules (`processing/promptRules.ts`, `routes/promptRules.ts`, `processing.promptRules`): before the
+  analysis the engine takes the first enabled rule whose conditions match the document (names compared
+  like Paperless names; storage paths and users are loaded only when a rule needs them). The rule
+  yields a copy of the processing settings – prompt from the library, field switches, custom field
+  subset, restrictions, allowed tag / document type lists – and an optional model; prompt building,
+  planning the update and the calendar all use that copy, so nothing else needs to know about rules.
+  `history.prompt_id/prompt_name` record the prompt. A webhook/API `prompt` skips the rules.
 * Embedding prompts (`shared/embeddingPrompts.ts`) are applied by `RagService` for every provider:
   own prompts (`rag.queryPrompt`/`rag.documentPrompt`) or automatic ones for measured model families.
   The stored embedding key (`kv.rag_embedding_key`) only gets a prompt hash when the embedded texts

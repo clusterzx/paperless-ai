@@ -7,6 +7,8 @@ import { HttpProblem, notFound } from '../http/helpers.js';
 import { promptWizardSchema } from '../config/schema.js';
 import type { PromptRatingRow, PromptRow } from '../db/promptsRepo.js';
 import { logger } from '../logger.js';
+import { rulePrompt } from '../processing/promptRules.js';
+import { ruleLabel } from '../../shared/promptRules.js';
 
 const log = logger.child({ module: 'prompts' });
 
@@ -40,10 +42,22 @@ export const promptRoutes =
       return { ...r, provider: r.provider ?? current.provider, model: r.model ?? current.model };
     };
 
+    /** Documents processed with each prompt and the rules using it. */
+    const usage = () => {
+      const documents = ctx.repos.history.promptUsage();
+      const rules = new Map<number, string[]>();
+      ctx.cfg.processing.promptRules.forEach((rule, index) => {
+        const p = rulePrompt(ctx, rule);
+        if (p) rules.set(p.id, [...(rules.get(p.id) ?? []), ruleLabel(rule, index)]);
+      });
+      return (id: number) => ({ documents: documents.get(id) ?? 0, rules: rules.get(id) ?? [] });
+    };
+
     const library = (): PromptLibrary => {
       const ratings = new Map<number, PromptRatingRow[]>();
       for (const r of repo.ratings()) ratings.set(r.prompt_id, [...(ratings.get(r.prompt_id) ?? []), r]);
-      const prompts = repo.list().map((p) => toDto(p, ratings.get(p.id) ?? [], isActive(p.prompt)));
+      const usageOf = usage();
+      const prompts = repo.list().map((p) => toDto(p, ratings.get(p.id) ?? [], isActive(p.prompt), usageOf(p.id)));
       const used = [...new Set(prompts.map((p) => p.useCase).filter(Boolean))].sort((a, b) => a.localeCompare(b));
       const current = ctx.cfg.processing.systemPrompt.trim();
       return {
@@ -61,6 +75,7 @@ export const promptRoutes =
         p,
         repo.ratings().filter((r) => r.prompt_id === promptId),
         isActive(p.prompt),
+        usage()(p.id),
       );
     };
 
@@ -108,6 +123,8 @@ export const promptRoutes =
     );
 
     app.delete('/api/prompts/:id', { schema: { params: z.object({ id }) } }, async (req, reply) => {
+      const inUse = usage()(req.params.id).rules;
+      if (inUse.length) throw new HttpProblem(409, `The prompt is used by the prompt rule ${inUse.map((r) => `"${r}"`).join(', ')} – remove or change the rule first`);
       if (!repo.delete(req.params.id)) throw notFound('Prompt not found');
       return reply.code(204).send();
     });
@@ -200,7 +217,7 @@ function parseWizard(json: string | null): Record<string, unknown> | null {
   }
 }
 
-function toDto(p: PromptRow, rows: PromptRatingRow[], active: boolean): LibraryPrompt {
+function toDto(p: PromptRow, rows: PromptRatingRow[], active: boolean, usage: { documents: number; rules: string[] } = { documents: 0, rules: [] }): LibraryPrompt {
   const ratings: PromptRating[] = rows.map((r) => ({
     id: r.id,
     provider: r.provider,
@@ -230,6 +247,8 @@ function toDto(p: PromptRow, rows: PromptRatingRow[], active: boolean): LibraryP
     updatedAt: p.updated_at,
     ratings,
     score: ratings.length ? mean(ratings.reduce((s, r) => s + r.score, 0), ratings.length) : null,
+    documents: usage.documents,
+    rules: usage.rules,
     models: [...byModel.values()]
       .map((m) => ({ provider: m.provider, model: m.model, score: mean(m.total, m.count), count: m.count }))
       .sort((a, b) => b.score - a.score || b.count - a.count),
