@@ -280,6 +280,19 @@ export interface MetadataItem {
 
 export type MetadataKindParam = 'tags' | 'correspondents' | 'document-types' | 'custom-fields';
 
+/** Objects that probably mean the same (Tags & metadata → Find duplicates). */
+export interface SimilarMetadataGroup {
+  /** The objects, the one to keep first. */
+  ids: number[];
+  names: string[];
+  /** Name of the merged object (may differ from all names for suggestions of the AI). */
+  suggested: string;
+  keepId: number;
+  /** same: same name apart from case, punctuation, legal form …; extends: one continues the other; spelling: typo / plural; ai: found by the AI. */
+  reason: 'same' | 'extends' | 'spelling' | 'ai';
+  libraryId: number | null;
+}
+
 export interface SavedView {
   id: number;
   name: string;

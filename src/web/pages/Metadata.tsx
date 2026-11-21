@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useSearch } from 'wouter';
-import { Combine, Pencil, Plus, Tags, Trash2 } from 'lucide-react';
-import type { MetadataItem, MetadataKindParam } from '@shared/api';
+import { Combine, Copy, Pencil, Plus, Sparkles, Tags, Trash2 } from 'lucide-react';
+import type { MetadataItem, MetadataKindParam, SimilarMetadataGroup } from '@shared/api';
 import { Page } from '../components/Layout';
 import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Input, Modal, PageHeader, Select, Skeleton, Tabs, tabPanelProps, useConfirm, useToast } from '../components/ui';
 import { del, errorMessage, get, patch, post } from '../lib/api';
@@ -124,6 +124,180 @@ function MergeModal({ kind, items, onClose, onDone }: { kind: (typeof KINDS)[num
   );
 }
 
+const REASON_LABEL: Record<SimilarMetadataGroup['reason'], string> = {
+  same: 'Same name',
+  extends: 'One name continues the other – please check',
+  spelling: 'Similar spelling',
+  ai: 'Suggested by the AI',
+};
+
+/** Suggestions for objects that mean the same: merge them under one name, or mark them as different. */
+function DuplicatesPanel({ kind, items, onChanged, onClose }: { kind: (typeof KINDS)[number]; items: MetadataItem[]; onChanged: () => void; onClose: () => void }) {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [groups, setGroups] = useState<SimilarMetadataGroup[] | null>(null);
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const keyOf = (g: SimilarMetadataGroup) => g.ids.join(',');
+  const count = (id: number) => items.find((i) => i.id === id)?.document_count ?? 0;
+  const load = async () => {
+    setError(null);
+    try {
+      const res = await get<{ groups: SimilarMetadataGroup[] }>(`/api/${kind.id}/similar`);
+      setGroups(res.groups);
+      setNames(Object.fromEntries(res.groups.map((g) => [keyOf(g), g.suggested])));
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  };
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind.id]);
+
+  const mergeOne = async (g: SimilarMetadataGroup) => {
+    const name = (names[keyOf(g)] ?? g.suggested).trim();
+    const keepName = g.names[0];
+    const res = await post<{ documents: number }>(`/api/${kind.id}/merge`, { targetId: g.keepId, sourceIds: g.ids.slice(1), ...(name && name !== keepName ? { name } : {}) });
+    return res.documents;
+  };
+  /** Suggestions can overlap ("to check" ones span certain groups): after a merge they are computed anew; the AI's stay while their objects exist. */
+  const refresh = async (merged: SimilarMetadataGroup[]) => {
+    const gone = new Set(merged.flatMap((g) => g.ids.slice(1)));
+    const ai = (groups ?? []).filter((g) => g.reason === 'ai' && !merged.some((m) => keyOf(m) === keyOf(g)) && !g.ids.some((i) => gone.has(i)));
+    try {
+      const res = await get<{ groups: SimilarMetadataGroup[] }>(`/api/${kind.id}/similar`);
+      setGroups([...res.groups, ...ai]);
+      setNames((n) => ({ ...Object.fromEntries(res.groups.map((g) => [keyOf(g), g.suggested])), ...n }));
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  };
+  const obvious = (groups ?? []).filter((g) => g.reason === 'same' || g.reason === 'spelling');
+  const merge = async (g: SimilarMetadataGroup) => {
+    setBusy(keyOf(g));
+    try {
+      const n = await mergeOne(g);
+      toast.success(`Merged into “${names[keyOf(g)] || g.suggested}” – ${formatNumber(n)} document(s) changed`);
+      onChanged();
+      await refresh([g]);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+  /** Only the obvious ones (same name, spelling) – continuations and the AI's are checked one by one. */
+  const mergeAll = async () => {
+    const list = obvious;
+    if (!(await confirm({ title: `Merge ${list.length} obvious group(s)?`, message: 'Same names apart from case, punctuation or legal form, typos and plurals – each under the name shown. Suggestions to check stay.', confirmLabel: 'Merge' }))) return;
+    setBusy('all');
+    let docs = 0;
+    try {
+      for (const g of list) docs += await mergeOne(g);
+      toast.success(`${list.length} group(s) merged – ${formatNumber(docs)} document(s) changed`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+      onChanged();
+      await refresh(list);
+    }
+  };
+  const dismiss = async (g: SimilarMetadataGroup) => {
+    try {
+      await post(`/api/${kind.id}/similar/dismiss`, { ids: g.ids });
+      setGroups((list) => (list ?? []).filter((x) => keyOf(x) !== keyOf(g)));
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  const askAi = async () => {
+    setBusy('ai');
+    try {
+      const res = await post<{ groups: SimilarMetadataGroup[]; tokens: number }>(`/api/${kind.id}/similar/ai`, {});
+      const known = new Set((groups ?? []).map(keyOf));
+      const fresh = res.groups.filter((g) => !known.has(keyOf(g)));
+      setGroups((list) => [...(list ?? []), ...fresh]);
+      setNames((n) => ({ ...n, ...Object.fromEntries(fresh.map((g) => [keyOf(g), g.suggested])) }));
+      toast.success(fresh.length ? `The AI found ${fresh.length} more group(s) (${formatNumber(res.tokens)} tokens)` : `The AI found nothing more (${formatNumber(res.tokens)} tokens)`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card
+      className="mb-5"
+      title={
+        <div className="flex items-center gap-2">
+          <Copy className="size-4" /> Possible duplicates
+        </div>
+      }
+      description="Same name apart from case, punctuation or legal form (GmbH, AG …), one name continuing the other, typos and plurals. Nothing changes until you merge."
+      actions={
+        <>
+          <Button size="sm" icon={<Sparkles className="size-4" />} loading={busy === 'ai'} disabled={Boolean(busy) && busy !== 'ai'} onClick={() => void askAi()} title="Only the names are sent to the AI">
+            Ask the AI for more
+          </Button>
+          {obvious.length > 1 && (
+            <Button size="sm" variant="primary" icon={<Combine className="size-4" />} loading={busy === 'all'} disabled={Boolean(busy) && busy !== 'all'} onClick={() => void mergeAll()}>
+              Merge obvious ({obvious.length})
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </>
+      }
+      bodyClassName="p-0"
+    >
+      {error && <Alert tone="danger">{error}</Alert>}
+      {!groups ? (
+        <Skeleton className="m-5 h-24" />
+      ) : groups.length === 0 ? (
+        <EmptyState title="No duplicates found">
+          <p className="text-sm text-muted">The AI may still find some – it knows that “1&amp;1” and “1und1” are the same.</p>
+        </EmptyState>
+      ) : (
+        <ul className="divide-y divide-border">
+          {groups.map((g) => (
+            <li key={keyOf(g)} className="space-y-2 px-5 py-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {g.ids.map((id, i) => (
+                  <Badge key={id}>
+                    {g.names[i]} · {formatNumber(count(id))}
+                  </Badge>
+                ))}
+                <span className="text-xs text-muted">{REASON_LABEL[g.reason]}</span>
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <Field label="Merge as" className="min-w-56 flex-1">
+                  <Input list={`names-${keyOf(g)}`} value={names[keyOf(g)] ?? g.suggested} onChange={(e) => setNames({ ...names, [keyOf(g)]: e.target.value })} aria-label={`Name for ${g.names.join(', ')}`} />
+                  <datalist id={`names-${keyOf(g)}`}>
+                    {g.names.map((n) => (
+                      <option key={n} value={n} />
+                    ))}
+                  </datalist>
+                </Field>
+                <Button size="sm" variant="primary" icon={<Combine className="size-4" />} loading={busy === keyOf(g)} disabled={Boolean(busy) || !(names[keyOf(g)] ?? g.suggested).trim()} onClick={() => void merge(g)}>
+                  Merge
+                </Button>
+                <Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => void dismiss(g)}>
+                  Not the same
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 export default function MetadataPage() {
   const toast = useToast();
   const confirm = useConfirm();
@@ -135,6 +309,7 @@ export default function MetadataPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [edit, setEdit] = useState<MetadataItem | null | 'new'>(null);
   const [merging, setMerging] = useState(false);
+  const [duplicates, setDuplicates] = useState(false);
   const data = useAsync((signal) => get<MetadataItem[]>(`/api/${kind.id}`, signal), [kind.id]);
   const items = useMemo(() => (data.data ?? []).filter((i) => !find || i.name.toLowerCase().includes(find.toLowerCase())), [data.data, find]);
   const reload = () => {
@@ -173,6 +348,7 @@ export default function MetadataPage() {
         tabs={KINDS.map((k) => ({ id: k.id, label: k.label }))}
       />
       <div className="mt-5" {...tabPanelProps('metadata', kind.id)}>
+        {duplicates && kind.id !== 'custom-fields' && <DuplicatesPanel key={kind.id} kind={kind} items={data.data ?? []} onChanged={reload} onClose={() => setDuplicates(false)} />}
         <Card
           bodyClassName="p-0"
           title={
@@ -186,6 +362,11 @@ export default function MetadataPage() {
               {selected.size > 1 && (
                 <Button size="sm" icon={<Combine className="size-4" />} onClick={() => setMerging(true)}>
                   Merge {selected.size}
+                </Button>
+              )}
+              {kind.id !== 'custom-fields' && !duplicates && (
+                <Button size="sm" icon={<Copy className="size-4" />} onClick={() => setDuplicates(true)}>
+                  Find duplicates
                 </Button>
               )}
               <Button size="sm" variant="primary" icon={<Plus className="size-4" />} onClick={() => setEdit('new')}>

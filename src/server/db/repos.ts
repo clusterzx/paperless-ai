@@ -553,7 +553,7 @@ export class HistoryRepo {
 // ---------------------------------------------------------------- usage
 
 export interface NewUsage {
-  feature: 'process' | 'manual' | 'playground' | 'chat' | 'rag' | 'test' | 'calendar' | 'workflow';
+  feature: 'process' | 'manual' | 'playground' | 'chat' | 'rag' | 'test' | 'calendar' | 'workflow' | 'metadata';
   documentId?: number | null;
   provider?: string;
   model?: string;

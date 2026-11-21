@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import type { LiveEvent, MetadataItem, SavedView } from '../../shared/api.js';
+import type { LiveEvent, MetadataItem, SavedView, SimilarMetadataGroup } from '../../shared/api.js';
 import type { Services } from '../http/app.js';
 import { badRequest, notFound, sendEventStream } from '../http/helpers.js';
 import { canEdit, canRead, readableLibraries, userIdOf, type AccessScope } from '../access/scope.js';
@@ -15,11 +15,18 @@ import type { ArchiveDocument, ChangeOrigin, CustomFieldType, DocumentFilter, Do
 import type { DocumentEvent } from '../events.js';
 import { documentFilterParams, documentSort } from '../http/documentQuery.js';
 import { logger } from '../logger.js';
+import { normalizeName } from '../backend/metadata.js';
+import { similarGroups, type SimilarGroup, type SimilarKind } from '../backend/similarNames.js';
+import { aiSimilarGroups } from '../backend/similarAi.js';
+import { aiConfigProblem } from '../ai/factory.js';
+import { describeError } from '../util/http.js';
 
 const log = logger.child({ module: 'metadata' });
 
 const KINDS: Record<string, MetadataKind> = { tags: 'tag', correspondents: 'correspondent', 'document-types': 'documentType', 'custom-fields': 'customField' };
 const id = z.object({ id: z.coerce.number().int().positive() });
+/** Groups the user marked as "not the same", per kind and library: sorted id lists. */
+const DISMISSED_KEY = 'metadata.similar.dismissed';
 
 export const metadataRoutes =
   ({ ctx, engine }: Services): FastifyPluginAsync =>
@@ -32,10 +39,10 @@ export const metadataRoutes =
       return all.filter((lib) => (library === undefined || lib === library) && (lib === null || canRead(scope, lib)));
     };
 
-    const list = async (scope: AccessScope, kind: MetadataKind, library?: number): Promise<MetadataItem[]> => {
+    const list = async (scope: AccessScope, kind: MetadataKind, library?: number, fresh = false): Promise<MetadataItem[]> => {
       const out: MetadataItem[] = [];
       for (const lib of await scopesOf(scope, library)) {
-        const snap = await ctx.metadata(lib).snapshot();
+        const snap = await ctx.metadata(lib).snapshot(fresh);
         const items = kind === 'tag' ? snap.tags : kind === 'correspondent' ? snap.correspondents : kind === 'documentType' ? snap.documentTypes : snap.customFields;
         for (const i of items as (MetadataItem & { data_type?: string; extra_data?: Record<string, unknown> | null; text_color?: string })[]) {
           out.push({
@@ -58,7 +65,95 @@ export const metadataRoutes =
       return lib;
     };
 
+    // ------------------------------------------------------------ duplicates
+
+    const dismissedKey = (kind: MetadataKind, lib: number | null) => `${kind}:${lib ?? 'paperless'}`;
+    const dismissed = (): Record<string, number[][]> => ctx.repos.kv.get<Record<string, number[][]>>(DISMISSED_KEY) ?? {};
+    /** Hidden: every id of the group was dismissed together before (a new member shows it again). */
+    const isDismissed = (kind: MetadataKind, lib: number | null, ids: number[]) =>
+      (dismissed()[dismissedKey(kind, lib)] ?? []).some((set) => ids.every((i) => set.includes(i)));
+    /** Items per library the caller may change (merging needs editor rights). */
+    const editableByLibrary = async (scope: AccessScope, kind: MetadataKind, library?: number) => {
+      const out = new Map<number | null, MetadataItem[]>();
+      // Fresh counts: the suggestions are ordered by the documents they affect.
+      for (const item of await list(scope, kind, library, true)) {
+        const lib = item.library_id ?? null;
+        if (lib !== null && !canEdit(scope, lib)) continue;
+        out.set(lib, [...(out.get(lib) ?? []), item]);
+      }
+      return out;
+    };
+    const withLibrary = (groups: SimilarGroup[], lib: number | null): SimilarMetadataGroup[] => groups.map((g) => ({ ...g, libraryId: lib }));
+
     for (const [path, kind] of Object.entries(KINDS)) {
+      if (kind !== 'customField') {
+        const sk = kind as SimilarKind;
+        app.get(
+          `/api/${path}/similar`,
+          {
+            schema: {
+              description: 'Objects that probably mean the same (case, punctuation, legal forms, plural, typos) – suggestions for merging.',
+              querystring: z.object({ library: z.coerce.number().int().positive().optional() }),
+            },
+          },
+          async (req): Promise<{ groups: SimilarMetadataGroup[] }> => {
+            const groups: SimilarMetadataGroup[] = [];
+            for (const [lib, items] of await editableByLibrary(req.access!, kind, req.query.library)) {
+              groups.push(...withLibrary(similarGroups(items, sk), lib).filter((g) => !isDismissed(kind, lib, g.ids)));
+            }
+            return { groups };
+          },
+        );
+
+        app.post(
+          `/api/${path}/similar/ai`,
+          {
+            config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+            schema: {
+              description: 'Ask the AI for more objects that mean the same (only the names are sent).',
+              body: z.object({ library: z.number().int().positive().optional() }).prefault({}),
+            },
+          },
+          async (req): Promise<{ groups: SimilarMetadataGroup[]; tokens: number }> => {
+            const problem = aiConfigProblem(ctx.cfg.ai);
+            if (problem) throw badRequest(problem);
+            const groups: SimilarMetadataGroup[] = [];
+            let tokens = 0;
+            for (const [lib, items] of await editableByLibrary(req.access!, kind, req.body.library)) {
+              if (items.length < 2) continue;
+              // What the rules find already is not repeated.
+              const known = similarGroups(items, sk);
+              let found: Awaited<ReturnType<typeof aiSimilarGroups>>;
+              try {
+                found = await aiSimilarGroups(ctx, items, sk);
+              } catch (err) {
+                throw badRequest(`The AI could not be asked: ${describeError(err)}`);
+              }
+              tokens += found.tokens;
+              const fresh = found.groups.filter((g) => !known.some((k) => g.ids.every((i) => k.ids.includes(i))) && !isDismissed(kind, lib, g.ids));
+              groups.push(...withLibrary(fresh, lib));
+            }
+            log.info(`AI suggestions for ${path}: ${groups.length} group(s), ${tokens} tokens`);
+            return { groups, tokens };
+          },
+        );
+
+        app.post(
+          `/api/${path}/similar/dismiss`,
+          { schema: { description: 'These objects are not the same: no more suggestion for them.', body: z.object({ ids: z.array(z.number().int().positive()).min(2).max(100) }) } },
+          async (req) => {
+            const libs = new Set(req.body.ids.map((i) => namespaceFor(req.access!, kind, i)));
+            if (libs.size !== 1) throw badRequest('Only objects of the same library');
+            const [lib] = [...libs];
+            const all = dismissed();
+            const key = dismissedKey(kind, lib);
+            all[key] = [...(all[key] ?? []), [...req.body.ids].sort((a, b) => a - b)].slice(-2000);
+            ctx.repos.kv.set(DISMISSED_KEY, all);
+            return { ok: true };
+          },
+        );
+      }
+
       app.get(
         `/api/${path}`,
         { schema: { description: `All ${path.replace('-', ' ')} the caller can see, with document counts.`, querystring: z.object({ library: z.coerce.number().int().positive().optional() }) } },
@@ -133,7 +228,12 @@ export const metadataRoutes =
         {
           schema: {
             description: 'Merge several objects into one: documents get the target instead, the others are deleted.',
-            body: z.object({ sourceIds: z.array(z.number().int().positive()).min(1).max(100), targetId: z.number().int().positive() }),
+            body: z.object({
+              sourceIds: z.array(z.number().int().positive()).min(1).max(100),
+              targetId: z.number().int().positive(),
+              /** Rename the merged object (e.g. to the common name of a suggestion). */
+              name: z.string().trim().min(1).max(128).optional(),
+            }),
           },
         },
         async (req) => {
@@ -142,6 +242,12 @@ export const metadataRoutes =
           const sources = req.body.sourceIds.filter((s) => s !== targetId);
           const lib = namespaceFor(scope, kind, targetId);
           for (const s of sources) if (namespaceFor(scope, kind, s) !== lib) throw badRequest('Only objects of the same library can be merged');
+          const name = req.body.name;
+          if (name) {
+            // The new name must not belong to another object that stays.
+            const taken = (await list(scope, kind, lib ?? undefined)).find((i) => normalizeName(i.name) === normalizeName(name) && i.id !== targetId && !sources.includes(i.id));
+            if (taken) throw badRequest(`"${taken.name}" exists already – merge it as well or choose another name`);
+          }
           const backend = ctx.backend(scope);
           const filter: DocumentFilter =
             kind === 'tag' ? { tagsAny: sources } : kind === 'correspondent' ? { correspondents: sources } : kind === 'documentType' ? { documentTypes: sources } : {};
@@ -185,8 +291,9 @@ export const metadataRoutes =
             changed++;
           }
           for (const s of sources) await backend.deleteMetadata(kind, s);
+          if (name) await backend.updateMetadata(kind, targetId, { name });
           ctx.metadata(lib).invalidate();
-          log.info(`Merged ${sources.length} ${kind}(s) into ${targetId}: ${changed} document(s) changed`);
+          log.info(`Merged ${sources.length} ${kind}(s) into ${targetId}${name ? ` ("${name}")` : ''}: ${changed} document(s) changed`);
           return { ok: true, documents: changed };
         },
       );

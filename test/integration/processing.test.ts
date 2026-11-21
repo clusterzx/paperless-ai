@@ -168,14 +168,29 @@ describe('automatic processing', () => {
   it('overwrites existing correspondents when enabled and shares created objects', async () => {
     const hh = await harness({ config: { processing: { overwriteCorrespondent: true } } });
     seedBasic(hh);
-    hh.llm.reply(analysisFor);
+    hh.llm.reply((req) => (req.user.includes('ACME') ? analysisJson({ title: 'Contract renewal', correspondent: 'Initech', tags: ['Contract'] }) : analysisFor(req)));
     await scan(hh);
-    const acmeCorp = hh.paperless.correspondentByName('ACME Corporation')!;
-    expect(hh.paperless.docs.get(102)!.correspondent).toBe(acmeCorp.id);
+    const initech = hh.paperless.correspondentByName('Initech')!;
+    expect(hh.paperless.docs.get(102)!.correspondent).toBe(initech.id);
     // created without owner → visible to every Paperless user
-    expect(acmeCorp.owner).toBeNull();
+    expect(initech.owner).toBeNull();
     expect(hh.paperless.tagByName('Contract')!.owner).toBeNull();
-    expect(hh.paperless.calls('POST', '/api/correspondents/').map((c) => c.body)).toContainEqual({ name: 'ACME Corporation', matching_algorithm: 0, owner: null });
+    expect(hh.paperless.calls('POST', '/api/correspondents/').map((c) => c.body)).toContainEqual({ name: 'Initech', matching_algorithm: 0, owner: null });
+  });
+
+  it('takes the existing correspondent for a variant of its name (legal form, region word)', async () => {
+    const hh = await harness({ config: { processing: { overwriteCorrespondent: true } } });
+    seedBasic(hh);
+    hh.paperless.addCorrespondent('ADAC Versicherung', 11);
+    hh.llm.reply((req) =>
+      req.user.includes('ACME')
+        ? analysisJson({ title: 'Contract renewal', correspondent: 'ACME Corporation', tags: ['Contract'] })
+        : analysisJson({ title: 'Beitragsrechnung', correspondent: 'ADAC Versicherung AG', tags: ['Invoice'] }),
+    );
+    await scan(hh);
+    expect(hh.paperless.docs.get(102)!.correspondent).toBe(10); // ACME stays
+    expect(hh.paperless.docs.get(101)!.correspondent).toBe(11);
+    expect(hh.paperless.calls('POST', '/api/correspondents/')).toHaveLength(0);
   });
 
   it('can leave created objects to the API user', async () => {

@@ -190,3 +190,21 @@ test('shows a correspondent the AI created after the lists were loaded', async (
   await page.evaluate(`history.pushState(null, '', '/documents/${id}'); dispatchEvent(new PopStateEvent('popstate'));`);
   await expect(page.getByLabel('Correspondent')).toHaveValue('Bundesamt für Justiz');
 });
+
+test('finds duplicate correspondents and merges them under one name', async ({ page }) => {
+  await login(page);
+  for (const name of ['ADAC Versicherung', 'ADAC Versicherung AG', 'Stadtwerke Bonn', 'Stadtwerke Essen']) {
+    const res = await page.request.post('/api/correspondents', { data: { name } });
+    expect(res.ok(), `${name}: ${await res.text()}`).toBe(true);
+  }
+  await page.goto('/metadata?kind=correspondents');
+  await page.getByRole('button', { name: 'Find duplicates' }).click();
+  await expect(page.getByText('ADAC Versicherung AG · 0')).toBeVisible();
+  await expect(page.getByLabel('Name for ADAC Versicherung, ADAC Versicherung AG')).toHaveValue('ADAC Versicherung');
+  // Different Stadtwerke are no duplicates.
+  await expect(page.getByText(/Stadtwerke Bonn · /)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Merge', exact: true }).click();
+  await expect(page.getByText(/Merged into “ADAC Versicherung”/)).toBeVisible();
+  await expect(page.getByText('No duplicates found')).toBeVisible();
+  await expect(page.locator('li').filter({ hasText: /^ADAC Versicherung AG/ })).toHaveCount(0);
+});

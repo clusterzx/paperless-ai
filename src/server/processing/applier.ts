@@ -7,6 +7,7 @@ import type { AppContext } from '../context.js';
 import type { AccessScope } from '../access/scope.js';
 import type { AppConfig } from '../config/schema.js';
 import { normalizeName } from '../backend/metadata.js';
+import { entityKey, pickKeep } from '../backend/similarNames.js';
 import { statusOf, type ArchiveDocument, type ChangeOrigin, type CustomField, type CustomFieldType, type DocumentPatch } from '../backend/types.js';
 import { logger } from '../logger.js';
 import { datePart, normalizeDate } from './dates.js';
@@ -224,7 +225,16 @@ export async function planAutomaticUpdate(
         notes.push(`Kept existing correspondent "${correspondent}" (AI suggested "${s.correspondent}")`);
       }
     } else {
-      const res = await meta.resolveCorrespondent(s.correspondent, !p.restrict.correspondents);
+      // "ADAC Versicherung AG" while "ADAC Versicherung" exists: the existing one (the same name apart
+      // from legal form, region word, case and punctuation) – no near-duplicate.
+      const known = (await meta.snapshot()).correspondents;
+      const suggested = s.correspondent;
+      const key = entityKey(suggested, 'correspondent');
+      const exact = known.some((c) => normalizeName(c.name) === normalizeName(suggested));
+      const alike = exact || !key ? [] : known.filter((c) => entityKey(c.name, 'correspondent') === key);
+      const wanted = alike.length ? pickKeep(alike, 'correspondent').name : s.correspondent;
+      if (alike.length) notes.push(`Used the existing correspondent "${wanted}" for "${s.correspondent}"`);
+      const res = await meta.resolveCorrespondent(wanted, !p.restrict.correspondents);
       if (res.id == null) notes.push(`Correspondent "${s.correspondent}" does not exist (restricted to existing correspondents)`);
       else if (res.id !== doc.correspondent) {
         correspondent = res.name;
