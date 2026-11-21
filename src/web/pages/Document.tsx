@@ -282,7 +282,11 @@ export default function DocumentPage() {
   const archive = useArchive();
   const { session } = useSession();
   const [, navigate] = useLocation();
-  const [tab, setTab] = useState<TabId>('details');
+  // ?tab=chat (links from the history, the review and the command menu) opens that tab.
+  const [tab, setTab] = useState<TabId>(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return t === 'text' || t === 'versions' || t === 'activity' || t === 'chat' ? t : 'details';
+  });
   const [runWorkflow, setRunWorkflow] = useState(false);
   const doc = useAsync((signal) => get<DocumentDetail>(`/api/documents/${id}`, signal), [id]);
   useLiveEvents((e) => {

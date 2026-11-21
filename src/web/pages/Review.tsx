@@ -123,7 +123,7 @@ function ReviewDocument({ documentId }: { documentId: number }) {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant="ghost" icon={<MessageSquareText className="size-4" />} onClick={() => navigate(`/chat?doc=${d.id}`)}>
+          <Button size="sm" variant="ghost" icon={<MessageSquareText className="size-4" />} onClick={() => navigate(`/documents/${d.id}?tab=chat`)}>
             Chat
           </Button>
           <LinkButton href={d.url} size="sm" variant="ghost" icon={<ExternalLink className="size-4" />}>

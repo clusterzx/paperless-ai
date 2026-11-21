@@ -142,11 +142,13 @@ test('ask your archive answers with cited sources', async ({ page }) => {
   await expect(page.getByRole('link', { name: /HUK-COBURG|Kfz-Versicherung/ }).first()).toBeVisible();
 });
 
-test('document chat streams an answer', async ({ page }) => {
+test('document chat streams an answer in the tab of the document (old links lead there)', async ({ page }) => {
   await login(page);
   await page.goto('/chat?doc=4');
-  await expect(page.getByRole('heading', { level: 2 })).toContainText(/Allianz|Krankenversicherung/);
-  await page.getByRole('button', { name: 'Summarize this document.' }).click();
+  await expect(page).toHaveURL(/\/documents\/4\?tab=chat$/);
+  await expect(page.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByPlaceholder('Ask about this document…').fill('Fasse das Dokument kurz zusammen.');
+  await page.keyboard.press('Enter');
   await expect(page.getByText('kurze Zusammenfassung')).toBeVisible();
 });
 

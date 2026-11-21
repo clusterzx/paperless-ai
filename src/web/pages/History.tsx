@@ -315,7 +315,7 @@ export default function HistoryPage() {
                           <Button size="sm" variant="ghost" aria-label="Details" title="Details" onClick={() => setDetail(i)}>
                             <Eye className="size-4" />
                           </Button>
-                          <Button size="sm" variant="ghost" aria-label="Chat" title="Chat about this document" onClick={() => navigate(`/chat?doc=${i.documentId}`)}>
+                          <Button size="sm" variant="ghost" aria-label="Chat" title="Chat about this document" onClick={() => navigate(`/documents/${i.documentId}?tab=chat`)}>
                             <MessageSquareText className="size-4" />
                           </Button>
                           <LinkButton href={i.url} size="sm" variant="ghost" aria-label="Open the document" title="Open the document">

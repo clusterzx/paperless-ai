@@ -64,7 +64,7 @@ export function CommandPalette({
     const docId = /^#?(\d{1,9})$/.exec(q)?.[1];
     if (docId) {
       out.push(
-        { id: 'doc-chat', group: `Document #${docId}`, label: `Chat with document #${docId}`, icon: <MessageSquareText />, run: () => navigate(`/chat?doc=${docId}`) },
+        { id: 'doc-chat', group: `Document #${docId}`, label: `Chat with document #${docId}`, icon: <MessageSquareText />, run: () => navigate(`/documents/${docId}?tab=chat`) },
         { id: 'doc-review', group: `Document #${docId}`, label: `Review document #${docId}`, icon: <FileSearch />, run: () => navigate(`/review?doc=${docId}`) },
       );
     }

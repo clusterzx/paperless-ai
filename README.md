@@ -33,7 +33,7 @@ Works with **Paperless-ngx 2.x and 3.x**, OpenAI, Anthropic (Claude), **Ollama (
 
 **Calendar** (optional) – appointments, due dates and deadlines found during the AI analysis, with a private iCal link for your calendar app. → [Calendar](#calendar)
 
-**Tools** – document chat, manual review, prompt playground, prompt wizard and a prompt library with ratings per model, history with undo, dashboard, live logs and diagnostics; light/dark theme, ⌘K / Ctrl+K command menu, works on mobile.
+**Tools** – chat with every document (a tab of the document page), manual review, prompt playground, prompt wizard and a prompt library with ratings per model, history with undo, dashboard, live logs and diagnostics; light/dark theme, ⌘K / Ctrl+K command menu, works on mobile.
 
 **Search syntax** – in *Documents*: `tag:steuer from:adac created:2024 -tag:erledigt title:"Strom 2024" text:kündigung asn:17`, with autocomplete of keys and names, a help panel and chips that show what was understood (“tag: Steuern”, “No tag …”). Parts of names are enough; dates as `2024`, `2024-03`, `>2024-01-01` or `2023..2024`. Works with Paperless-ngx and the built-in archive.
 
