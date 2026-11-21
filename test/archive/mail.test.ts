@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHarness, type Harness } from '../helpers/appHarness.js';
 import { makePdf } from '../helpers/pdf.js';
 import type { LocalBackend } from '../../src/server/archive/backend.js';
-import type { MailClient } from '../../src/server/archive/mail.js';
+import sharp from 'sharp';
+import { isMailDecoration, type MailClient } from '../../src/server/archive/mail.js';
 import type { MailAccountInfo } from '../../src/shared/api.js';
 
 interface FakeMessage {
@@ -73,6 +74,8 @@ class FakeImap {
     };
   }
 }
+
+const image = (width: number, height: number, format: 'png' | 'jpeg' | 'gif' = 'png') => sharp({ create: { width, height, channels: 3, background: '#f4f4f4' } }).toFormat(format).toBuffer();
 
 function message(opts: { from: string; subject: string; attachments: { name: string; data: Buffer; type: string; inline?: boolean }[] }): string {
   const b = 'BOUNDARY42';
@@ -208,6 +211,43 @@ describe('e-mail intake', () => {
     expect((await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } })).json()).toMatchObject({ stored: 1, errors: [] });
     expect(inbox.has(u3)).toBe(false);
     expect([...inbox.keys()].sort()).toEqual([other, u1, u2]);
+  });
+
+  it('tells logos, icons and embedded pictures from documents by their size', async () => {
+    const att = async (data: Buffer, opts: { related?: boolean; inline?: boolean } = {}) =>
+      isMailDecoration({ content: data, size: data.length, related: opts.related ?? false, contentDisposition: opts.inline ? 'inline' : 'attachment' });
+    // Decoration: icons, avatars, tracking pixels, banners – also when sent as real attachments (Outlook).
+    expect(await att(await image(96, 96))).toBe(true);
+    expect(await att(await image(1, 1, 'gif'))).toBe(true);
+    expect(await att(await image(600, 200))).toBe(true);
+    expect(await att(await image(1200, 180))).toBe(true);
+    // Pictures in the HTML text (multipart/related) unless they are as large as a photo or scan.
+    expect(await att(await image(1200, 600), { related: true })).toBe(true);
+    expect(await att(await image(1240, 1754, 'jpeg'), { related: true })).toBe(false);
+    // Documents: attached scans and photos, also phone photos sent "inline".
+    expect(await att(await image(1000, 800, 'jpeg'))).toBe(false);
+    expect(await att(await image(1280, 960, 'jpeg'), { inline: true })).toBe(false);
+    // Unreadable data (no dimensions): small embedded pictures are decoration.
+    expect(await att(Buffer.from('89504e470d0a1a0a0000', 'hex'), { inline: true })).toBe(true);
+  });
+
+  it('stores the photo of a receipt but not the icons of the mail', async () => {
+    const lib = local().ensureDefaultLibrary();
+    imap.add(
+      message({
+        from: 'kim@example.com',
+        subject: 'Beleg',
+        attachments: [
+          { name: 'Unbenannte Anlage 00044.png', data: await image(96, 96), type: 'image/png' },
+          { name: 'Unbenannte Anlage 00038.png', data: await image(64, 64), type: 'image/png', inline: true },
+          { name: 'IMG_1234.jpg', data: await image(1280, 960, 'jpeg'), type: 'image/jpeg', inline: true },
+        ],
+      }),
+    );
+    const account = (await h.inject({ method: 'POST', url: `/api/libraries/${lib}/intake/mail`, headers: { cookie }, payload: { name: 'K', host: 'h', username: 'u', password: 'imap-secret' } })).json() as MailAccountInfo;
+    expect((await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } })).json()).toMatchObject({ stored: 1, errors: [] });
+    const docs = h.ctx.db.prepare("SELECT original_filename FROM lib_documents WHERE source = 'mail'").all() as { original_filename: string }[];
+    expect(docs.map((d) => d.original_filename)).toEqual(['IMG_1234.jpg']);
   });
 
   it('tests the connection, keeps the password on updates and reports errors on the account', async () => {

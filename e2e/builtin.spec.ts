@@ -161,3 +161,16 @@ test('builds a workflow, tests it and runs it on a document', async ({ page }) =
   await page.getByRole('tab', { name: 'Activity' }).click();
   await expect(page.getByText('Workflow “Strom markieren” ran')).toBeVisible({ timeout: 15_000 });
 });
+
+test('the dashboard follows new documents without a reload', async ({ page }) => {
+  await login(page);
+  const tile = page.getByText(/^\d+ of \d+ documents$/);
+  await expect(tile).toBeVisible();
+  const before = Number(/of (\d+)/.exec((await tile.textContent()) ?? '')?.[1]);
+  const res = await page.request.post('/api/documents/upload', {
+    multipart: { file: { name: 'wasserrechnung.pdf', mimeType: 'application/pdf', buffer: makePdf([['Stadtwerke Wasserrechnung 2024', 'Betrag: 31,50 EUR']]) } },
+  });
+  expect(res.ok(), await res.text()).toBe(true);
+  // The tiles used to be reloaded only every minute while the processing card counted live.
+  await expect(tile).toHaveText(new RegExp(`^${before + 1} of ${before + 1} documents$`), { timeout: 15_000 });
+});

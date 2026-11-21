@@ -197,6 +197,12 @@ Behaviour:
   per rule and the mail date as fallback document date are not there yet.
 * Sender and subject go into the intake context (workflow conditions `mail_from` / `mail_subject`).
 * A message whose processing fails is read again on the next check (the state stops before it).
+* Pictures that are decoration (logos, icons, avatars, signatures, banners, tracking pixels) are
+  not stored. Mail clients do not mark them reliably – Outlook turns embedded pictures into
+  "Unnamed attachment 00044.png" attachments – so the size decides (`isMailDecoration`): smaller
+  than a readable page (longer side < 700 px or shorter side < 250 px), or part of the HTML text
+  (multipart/related) and smaller than a photo or scan (longer side < 1500 px). Phone photos sent
+  "inline" are not related and stay.
 * Only the processed message is ever changed. "Mark as read" sets `\Seen` and nothing else (messages
   are fetched with `BODY.PEEK`, `CLOSE` is never sent). "Delete" uses `UID EXPUNGE`; a server without
   UIDPLUS would need a plain `EXPUNGE`, which also purges messages another client flagged

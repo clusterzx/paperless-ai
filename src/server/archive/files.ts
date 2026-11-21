@@ -61,6 +61,18 @@ function sharp(): Promise<Sharp | null> {
   return sharpModule;
 }
 
+/** Width and height of an image, read from its header; null without sharp or for unreadable data. */
+export async function imageSize(data: Buffer): Promise<{ width: number; height: number } | null> {
+  const s = await sharp();
+  if (!s) return null;
+  try {
+    const m = await s(data).metadata();
+    return m.width && m.height ? { width: m.width, height: m.height } : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface FileInfo {
   pages: number | null;
   /** Text layer of a digital PDF ('' for scans and images). */
