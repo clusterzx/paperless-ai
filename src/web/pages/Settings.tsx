@@ -17,8 +17,12 @@ import {
   Save,
   Sparkles,
   UserCog,
+  Users,
+  ScrollText,
+  Webhook,
   Workflow,
 } from 'lucide-react';
+import { ApiKeysCard, AuditLogCard, UsersTab } from '../components/accessAdmin';
 import { Page } from '../components/Layout';
 import { TwoFactorCard } from '../components/twoFactor';
 import { SingleSignOnCard } from '../components/singleSignOn';
@@ -64,7 +68,9 @@ interface SettingsResponse {
   ocr: { available: boolean; cudaAvailable: boolean };
 }
 
-const TAB_IDS = ['connection', 'ai', 'processing', 'prompt', 'fields', 'ocr', 'external', 'rag', 'signin', 'integrations', 'account'] as const;
+const TAB_IDS = ['connection', 'ai', 'processing', 'prompt', 'fields', 'ocr', 'external', 'rag', 'signin', 'integrations', 'users', 'audit', 'keys', 'account'] as const;
+/** Tabs members see (everything else is administration). */
+const MEMBER_TABS = ['account', 'keys'] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 function CopyField({ value, secret }: { value: string; secret?: boolean }) {
@@ -114,9 +120,9 @@ function IntegrationsTab({ locked }: { locked: Locked }) {
   return (
     <div className="space-y-6">
       <Card
-        title="API key"
+        title="Global API key"
         icon={<KeyRound className="size-4" />}
-        description="Use it in the x-api-key header for the REST API, webhooks and the browser extension."
+        description="The key of earlier versions: full administrator access. Prefer personal keys with limited permissions (Settings → API keys) – this one keeps the browser extension and existing webhooks working."
       >
         {apiKey === null ? <Skeleton className="h-9" /> : <CopyField value={apiKey} secret />}
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -275,7 +281,43 @@ function AccountTab() {
   );
 }
 
+/** Settings of members: their account and their API keys. */
+function MemberSettings() {
+  const search = useSearch();
+  const [, navigate] = useLocation();
+  const requested = new URLSearchParams(search).get('tab');
+  const tab = MEMBER_TABS.find((t) => t === requested) ?? 'account';
+  return (
+    <Page>
+      <PageHeader title="Settings" description="Your account and your API keys." />
+      <div className="lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10">
+        <div className="lg:sticky lg:top-6 lg:self-start">
+          <Tabs
+            id="settings"
+            vertical
+            value={tab}
+            onChange={(t) => navigate(`/settings?tab=${t}`, { replace: true })}
+            tabs={[
+              { id: 'account', label: 'Account', icon: <UserCog className="size-4" /> },
+              { id: 'keys', label: 'API keys', icon: <KeyRound className="size-4" /> },
+            ]}
+          />
+        </div>
+        <div className="mt-6 min-w-0 pb-24 lg:mt-0" {...tabPanelProps('settings', tab)}>
+          {tab === 'account' && <AccountTab />}
+          {tab === 'keys' && <ApiKeysCard />}
+        </div>
+      </div>
+    </Page>
+  );
+}
+
 export default function SettingsPage() {
+  const { session } = useSession();
+  return session?.user?.role === 'admin' ? <AdminSettings /> : <MemberSettings />;
+}
+
+function AdminSettings() {
   const toast = useToast();
   const confirm = useConfirm();
   const { refresh } = useSession();
@@ -366,11 +408,14 @@ export default function SettingsPage() {
     { id: 'external', label: 'External data', icon: <Braces className="size-4" /> },
     { id: 'rag', label: 'Ask your archive', icon: <Sparkles className="size-4" /> },
     { id: 'signin', label: 'Sign-in', icon: <LogIn className="size-4" /> },
-    { id: 'integrations', label: 'API & webhooks', icon: <KeyRound className="size-4" /> },
+    { id: 'integrations', label: 'API & webhooks', icon: <Webhook className="size-4" /> },
+    { id: 'users', label: 'Users & groups', icon: <Users className="size-4" /> },
+    { id: 'audit', label: 'Audit log', icon: <ScrollText className="size-4" /> },
+    { id: 'keys', label: 'API keys', icon: <KeyRound className="size-4" /> },
     { id: 'account', label: 'Account', icon: <UserCog className="size-4" /> },
   ];
   const props = { draft, set, locked };
-  const formTab = !['integrations', 'account'].includes(tab);
+  const formTab = !['integrations', 'users', 'audit', 'keys', 'account'].includes(tab);
 
   return (
     <Page>
@@ -445,6 +490,9 @@ export default function SettingsPage() {
             </Card>
           )}
           {tab === 'integrations' && <IntegrationsTab locked={locked} />}
+          {tab === 'users' && <UsersTab />}
+          {tab === 'audit' && <AuditLogCard />}
+          {tab === 'keys' && <ApiKeysCard />}
           {tab === 'account' && <AccountTab />}
         </div>
       </div>

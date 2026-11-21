@@ -256,20 +256,22 @@ export function Layout({ children }: { children: ReactNode }) {
   );
 
   const rag = Boolean(session?.features.rag);
+  /** Members do not see the administration (settings, prompts, logs). */
+  const admin = session?.user?.role === 'admin';
   const nav: NavItem[] = [
     { href: '/', label: 'Dashboard', icon: <LayoutDashboard />, keywords: 'home overview status' },
     { href: '/ask', label: 'Ask your archive', icon: <Sparkles />, hidden: !rag, keywords: 'rag question search' },
     { href: '/chat', label: 'Document chat', icon: <MessageSquareText />, keywords: 'conversation' },
     { href: '/review', label: 'Manual review', icon: <FileSearch />, keywords: 'analyse suggest' },
-    { href: '/playground', label: 'Prompt playground', icon: <FlaskConical />, keywords: 'test prompt' },
-    { href: '/prompts', label: 'Prompt library', icon: <BookMarked />, keywords: 'saved prompts rating model use case manager' },
+    { href: '/playground', label: 'Prompt playground', icon: <FlaskConical />, hidden: !admin, keywords: 'test prompt' },
+    { href: '/prompts', label: 'Prompt library', icon: <BookMarked />, hidden: !admin, keywords: 'saved prompts rating model use case manager' },
     { href: '/history', label: 'History', icon: <History />, keywords: 'undo changes' },
-    { href: '/ocr', label: 'OCR', icon: <ScanText />, keywords: 'text recognition scan paddleocr quality' },
+    { href: '/ocr', label: 'OCR', icon: <ScanText />, hidden: !admin, keywords: 'text recognition scan paddleocr quality' },
     { href: '/calendar', label: 'Calendar', icon: <CalendarDays />, hidden: !session?.features.calendar, keywords: 'dates deadlines appointments due ical' },
   ];
   const secondary: NavItem[] = [
     { href: '/settings', label: 'Settings', icon: <Settings />, keywords: 'configuration preferences' },
-    { href: '/logs', label: 'Logs & diagnostics', icon: <ScrollText />, keywords: 'debug' },
+    { href: '/logs', label: 'Logs & diagnostics', icon: <ScrollText />, hidden: !admin, keywords: 'debug' },
   ];
 
   const isActive = (href: string) => (href === '/' ? location === '/' : location === href || location.startsWith(`${href}/`));

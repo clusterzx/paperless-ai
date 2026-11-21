@@ -1,3 +1,4 @@
+import { audit } from '../access/context.js';
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -68,14 +69,29 @@ export const oidcRoutes =
         }
 
         let user = owner;
+        const adminByGroups = oidc.adminByGroups(identity);
         if (!user) {
           // The very first account may always be created this way (setup without a password).
-          if (!ctx.cfg.auth.oidc.autoCreate && users.count() > 0) {
+          const first = users.count() === 0;
+          if (!ctx.cfg.auth.oidc.autoCreate && !first) {
             throw new OidcLoginError('There is no Paperless-AI account for this sign-in – sign in with your password once and link it in Settings → Account');
           }
           const name = oidc.username(identity);
-          user = users.byId(users.createOidc(name, identity.issuer, identity.subject))!;
+          user = users.byId(users.createOidc(name, identity.issuer, identity.subject, first || adminByGroups ? 'admin' : 'member'))!;
           log.info(`Created account "${name}" from single sign-on`);
+          audit(ctx, null, 'user.created', `user:${user.id}`, { username: name, via: 'sso', role: user.role });
+        } else if (adminByGroups !== null && (user.role === 'admin') !== adminByGroups) {
+          // Admin groups decide the role – but the last admin is never demoted.
+          if (adminByGroups || users.countAdmins() > 1) {
+            users.setRole(user.id, adminByGroups ? 'admin' : 'member');
+            audit(ctx, null, 'user.role_changed', `user:${user.id}`, { role: adminByGroups ? 'admin' : 'member', via: 'sso groups' });
+            user = users.byId(user.id)!;
+          }
+        }
+        if (user.disabled_at) throw new OidcLoginError('This account is disabled');
+        if (ctx.cfg.auth.oidc.syncGroups) {
+          ctx.repos.groups.syncOidc(user.id, oidc.groups(identity));
+          ctx.repos.libraries.invalidate();
         }
         setSessionCookie(reply, req, await issueSession(ctx, user), ctx.cfg.security.sessionHours);
         if (identity.idToken) {

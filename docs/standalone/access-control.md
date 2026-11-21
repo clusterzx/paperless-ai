@@ -82,8 +82,11 @@ export function readableLibraries(scope: AccessScope): number[] | null;
 ```
 
 * The auth hook in `http/app.ts` builds the scope once per request (one query on
-  `library_members` + `group_members`, cached for a few seconds per user and invalidated on
-  membership changes) and sets it as `req.access`.
+  `library_members` + `group_members`, cached per user and invalidated on every membership,
+  group or library change) and sets it as `req.access`. It runs in `onRequest`, before the body is
+  parsed and validated, so callers without access learn nothing about a route's input.
+* Who may call a route at all (admin, API key scope) is decided by one table,
+  `src/server/http/policy.ts`. Library roles are checked by the backend per document.
 * Services take the scope as an **explicit parameter**. `AsyncLocalStorage` is not used for
   authorization: explicit parameters can be tested and nothing gets forgotten implicitly.
 * Background work uses `systemScope(task)`. Workflow runs use the workflow scope (§6).
@@ -113,8 +116,10 @@ They are never applied to results afterwards in a route.
   `api_keys`, see [data-model.md](data-model.md#31-users-groups-api-keys-both-modes-m1)).
 * Scopes: `read` (list, search, download), `write` (metadata, versions), `upload`, `chat`
   (Ask / document chat), `webhook` (enqueue processing), `admin` (settings; only for admin users).
-* Format `pai_<prefix8>_<secret32>`. Only the scrypt hash is stored. The prefix is used for lookup
-  and display, the comparison is constant-time.
+* Format `pai_<prefix8>_<secret>` (256 random bits). Only the SHA-256 of the key is stored: the
+  keys are random, so a slow password hash would add nothing. The prefix is used for lookup and
+  display, the comparison is constant-time. Keys are accepted in `x-api-key`,
+  `Authorization: Bearer …` and – for apps made for Paperless-ngx – `Authorization: Token …`.
 * The **legacy global key** (`security.apiKey`) keeps working as `legacyApiKey` with admin rights,
   so the browser extension and existing webhooks keep working. The UI marks it as legacy and offers
   to replace it. A setting can switch it off.

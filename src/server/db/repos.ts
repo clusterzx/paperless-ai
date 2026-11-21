@@ -2,6 +2,7 @@ import type { Db } from './database.js';
 import { OcrRepo } from './ocrRepo.js';
 import { PromptsRepo } from './promptsRepo.js';
 import { CalendarRepo } from './calendarRepo.js';
+import { ApiKeysRepo, AuditRepo, CalendarFeedsRepo, GroupsRepo, LibrariesRepo, NotificationsRepo, SavedViewsRepo } from './accessRepo.js';
 import type { DocumentSnapshot, HistoryItem, HistoryQuery, UsageStats } from '../../shared/api.js';
 
 // ---------------------------------------------------------------- users
@@ -19,6 +20,24 @@ export interface UserRow {
   /** Single sign-on identity; an empty password_hash means the account can only sign in with it. */
   oidc_issuer: string | null;
   oidc_subject: string | null;
+  role: 'admin' | 'member';
+  display_name: string | null;
+  email: string | null;
+  disabled_at: number | null;
+}
+
+/** A user as listed in the user management (no secrets). */
+export interface UserListRow {
+  id: number;
+  username: string;
+  role: 'admin' | 'member';
+  display_name: string | null;
+  email: string | null;
+  disabled_at: number | null;
+  created_at: number;
+  sso: boolean;
+  password: boolean;
+  two_factor: boolean;
 }
 
 export interface RecoveryCodeRow {
@@ -33,8 +52,39 @@ export class UsersRepo {
     return (this.db.prepare('SELECT COUNT(*) AS c FROM users').get() as { c: number }).c;
   }
 
-  list(): Pick<UserRow, 'id' | 'username' | 'created_at'>[] {
-    return this.db.prepare('SELECT id, username, created_at FROM users ORDER BY id').all() as UserRow[];
+  list(): UserListRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, username, role, display_name, email, disabled_at, created_at,
+                oidc_subject IS NOT NULL AS sso, password_hash != '' AS password, totp_enabled_at IS NOT NULL AS two_factor
+         FROM users ORDER BY username COLLATE NOCASE`,
+      )
+      .all() as (Omit<UserListRow, 'sso' | 'password' | 'two_factor'> & { sso: number; password: number; two_factor: number })[];
+    return rows.map((r) => ({ ...r, sso: Boolean(r.sso), password: Boolean(r.password), two_factor: Boolean(r.two_factor) }));
+  }
+
+  countAdmins(): number {
+    return (this.db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND disabled_at IS NULL").get() as { c: number }).c;
+  }
+
+  /** A new role takes effect at once; open sessions keep working (the role is read on every request). */
+  setRole(id: number, role: 'admin' | 'member'): void {
+    this.db.prepare('UPDATE users SET role = ?, updated_at = ? WHERE id = ?').run(role, Date.now(), id);
+  }
+
+  /** Disabled accounts cannot sign in; their sessions end. */
+  setDisabled(id: number, disabled: boolean): void {
+    this.db
+      .prepare('UPDATE users SET disabled_at = ?, token_version = token_version + 1, updated_at = ? WHERE id = ?')
+      .run(disabled ? Date.now() : null, Date.now(), id);
+  }
+
+  setProfile(id: number, profile: { displayName?: string | null; email?: string | null }): void {
+    const u = this.byId(id);
+    if (!u) return;
+    this.db
+      .prepare('UPDATE users SET display_name = ?, email = ?, updated_at = ? WHERE id = ?')
+      .run(profile.displayName !== undefined ? profile.displayName : u.display_name, profile.email !== undefined ? profile.email : u.email, Date.now(), id);
   }
 
   byUsername(username: string): UserRow | undefined {
@@ -45,12 +95,12 @@ export class UsersRepo {
     return this.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
   }
 
-  create(username: string, passwordHash: string): number {
+  create(username: string, passwordHash: string, role: 'admin' | 'member' = 'member'): number {
     const now = Date.now();
     return Number(
       this.db
-        .prepare('INSERT INTO users (username, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?)')
-        .run(username, passwordHash, now, now).lastInsertRowid,
+        .prepare('INSERT INTO users (username, password_hash, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run(username, passwordHash, role, now, now).lastInsertRowid,
     );
   }
 
@@ -76,12 +126,12 @@ export class UsersRepo {
   }
 
   /** An account that signs in only with single sign-on (no password). */
-  createOidc(username: string, issuer: string, subject: string): number {
+  createOidc(username: string, issuer: string, subject: string, role: 'admin' | 'member' = 'member'): number {
     const now = Date.now();
     return Number(
       this.db
-        .prepare("INSERT INTO users (username, password_hash, oidc_issuer, oidc_subject, created_at, updated_at) VALUES (?, '', ?, ?, ?, ?)")
-        .run(username, issuer, subject, now, now).lastInsertRowid,
+        .prepare("INSERT INTO users (username, password_hash, oidc_issuer, oidc_subject, role, created_at, updated_at) VALUES (?, '', ?, ?, ?, ?, ?)")
+        .run(username, issuer, subject, role, now, now).lastInsertRowid,
     );
   }
 
@@ -592,10 +642,24 @@ export interface Repos {
   ocr: OcrRepo;
   prompts: PromptsRepo;
   calendar: CalendarRepo;
+  groups: GroupsRepo;
+  apiKeys: ApiKeysRepo;
+  libraries: LibrariesRepo;
+  audit: AuditRepo;
+  calendarFeeds: CalendarFeedsRepo;
+  savedViews: SavedViewsRepo;
+  notifications: NotificationsRepo;
 }
 
 export function createRepos(db: Db): Repos {
   return {
+    groups: new GroupsRepo(db),
+    apiKeys: new ApiKeysRepo(db),
+    libraries: new LibrariesRepo(db),
+    audit: new AuditRepo(db),
+    calendarFeeds: new CalendarFeedsRepo(db),
+    savedViews: new SavedViewsRepo(db),
+    notifications: new NotificationsRepo(db),
     users: new UsersRepo(db),
     documents: new DocumentsRepo(db),
     history: new HistoryRepo(db),

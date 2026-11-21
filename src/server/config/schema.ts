@@ -357,6 +357,10 @@ export const configSchema = z.object({
           groupsClaim: str('groups'),
           /** Only members of one of these groups may sign in; empty: everyone the provider lets through. */
           allowedGroups: tagList,
+          /** Members of these groups are admins of Paperless-AI (and lose the role when they leave them). */
+          adminGroups: tagList,
+          /** Copy the groups of the provider into Paperless-AI groups on every sign-in (for library memberships). */
+          syncGroups: bool(true),
           /** Create a Paperless-AI account on the first sign-in (otherwise only linked accounts can sign in). */
           autoCreate: bool(true),
           /** Signing out also ends the session at the provider (if it supports it). */

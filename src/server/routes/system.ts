@@ -50,7 +50,7 @@ export const systemRoutes =
         authenticated: Boolean(p),
         setupRequired: ctx.needsSetup(),
         needsUser: ctx.repos.users.count() === 0,
-        user: p?.kind === 'user' ? { id: p.userId, username: p.username } : undefined,
+        user: p?.kind === 'user' ? { id: p.userId, username: p.username, role: p.role } : undefined,
         version: ctx.version,
         features: { rag: ctx.cfg.rag.enabled, calendar: ctx.cfg.processing.functions.events },
         archive: archiveInfo(ctx),
@@ -75,6 +75,10 @@ export const systemRoutes =
         if (!user || !user.password_hash || !ok) {
           log.warn(`Failed login attempt for "${req.body.username.slice(0, 50)}" from ${req.ip}`);
           return reply.code(401).send({ error: 'Invalid username or password' });
+        }
+        if (user.disabled_at) {
+          log.warn(`Login attempt for the disabled account "${user.username}" from ${req.ip}`);
+          return reply.code(403).send({ error: 'This account is disabled', code: 'account_disabled' });
         }
         // Transparently upgrade legacy hashes (cost 15 was very slow) on login.
         if (/^\$2[aby]\$1[5-9]\$/.test(user.password_hash)) {
@@ -164,7 +168,8 @@ export const systemRoutes =
       ctx.config.update({ ...patch, setupCompleted: true });
       let user = req.principal?.kind === 'user' ? ctx.repos.users.byId(req.principal.userId) : undefined;
       if (needsUser) {
-        const id = ctx.repos.users.create(req.body.username!, passwordHash);
+        // The account created by the setup administrates Paperless-AI.
+        const id = ctx.repos.users.create(req.body.username!, passwordHash, 'admin');
         user = ctx.repos.users.byId(id);
         log.info(`Created user "${req.body.username}"`);
       }
@@ -181,7 +186,11 @@ export const systemRoutes =
       const users = ctx.repos.users.list().map((u) => ({ id: u.id, username: u.username, createdAt: u.created_at }));
       const me = p.kind === 'user' ? ctx.repos.users.byId(p.userId) : undefined;
       return {
-        user: p.kind === 'user' ? { id: p.userId, username: p.username } : null,
+        user:
+          p.kind === 'user' && me
+            ? { id: me.id, username: me.username, role: me.role, displayName: me.display_name, email: me.email }
+            : null,
+        groups: p.kind === 'user' ? ctx.repos.groups.groupsOf(p.userId).map((g) => ({ id: g.id, name: g.name })) : [],
         users,
         twoFactor: p.kind === 'user' ? twoFactorStatus(ctx, p.userId) : null,
         /** Accounts created by single sign-on have no password (and no local two-factor authentication). */

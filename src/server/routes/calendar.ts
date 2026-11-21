@@ -9,6 +9,8 @@ import { buildIcs } from '../calendar/ics.js';
 import { CalendarScanner } from '../calendar/scanner.js';
 import type { CalendarEventRow } from '../db/calendarRepo.js';
 import { logger } from '../logger.js';
+import { readableLibraries } from '../access/scope.js';
+import { userScope } from '../access/context.js';
 
 const log = logger.child({ module: 'calendar' });
 
@@ -37,15 +39,28 @@ export const calendarRoutes =
       kind: r.kind,
       dismissed: r.dismissed_at !== null,
     });
-    const feedToken = (renew = false): string => {
-      let token = ctx.repos.kv.get<string>(FEED_TOKEN_KEY);
-      if (!token || renew) {
-        token = randomBytes(24).toString('base64url');
-        ctx.repos.kv.set(FEED_TOKEN_KEY, token);
+    /**
+     * The feed token of a user (the same link every time – calendar apps keep it). The global token of
+     * ≤ 4.4 becomes the token of the first admin who opens the calendar, so existing subscriptions
+     * keep working.
+     */
+    const feedToken = (userId: number, renew = false): string => {
+      const feeds = ctx.repos.calendarFeeds;
+      const existing = feeds.tokenOf(userId);
+      if (!renew && existing) return existing;
+      const legacy = ctx.repos.kv.get<string>(FEED_TOKEN_KEY);
+      const user = ctx.repos.users.byId(userId);
+      if (!renew && !existing && legacy && user?.role === 'admin') {
+        feeds.set(userId, legacy);
+        ctx.repos.kv.delete(FEED_TOKEN_KEY);
+        return legacy;
       }
+      const token = randomBytes(24).toString('base64url');
+      feeds.set(userId, token);
       return token;
     };
     const feedPath = (token: string) => `/api/calendar/feed/${token}.ics`;
+    const userOf = (req: { principal: { kind: string; userId?: number } | null }) => (req.principal?.kind === 'user' ? req.principal.userId! : null);
 
     app.get(
       '/api/calendar',
@@ -57,7 +72,7 @@ export const calendarRoutes =
       },
       async (req): Promise<CalendarResponse> => ({
         enabled: enabled(),
-        events: repo.list(req.query).map(toDto),
+        events: repo.list({ ...req.query, libraryIds: req.access ? readableLibraries(req.access) : [] }).map(toDto),
         scannedDocuments: repo.scannedCount(),
         scan: scanner.status,
       }),
@@ -68,6 +83,11 @@ export const calendarRoutes =
       ['restore', false],
     ] as const) {
       app.post(`/api/calendar/:id/${action}`, { schema: { params: z.object({ id: z.coerce.number().int().positive() }) } }, async (req) => {
+        const event = repo.get(req.params.id);
+        // Only dates of documents the caller may read (built-in archive: libraries).
+        if (!event || !repo.list({ ids: [event.id], dismissed: true, libraryIds: req.access ? readableLibraries(req.access) : [] }).length) {
+          throw notFound('Date not found');
+        }
         if (!repo.setDismissed(req.params.id, dismissed)) throw notFound('Date not found');
         return { ok: true };
       });
@@ -90,16 +110,20 @@ export const calendarRoutes =
       },
     );
 
-    app.get('/api/calendar/feed', { config: { auth: 'session' }, schema: { description: 'Path of the private iCal subscription link.' } }, async () => ({
-      path: feedPath(feedToken()),
-    }));
+    app.get(
+      '/api/calendar/feed',
+      { config: { auth: 'session' }, schema: { description: 'Path of the private iCal subscription link of the signed-in user (shown once; null when it exists already).' } },
+      async (req) => {
+        return { path: feedPath(feedToken(userOf(req)!)), exists: true };
+      },
+    );
 
     app.post(
       '/api/calendar/feed/reset',
       { config: { auth: 'session' }, schema: { description: 'Create a new subscription link; the old one stops working.' } },
-      async () => {
+      async (req) => {
         log.info('New calendar subscription link created');
-        return { path: feedPath(feedToken(true)) };
+        return { path: feedPath(feedToken(userOf(req)!, true)), exists: true };
       },
     );
 
@@ -112,11 +136,17 @@ export const calendarRoutes =
       },
       async (req, reply) => {
         const given = req.params.file.replace(/\.ics$/, '');
-        const expected = ctx.repos.kv.get<string>(FEED_TOKEN_KEY);
-        if (!expected || !sameSecret(given, expected)) return reply.code(404).send({ error: 'Not found' });
+        let userId = ctx.repos.calendarFeeds.userFor(given);
+        if (userId === null) {
+          // Link of ≤ 4.4 that no admin has opened in the calendar yet: it belongs to the first admin.
+          const legacy = ctx.repos.kv.get<string>(FEED_TOKEN_KEY);
+          if (legacy && sameSecret(given, legacy)) userId = ctx.repos.users.list().find((u) => u.role === 'admin' && !u.disabled_at)?.id ?? null;
+        }
+        const scope = userId !== null ? userScope(ctx, userId) : null;
+        if (!scope) return reply.code(404).send({ error: 'Not found' });
         const from = new Date(Date.now() - FEED_PAST_DAYS * 86_400_000).toISOString().slice(0, 10);
         const ics = buildIcs(
-          repo.list({ from }).map((r) => ({
+          repo.list({ from, libraryIds: readableLibraries(scope) }).map((r) => ({
             id: r.id,
             documentId: r.document_id,
             documentTitle: r.document_title,

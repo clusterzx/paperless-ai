@@ -19,6 +19,12 @@ export interface CalendarQuery {
   to?: string;
   dismissed?: boolean;
   limit?: number;
+  ids?: number[];
+  /**
+   * Built-in archive: only dates of documents in these libraries. `null`/undefined = no restriction
+   * (companion mode, system).
+   */
+  libraryIds?: number[] | null;
 }
 
 const sameEvent = (a: { date: string; title: string }, b: { date: string; title: string }) => a.date === b.date && a.title.toLowerCase() === b.title.toLowerCase();
@@ -92,8 +98,20 @@ export class CalendarRepo {
       args.push(q.to);
     }
     if (!q.dismissed) where.push('dismissed_at IS NULL');
+    if (q.ids) {
+      where.push('id IN (SELECT value FROM json_each(?))');
+      args.push(JSON.stringify(q.ids));
+    }
+    if (q.libraryIds) {
+      where.push('document_id IN (SELECT id FROM lib_documents WHERE deleted_at IS NULL AND library_id IN (SELECT value FROM json_each(?)))');
+      args.push(JSON.stringify(q.libraryIds));
+    }
     const sql = `SELECT * FROM calendar_events ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY date, time IS NOT NULL, time, id LIMIT ?`;
     return this.db.prepare(sql).all(...args, q.limit ?? 5000) as CalendarEventRow[];
+  }
+
+  get(id: number): CalendarEventRow | undefined {
+    return this.db.prepare('SELECT * FROM calendar_events WHERE id = ?').get(id) as CalendarEventRow | undefined;
   }
 
   setDismissed(id: number, dismissed: boolean): boolean {
