@@ -45,6 +45,7 @@ import { PLACEHOLDER_THUMB, renderThumbnail } from './files.js';
 import { IngestService } from './ingest.js';
 import { ArchiveMaintenance } from './maintenance.js';
 import { FolderWatcher } from './folder.js';
+import { ReadPool } from '../db/readers.js';
 import { logger } from '../logger.js';
 
 const log = logger.child({ module: 'archive' });
@@ -110,11 +111,16 @@ export class LocalBackend implements DocumentBackend {
   readonly ingestService: IngestService;
   readonly maintenance: ArchiveMaintenance;
   readonly folders: FolderWatcher;
+  /** Heavy reads (lists, full text, counts, facets) in worker threads. */
+  readonly reader: ReadPool;
+  /** Above this many full text matches only the newest are ranked by bm25 (see queryDocuments). */
+  rankCandidates = 5000;
   private readonly sources = new Map<number, LibraryMetadataSource>();
 
   constructor(readonly ctx: AppContext) {
     const dir = ctx.cfg.archive.builtin.storageDir || path.join(ctx.dataDir, 'library');
     this.blobs = new BlobStore(dir);
+    this.reader = ReadPool.for(ctx.db);
     this.ensureDefaultLibrary();
     this.ingestService = new IngestService(this);
     this.maintenance = new ArchiveMaintenance(this);
@@ -122,6 +128,34 @@ export class LocalBackend implements DocumentBackend {
     if (ctx.cfg.archive.builtin.consumeDir || ctx.db.prepare('SELECT 1 FROM intake_folders WHERE enabled = 1 LIMIT 1').get()) this.startIntake();
     // A watch folder set later in the settings starts right away.
     ctx.config.on('change', this.onConfig);
+    if (ctx.repos.kv.get('archive.fts_rebuild')) void this.rebuildFts();
+  }
+
+  /**
+   * Fill the full text index from scratch (after a schema change of lib_fts, or as a repair):
+   * batches of 500 documents, the event loop free between them. Documents changed meanwhile are
+   * indexed by their own write anyway.
+   */
+  async rebuildFts(): Promise<number> {
+    const started = Date.now();
+    let done = 0;
+    let after = 0;
+    log.info('Rebuilding the full text index of the archive …');
+    while (!this.closed) {
+      const ids = (this.db.prepare('SELECT id FROM lib_documents WHERE id > ? ORDER BY id LIMIT 500').all(after) as { id: number }[]).map((r) => r.id);
+      if (!ids.length) break;
+      this.db.transaction(() => {
+        for (const id of ids) this.refreshFts(id);
+      })();
+      done += ids.length;
+      after = ids[ids.length - 1];
+      await new Promise((r) => setImmediate(r));
+    }
+    if (!this.closed) {
+      this.ctx.repos.kv.delete('archive.fts_rebuild');
+      log.info(`Full text index rebuilt: ${done} documents in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+    }
+    return done;
   }
 
   private readonly onConfig = (next: AppConfig) => {
@@ -145,6 +179,7 @@ export class LocalBackend implements DocumentBackend {
     this.folders.stop();
     await this.ingestService.stop();
     this.maintenance.stop();
+    await this.reader.close();
   }
 
   // ---------------------------------------------------------------- libraries
@@ -267,7 +302,11 @@ export class LocalBackend implements DocumentBackend {
 
   // ---------------------------------------------------------------- filters → SQL
 
-  private whereOf(scope: AccessScope, f: DocumentFilter, opts: { deleted?: boolean } = {}): { sql: string; params: unknown[] } {
+  /**
+   * SQL condition of a filter. Tags: `exists` checks each document (best when the rows come in index
+   * order and many match), `in` starts from the tag's documents (best for rare tags and counts).
+   */
+  private whereOf(scope: AccessScope, f: DocumentFilter, opts: { deleted?: boolean; tags?: 'exists' | 'in' } = {}): { sql: string; params: unknown[] } {
     const conds: string[] = [opts.deleted ? 'd.deleted_at IS NOT NULL' : 'd.deleted_at IS NULL'];
     const params: unknown[] = [];
     const libs = this.readable(scope);
@@ -283,12 +322,17 @@ export class LocalBackend implements DocumentBackend {
       conds.push(`d.id ${IN_IDS}`);
       params.push(json(f.ids));
     }
+    const viaIn = opts.tags === 'in';
     if (f.tagsAny?.length) {
-      conds.push(`EXISTS (SELECT 1 FROM lib_document_tags t WHERE t.document_id = d.id AND t.tag_id ${IN_IDS})`);
+      conds.push(
+        viaIn
+          ? `d.id IN (SELECT document_id FROM lib_document_tags WHERE tag_id ${IN_IDS})`
+          : `EXISTS (SELECT 1 FROM lib_document_tags t WHERE t.document_id = d.id AND t.tag_id ${IN_IDS})`,
+      );
       params.push(json(f.tagsAny));
     }
     for (const tag of f.tagsAll ?? []) {
-      conds.push('EXISTS (SELECT 1 FROM lib_document_tags t WHERE t.document_id = d.id AND t.tag_id = ?)');
+      conds.push(viaIn ? 'd.id IN (SELECT document_id FROM lib_document_tags WHERE tag_id = ?)' : 'EXISTS (SELECT 1 FROM lib_document_tags t WHERE t.document_id = d.id AND t.tag_id = ?)');
       params.push(tag);
     }
     if (f.tagsNone?.length) {
@@ -363,7 +407,7 @@ export class LocalBackend implements DocumentBackend {
   async listDocuments(scope: AccessScope, q: DocumentListQuery = {}): Promise<ArchiveDocument[]> {
     const w = this.whereOf(scope, { ids: q.ids, tagsAny: q.tagsAny, tagsNone: q.tagsNone, libraryIds: q.libraryIds });
     const order = ORDERING[q.ordering ?? '-added'] ?? ORDERING['-added'];
-    const rows = this.db.prepare(`SELECT d.* FROM lib_documents d WHERE ${w.sql} ORDER BY ${order}`).all(...w.params) as DocRow[];
+    const rows = await this.reader.all<DocRow>(`SELECT d.* FROM lib_documents d WHERE ${w.sql} ORDER BY ${order}`, w.params);
     const withContent = Boolean(q.fields?.includes('content'));
     const out: ArchiveDocument[] = [];
     // Content is loaded in batches – the list of a large archive must not hold every text at once.
@@ -385,22 +429,42 @@ export class LocalBackend implements DocumentBackend {
   async queryDocuments(scope: AccessScope, q: DocumentQuery): Promise<DocumentQueryResult> {
     const limit = Math.min(Math.max(q.limit ?? 50, 1), 250);
     const sort: DocumentSort = q.sort ?? (q.filter.query ? 'relevance' : '-created');
-    const w = this.whereOf(scope, q.filter);
+    const relevance = sort === 'relevance' && Boolean(q.filter.query);
+    const w = this.whereOf(scope, q.filter, { tags: !relevance && this.rareTags(scope, q.filter) ? 'in' : 'exists' });
     let rows: DocRow[];
     let nextCursor: string | null = null;
-    if (sort === 'relevance' && q.filter.query) {
-      // Rank only the best candidates (stop-word-like terms match most of the archive).
-      const offset = q.cursor?.startsWith('o:') ? Number(q.cursor.slice(2)) || 0 : ((q.page ?? 1) - 1) * limit;
-      rows = this.db
-        .prepare(
+    if (relevance) {
+      const match = ftsMatch(q.filter.query!);
+      // The full text condition is the ranked join itself.
+      const rest = this.whereOf(scope, { ...q.filter, query: undefined });
+      // Cursor of relevance pages: `o:<offset>:<bound>` – the bound chosen on the first page.
+      const [, cursorOffset, cursorBound] = q.cursor?.startsWith('o:') ? q.cursor.split(':') : [];
+      const offset = cursorOffset !== undefined ? Number(cursorOffset) || 0 : ((q.page ?? 1) - 1) * limit;
+      const ranked = (bound: number, from: number) =>
+        this.reader.all<DocRow>(
           `SELECT d.* FROM lib_documents d
-           JOIN (SELECT rowid, bm25(lib_fts, 3.0, 1.0, 2.0) AS rank FROM lib_fts WHERE lib_fts MATCH ? ORDER BY rank LIMIT 1000) r ON r.rowid = d.id
-           WHERE ${w.sql} ORDER BY r.rank, d.id LIMIT ? OFFSET ?`,
-        )
-        .all(ftsMatch(q.filter.query), ...w.params, limit + 1, offset) as DocRow[];
+           JOIN (SELECT rowid, bm25(lib_fts, 3.0, 1.0, 2.0) AS rank FROM lib_fts WHERE lib_fts MATCH ? AND rowid >= ? ORDER BY rank LIMIT 1000) r ON r.rowid = d.id
+           WHERE ${rest.sql} ORDER BY r.rank, d.id LIMIT ? OFFSET ?`,
+          [match, bound, ...rest.params, limit + 1, from],
+        );
+      // Rank only the best candidates: bm25 over a stop-word-like term that matches most of the
+      // archive costs ~0.7 µs per match. Above `rankCandidates` matches only the newest ones are
+      // ranked – unless the other conditions leave less than a page of them, then all are. The
+      // choice depends on the first page only, so all pages of a search use the same ranking.
+      let bound = 0;
+      if (cursorBound !== undefined) bound = Number(cursorBound) || 0;
+      else if (match) bound = (await this.reader.get<{ rowid: number }>('SELECT rowid FROM lib_fts WHERE lib_fts MATCH ? ORDER BY rowid DESC LIMIT 1 OFFSET ?', [match, this.rankCandidates - 1]))?.rowid ?? 0;
+      rows = match ? await ranked(bound, offset) : [];
+      if (match && cursorBound === undefined && bound > 0 && rows.length <= limit) {
+        const first = offset === 0 ? rows : await ranked(bound, 0);
+        if (first.length <= limit) {
+          bound = 0;
+          rows = await ranked(0, offset);
+        }
+      }
       if (rows.length > limit) {
         rows = rows.slice(0, limit);
-        nextCursor = `o:${offset + limit}`;
+        nextCursor = `o:${offset + limit}:${bound}`;
       }
     } else {
       const key = SORT_KEYS[sort === 'relevance' ? '-created' : sort];
@@ -413,14 +477,15 @@ export class LocalBackend implements DocumentBackend {
         conds.push(key.after);
         params.push(c.v, c.v, c.id);
       } else if (q.page && q.page > 1) offset = (q.page - 1) * limit;
-      rows = this.db.prepare(`SELECT d.* FROM lib_documents d WHERE ${conds.join(' AND ')} ORDER BY ${key.order} LIMIT ? OFFSET ?`).all(...params, limit + 1, offset) as DocRow[];
+      rows = await this.reader.all<DocRow>(`SELECT d.* FROM lib_documents d WHERE ${conds.join(' AND ')} ORDER BY ${key.order} LIMIT ? OFFSET ?`, [...params, limit + 1, offset]);
       if (rows.length > limit) {
         rows = rows.slice(0, limit);
         const last = rows[rows.length - 1];
         nextCursor = encodeCursor({ s: sort, v: key.value(last), id: last.id });
       }
     }
-    const count = q.withCount ? ((this.db.prepare(`SELECT COUNT(*) AS c FROM lib_documents d WHERE ${w.sql}`).get(...w.params) as { c: number }).c) : null;
+    const counted = q.withCount ? this.whereOf(scope, q.filter, { tags: 'in' }) : null;
+    const count = counted ? ((await this.reader.get<{ c: number }>(`SELECT COUNT(*) AS c FROM lib_documents d WHERE ${counted.sql}`, counted.params))?.c ?? 0) : null;
     const results = this.toDocuments(rows, scope, false);
     const snippets = q.filter.query ? this.snippets(rows.map((r) => r.id), q.filter.query) : undefined;
     return { results, nextCursor, count, snippets };
@@ -449,21 +514,67 @@ export class LocalBackend implements DocumentBackend {
   }
 
   async facets(scope: AccessScope, filter: DocumentFilter): Promise<DocumentFacets> {
-    const w = this.whereOf(scope, filter);
-    const base = `SELECT d.id FROM lib_documents d WHERE ${w.sql}`;
-    const count = (sql: string) => (this.db.prepare(sql).all(...w.params) as { id: number; count: number }[]).map((r) => ({ id: r.id, count: r.count }));
-    return {
-      tags: count(`SELECT tag_id AS id, COUNT(*) AS count FROM lib_document_tags WHERE document_id IN (${base}) GROUP BY tag_id`),
-      correspondents: count(`SELECT correspondent_id AS id, COUNT(*) AS count FROM lib_documents WHERE id IN (${base}) AND correspondent_id IS NOT NULL GROUP BY correspondent_id`),
-      documentTypes: count(`SELECT document_type_id AS id, COUNT(*) AS count FROM lib_documents WHERE id IN (${base}) AND document_type_id IS NOT NULL GROUP BY document_type_id`),
-      libraries: count(`SELECT library_id AS id, COUNT(*) AS count FROM lib_documents WHERE id IN (${base}) GROUP BY library_id`),
-      total: (this.db.prepare(`SELECT COUNT(*) AS c FROM (${base})`).get(...w.params) as { c: number }).c,
-    };
+    if (isUnfiltered(filter)) return this.counterFacets(scope, filter.libraryIds);
+    const w = this.whereOf(scope, filter, { tags: 'in' });
+    // One pass over the matching documents (materialized once), all groups in one statement.
+    const rows = await this.reader.all<{ k: 't' | 'c' | 'y' | 'l'; id: number; count: number }>(
+      `WITH base AS MATERIALIZED (SELECT d.id, d.library_id, d.correspondent_id, d.document_type_id FROM lib_documents d WHERE ${w.sql})
+       SELECT 't' AS k, t.tag_id AS id, COUNT(*) AS count FROM base b JOIN lib_document_tags t ON t.document_id = b.id GROUP BY t.tag_id
+       UNION ALL SELECT 'c', correspondent_id, COUNT(*) FROM base WHERE correspondent_id IS NOT NULL GROUP BY correspondent_id
+       UNION ALL SELECT 'y', document_type_id, COUNT(*) FROM base WHERE document_type_id IS NOT NULL GROUP BY document_type_id
+       UNION ALL SELECT 'l', library_id, COUNT(*) FROM base GROUP BY library_id`,
+      w.params,
+    );
+    const pick = (k: string) => rows.filter((r) => r.k === k).map((r) => ({ id: r.id, count: r.count }));
+    const libraries = pick('l');
+    return { tags: pick('t'), correspondents: pick('c'), documentTypes: pick('y'), libraries, total: libraries.reduce((n, r) => n + r.count, 0) };
   }
 
   async countDocuments(scope: AccessScope, filter: DocumentFilter = {}): Promise<number> {
-    const w = this.whereOf(scope, filter);
-    return (this.db.prepare(`SELECT COUNT(*) AS c FROM lib_documents d WHERE ${w.sql}`).get(...w.params) as { c: number }).c;
+    if (isUnfiltered(filter)) return (await this.counterFacets(scope, filter.libraryIds)).total;
+    const w = this.whereOf(scope, filter, { tags: 'in' });
+    return (await this.reader.get<{ c: number }>(`SELECT COUNT(*) AS c FROM lib_documents d WHERE ${w.sql}`, w.params))?.c ?? 0;
+  }
+
+  /**
+   * Whether a list sorted by an index should start from the tag's documents: walking the index and
+   * checking each document costs ~limit·total/matches probes, starting from the tag ~matches row
+   * reads plus a sort – equal at about √(30·total) (measured with 200k documents).
+   */
+  private rareTags(scope: AccessScope, f: DocumentFilter): boolean {
+    const tags = f.tagsAll?.length ? f.tagsAll : f.tagsAny;
+    if (!tags?.length) return false;
+    const counts = this.db.prepare(`SELECT item_id, SUM(count) AS c FROM lib_counters WHERE kind = 'tag' AND item_id ${IN_IDS} GROUP BY item_id`).all(json(tags)) as { item_id: number; c: number }[];
+    const byTag = new Map(counts.map((r) => [r.item_id, r.c]));
+    const matches = f.tagsAll?.length ? Math.min(...tags.map((t) => byTag.get(t) ?? 0)) : tags.reduce((n, t) => n + (byTag.get(t) ?? 0), 0);
+    const libs = this.readable(scope);
+    const total = (
+      this.db.prepare(`SELECT COALESCE(SUM(count), 0) AS c FROM lib_counters WHERE kind = 'documents' AND item_id = 0${libs ? ` AND library_id ${IN_IDS}` : ''}`).get(...(libs ? [json(libs)] : [])) as {
+        c: number;
+      }
+    ).c;
+    return matches < Math.sqrt(30 * Math.max(total, 1));
+  }
+
+  /**
+   * Facets without filter from the counters (maintained by triggers in the write transactions) –
+   * no scan over the library, whatever its size.
+   */
+  async counterFacets(scope: AccessScope, libraryIds?: number[]): Promise<DocumentFacets> {
+    let libs = this.readable(scope) ?? this.ctx.repos.libraries.list().map((l) => l.id);
+    if (libraryIds?.length) libs = libs.filter((l) => libraryIds.includes(l));
+    const rows = this.db
+      .prepare(`SELECT kind, item_id AS id, library_id, count FROM lib_counters WHERE library_id ${IN_IDS} AND count > 0`)
+      .all(json(libs)) as { kind: string; id: number; library_id: number; count: number }[];
+    const pick = (kind: string) => rows.filter((r) => r.kind === kind).map((r) => ({ id: r.id, count: r.count }));
+    const docs = rows.filter((r) => r.kind === 'documents');
+    return {
+      tags: pick('tag'),
+      correspondents: pick('correspondent'),
+      documentTypes: pick('document_type'),
+      libraries: docs.map((r) => ({ id: r.library_id, count: r.count })),
+      total: docs.reduce((n, r) => n + r.count, 0),
+    };
   }
 
   async getDocument(scope: AccessScope, id: number): Promise<ArchiveDocument> {
@@ -1066,6 +1177,11 @@ export function ftsMatch(query: string): string | null {
   const terms = queryTerms(query);
   const q = buildFtsQuery(terms.length ? terms : query.toLowerCase().split(/\s+/).filter(Boolean));
   return q ? q.split(' OR ').join(' AND ') : null;
+}
+
+/** No condition except (perhaps) the libraries – the counters answer it. */
+function isUnfiltered(f: DocumentFilter): boolean {
+  return !Object.entries(f).some(([k, v]) => k !== 'libraryIds' && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0));
 }
 
 function dayAfter(day: string): string {

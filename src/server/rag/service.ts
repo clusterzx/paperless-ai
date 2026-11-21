@@ -33,7 +33,7 @@ import { archiveFacts } from './facts.js';
 import { LocalEmbedder, localEmbeddingsAvailable } from './localEmbedder.js';
 import { metaLine, RagStore, type ChunkWithMeta, type RagDocumentMeta } from './store.js';
 import { asksForRecency, buildFtsQuery, makeSnippet, mentionedMonths, mentionedYears, queryTerms, stem } from './text.js';
-import { VectorIndex } from './vectorIndex.js';
+import { createVectorSearch } from './vectorSearch.js';
 
 const log = logger.child({ module: 'rag' });
 
@@ -69,7 +69,7 @@ export interface SearchResult {
 
 export class RagService extends EventEmitter<{ status: [RagStatus] }> {
   readonly store: RagStore;
-  private readonly vectors = new VectorIndex();
+  private readonly vectors = createVectorSearch();
   private vectorsLoaded = false;
   private vectorsLoading: Promise<void> | null = null;
   private vectorGeneration = 0;
@@ -85,7 +85,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
 
   constructor(private readonly ctx: AppContext) {
     super();
-    this.store = new RagStore(ctx.db);
+    this.store = new RagStore(ctx.indexDb);
     this.lastSyncAt = ctx.repos.kv.get<number>('rag_last_sync') ?? null;
     ctx.config.on('change', (next, prev) => this.onConfigChange(next, prev));
   }
@@ -117,6 +117,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     await this.syncing?.catch(() => undefined);
     await this.embedder?.client.dispose?.();
     this.embedder = null;
+    await this.vectors.close();
   }
 
   private schedule(): void {
@@ -268,7 +269,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     for (;;) {
       const rows = this.store.embeddingsAfter(afterId, VECTOR_LOAD_BATCH);
       try {
-        for (const row of rows) this.vectors.add(row.id, row.documentId, row.vector);
+        this.vectors.addMany(rows);
       } catch {
         log.warn('Stored embeddings have inconsistent dimensions – re-embedding all passages');
         this.store.clearEmbeddings();
@@ -280,6 +281,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
       await new Promise((resolve) => setImmediate(resolve));
       if (generation !== this.vectorGeneration) return; // reset meanwhile (rebuild, model change)
     }
+    await this.vectors.flush();
     this.vectorsLoaded = true;
     if (this.vectors.count) {
       log.info(`Loaded ${this.vectors.count} vectors (${(this.vectors.memoryBytes / 1e6).toFixed(1)} MB) in ${Date.now() - started} ms`);
@@ -560,12 +562,12 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
             'query',
             opts.signal,
           );
-          const hits = this.vectors.search(qv, CANDIDATES, allowDocs);
+          const hits = await this.vectors.search(qv, CANDIDATES, allowDocs);
           for (const h of hits) chunkDoc.set(h.id, h.documentId);
           lists.push({ weight: 1, ids: hits.map((h) => h.id) });
           if (kv) {
             // AI keywords (synonyms, translations) as a second, weaker semantic query.
-            const khits = this.vectors.search(kv, CANDIDATES, allowDocs);
+            const khits = await this.vectors.search(kv, CANDIDATES, allowDocs);
             for (const h of khits) chunkDoc.set(h.id, h.documentId);
             lists.push({ weight: 0.5, ids: khits.map((h) => h.id) });
           }

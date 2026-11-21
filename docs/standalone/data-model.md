@@ -212,7 +212,7 @@ CREATE VIRTUAL TABLE lib_fts USING fts5(
   title, body, meta,
   content = '', contentless_delete = 1,
   tokenize = 'unicode61 remove_diacritics 2',
-  prefix = '3'
+  prefix = '3 4'
 );
 ```
 
@@ -301,8 +301,9 @@ CREATE INDEX lib_events_document ON lib_document_events(document_id, id);
 CREATE INDEX lib_events_library_at ON lib_document_events(library_id, at);
 CREATE INDEX lib_events_actor ON lib_document_events(actor_type, actor_id, at);
 
--- Facet counts (documents per tag / correspondent / type / custom field per library).
--- Maintained in the write transactions; rebuilt by a maintenance job.
+-- Facet counts (documents per tag / correspondent / type per library, documents outside the trash).
+-- Maintained by SQLite triggers in the write transactions (archive/counters.ts); the weekly
+-- maintenance compares them with a recount and rebuilds them on a difference.
 CREATE TABLE lib_counters (
   library_id INTEGER NOT NULL,
   kind TEXT NOT NULL,                -- tag | correspondent | document_type | custom_field | documents

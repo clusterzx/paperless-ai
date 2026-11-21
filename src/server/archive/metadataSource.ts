@@ -14,11 +14,13 @@ export const METADATA_TABLE: Record<MetadataKind, string> = {
   customField: 'lib_custom_fields',
 };
 
-/** Number of documents (not in the trash) per metadata object. */
+const counter = (kind: string) => `COALESCE((SELECT c.count FROM lib_counters c WHERE c.library_id = m.library_id AND c.kind = '${kind}' AND c.item_id = m.id), 0)`;
+
+/** Number of documents (not in the trash) per metadata object – kept by triggers (counters.ts). */
 const COUNT_SQL: Record<MetadataKind, string> = {
-  tag: `(SELECT COUNT(*) FROM lib_document_tags x JOIN lib_documents d ON d.id = x.document_id AND d.deleted_at IS NULL WHERE x.tag_id = m.id)`,
-  correspondent: `(SELECT COUNT(*) FROM lib_documents d WHERE d.correspondent_id = m.id AND d.deleted_at IS NULL)`,
-  documentType: `(SELECT COUNT(*) FROM lib_documents d WHERE d.document_type_id = m.id AND d.deleted_at IS NULL)`,
+  tag: counter('tag'),
+  correspondent: counter('correspondent'),
+  documentType: counter('document_type'),
   customField: `(SELECT COUNT(*) FROM lib_custom_field_values v JOIN lib_documents d ON d.id = v.document_id AND d.deleted_at IS NULL WHERE v.field_id = m.id)`,
 };
 

@@ -8,6 +8,7 @@ import type { AppConfig } from './config/schema.js';
 import { ConfigStore } from './config/store.js';
 import { importLegacyDatabase, openDatabase, type Db } from './db/database.js';
 import { createRepos, type NewUsage, type Repos } from './db/repos.js';
+import { moveRagIndex, openIndexDatabase } from './db/indexDatabase.js';
 import { PaperlessClient } from './paperless/client.js';
 import { MetadataCache } from './backend/metadata.js';
 import { PaperlessBackend } from './backend/paperless.js';
@@ -39,6 +40,8 @@ export interface ContextOptions {
 export class AppContext {
   readonly config: ConfigStore;
   readonly db: Db;
+  /** Search index of "Ask your archive" (index.db). */
+  readonly indexDb: Db;
   readonly repos: Repos;
   readonly dataDir: string;
   readonly version = VERSION;
@@ -56,6 +59,8 @@ export class AppContext {
     this.config = ConfigStore.load(opts.dataDir, opts.env ?? process.env);
     this.config.ensureSecrets();
     this.db = openDatabase(opts.memoryDb ? ':memory:' : path.join(opts.dataDir, 'paperless-ai.db'));
+    this.indexDb = openIndexDatabase(opts.memoryDb ? ':memory:' : path.join(opts.dataDir, 'index.db'));
+    moveRagIndex(this.db, this.indexDb, opts.memoryDb ? null : opts.dataDir);
     this.repos = createRepos(this.db);
     if (!opts.memoryDb) importLegacyDatabase(this.db, path.join(opts.dataDir, 'documents.db'));
     this.config.on('change', (next, prev) => this.onConfigChange(next, prev));
@@ -227,6 +232,11 @@ export class AppContext {
     const backend = this.backendCache?.backend;
     this.backendCache = null;
     void backend?.close?.().catch(() => undefined);
+    try {
+      this.indexDb.close();
+    } catch {
+      /* already closed */
+    }
     try {
       this.db.close();
     } catch {
