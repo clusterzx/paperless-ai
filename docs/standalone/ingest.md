@@ -197,6 +197,11 @@ Behaviour:
   per rule and the mail date as fallback document date are not there yet.
 * Sender and subject go into the intake context (workflow conditions `mail_from` / `mail_subject`).
 * A message whose processing fails is read again on the next check (the state stops before it).
+* Only the processed message is ever changed. "Mark as read" sets `\Seen` and nothing else (messages
+  are fetched with `BODY.PEEK`, `CLOSE` is never sent). "Delete" uses `UID EXPUNGE`; a server without
+  UIDPLUS would need a plain `EXPUNGE`, which also purges messages another client flagged
+  `\Deleted`, so there the message is only flagged `\Seen \Deleted`. "Move" needs MOVE or UIDPLUS,
+  otherwise the message is marked as read and the account shows why.
 * Accounts are set up by administrators (connections to hosts on the network); owners of the
   library see them, start a check and remove them. Passwords: AES-256-GCM (`util/secretBox.ts`),
   key derived from `security.jwtSecret` – a new instance secret means entering them again.

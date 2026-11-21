@@ -58,6 +58,19 @@ export interface MailClient {
   messageDelete(uid: string, options: { uid: true }): Promise<boolean>;
   list(): Promise<{ path: string }[]>;
   logout(): Promise<void>;
+  /** What the server announced after connecting (imapflow: e.g. MOVE, UIDPLUS). */
+  capabilities?: Map<string, boolean | number>;
+}
+
+/**
+ * How a processed message can be removed from its folder without touching any other message.
+ * Deleting ends with EXPUNGE; only `UID EXPUNGE` (UIDPLUS) is limited to the one message – a plain
+ * EXPUNGE also removes every message another mail client flagged \Deleted and has not purged yet.
+ * Moving is safe with MOVE, or with UIDPLUS (copy, then remove just that message).
+ */
+export function safeRemoval(client: Pick<MailClient, 'capabilities'>): { move: boolean; delete: boolean } {
+  const caps = client.capabilities ?? new Map();
+  return { move: caps.has('MOVE') || caps.has('UIDPLUS'), delete: caps.has('UIDPLUS') };
 }
 
 export type MailClientFactory = (account: { host: string; port: number; security: MailAccountRow['security']; username: string; password: string }) => MailClient;
@@ -156,6 +169,10 @@ export class MailWatcher {
     try {
       client = this.clientFactory({ host: row.host, port: row.port, security: row.security, username: row.username, password: this.password(row) });
       await client.connect();
+      const safe = safeRemoval(client);
+      if (row.after === 'move' && !safe.move) {
+        result.errors.push('The mail server cannot move a single message (no MOVE or UIDPLUS) – processed messages are only marked as read');
+      }
       const rules = JSON.parse(row.rules || '[]') as MailRule[];
       for (const folder of JSON.parse(row.folders || '["INBOX"]') as string[]) {
         const box = await client.mailboxOpen(folder);
@@ -175,8 +192,11 @@ export class MailWatcher {
             if (outcome.ignored) result.ignored++;
             // Done with the message: only when something was stored (others stay as they are).
             if (outcome.stored + outcome.duplicates > 0) {
-              if (row.after === 'delete') await client.messageDelete(String(uid), { uid: true });
-              else if (row.after === 'move' && row.after_folder) await client.messageMove(String(uid), row.after_folder, { uid: true });
+              // Only this message is ever changed: without UIDPLUS a deletion is just the \Deleted
+              // flag (the mail client purges it later) and a move falls back to marking it read.
+              if (row.after === 'delete' && safe.delete) await client.messageDelete(String(uid), { uid: true });
+              else if (row.after === 'delete') await client.messageFlagsAdd(String(uid), ['\\Seen', '\\Deleted'], { uid: true });
+              else if (row.after === 'move' && row.after_folder && safe.move) await client.messageMove(String(uid), row.after_folder, { uid: true });
               else await client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true });
             }
           } catch (err) {

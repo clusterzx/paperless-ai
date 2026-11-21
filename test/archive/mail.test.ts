@@ -18,11 +18,16 @@ interface FakeMessage {
 class FakeImap {
   folders = new Map<string, { uidValidity: number; messages: Map<number, FakeMessage> }>([['INBOX', { uidValidity: 7, messages: new Map() }], ['Archived', { uidValidity: 9, messages: new Map() }]]);
   logins: string[] = [];
+  /** What the server announces; MOVE and UIDPLUS as most servers do. */
+  caps = new Map<string, boolean | number>([
+    ['MOVE', true],
+    ['UIDPLUS', true],
+  ]);
   private nextUid = 1;
 
-  add(source: string, folder = 'INBOX'): number {
+  add(source: string, folder = 'INBOX', flags: string[] = []): number {
     const uid = this.nextUid++;
-    this.folders.get(folder)!.messages.set(uid, { source: Buffer.from(source), flags: new Set() });
+    this.folders.get(folder)!.messages.set(uid, { source: Buffer.from(source), flags: new Set(flags) });
     return uid;
   }
 
@@ -56,9 +61,15 @@ class FakeImap {
         this.folders.get(dest)!.messages.set(Number(uid), m);
         return true;
       },
-      messageDelete: async (uid) => box().messages.delete(Number(uid)),
+      // As imapflow: without UIDPLUS the deletion ends with a plain EXPUNGE, which also removes
+      // every other message flagged \Deleted.
+      messageDelete: async (uid) => {
+        if (!this.caps.has('UIDPLUS')) for (const [u, m] of box().messages) if (m.flags.has('\\Deleted')) box().messages.delete(u);
+        return box().messages.delete(Number(uid));
+      },
       list: async () => [...this.folders.keys()].map((path) => ({ path })),
       logout: async () => undefined,
+      capabilities: this.caps,
     };
   }
 }
@@ -163,6 +174,40 @@ describe('e-mail intake', () => {
     imap.folders.get('INBOX')!.uidValidity = 8;
     await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } });
     expect((h.ctx.db.prepare("SELECT COUNT(*) AS c FROM lib_documents WHERE source = 'mail'").get() as { c: number }).c).toBe(1);
+  });
+
+  it('never touches other messages: without UIDPLUS a deletion only flags the message, a move only marks it read', async () => {
+    const lib = local().ensureDefaultLibrary();
+    imap.caps.clear(); // an old server: neither MOVE nor UIDPLUS
+    // Flagged \Deleted by another mail client and not purged yet – a plain EXPUNGE would remove it.
+    const other = imap.add(message({ from: 'a@example.com', subject: 'Alt', attachments: [] }), 'INBOX', ['\\Deleted']);
+    const u1 = imap.add(message({ from: 'b@example.com', subject: 'Rechnung', attachments: [{ name: 'a.pdf', data: makePdf([['Rechnung Nummer eins']]), type: 'application/pdf' }] }));
+    const account = (
+      await h.inject({ method: 'POST', url: `/api/libraries/${lib}/intake/mail`, headers: { cookie }, payload: { name: 'Alt', host: 'h', username: 'u', password: 'imap-secret', after: 'delete' } })
+    ).json() as MailAccountInfo;
+    expect((await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } })).json()).toMatchObject({ stored: 1, errors: [] });
+    const inbox = imap.folders.get('INBOX')!.messages;
+    expect([...inbox.keys()].sort()).toEqual([other, u1]);
+    expect([...inbox.get(u1)!.flags].sort()).toEqual(['\\Deleted', '\\Seen']);
+    expect([...inbox.get(other)!.flags]).toEqual(['\\Deleted']);
+
+    // Moving falls back to marking as read, and the account says why.
+    await h.inject({ method: 'PUT', url: `/api/intake/mail/${account.id}`, headers: { cookie }, payload: { name: 'Alt', host: 'h', username: 'u', password: '', after: 'move', afterFolder: 'Archived' } });
+    const u2 = imap.add(message({ from: 'c@example.com', subject: 'Brief', attachments: [{ name: 'b.pdf', data: makePdf([['Ein zweiter Brief']]), type: 'application/pdf' }] }));
+    const moved = (await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } })).json();
+    expect(moved.stored).toBe(1);
+    expect(moved.errors[0]).toContain('cannot move');
+    expect([...inbox.keys()].sort()).toEqual([other, u1, u2]);
+    expect([...inbox.get(u2)!.flags]).toEqual(['\\Seen']);
+    expect(imap.folders.get('Archived')!.messages.size).toBe(0);
+
+    // With UIDPLUS the message is deleted – and only that one.
+    imap.caps.set('UIDPLUS', true);
+    await h.inject({ method: 'PUT', url: `/api/intake/mail/${account.id}`, headers: { cookie }, payload: { name: 'Alt', host: 'h', username: 'u', password: '', after: 'delete' } });
+    const u3 = imap.add(message({ from: 'd@example.com', subject: 'Drei', attachments: [{ name: 'c.pdf', data: makePdf([['Das dritte Schreiben']]), type: 'application/pdf' }] }));
+    expect((await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } })).json()).toMatchObject({ stored: 1, errors: [] });
+    expect(inbox.has(u3)).toBe(false);
+    expect([...inbox.keys()].sort()).toEqual([other, u1, u2]);
   });
 
   it('tests the connection, keeps the password on updates and reports errors on the account', async () => {
