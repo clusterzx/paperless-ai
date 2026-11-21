@@ -58,6 +58,8 @@ export interface PromptRulesInfo {
   customFields: string[];
   /** The model of the AI settings (default of a rule). */
   model: string;
+  /** More workflows run before the analysis that do not fit the rule shape (edited under Workflows). */
+  otherWorkflows?: number;
 }
 
 /** The rule a document is (or would be) analysed with. */

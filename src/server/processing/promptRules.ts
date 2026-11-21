@@ -65,12 +65,16 @@ export function matchesConditions(c: PromptRuleConditions, f: DocumentFacts): bo
 
 /** The processing settings for documents of a rule: the settings with the overrides of the rule. */
 export function ruleProcessing(base: Processing, rule: PromptRule, promptText: string): Processing {
-  const o = rule.overrides;
+  return processingWith(base, rule.overrides, promptText);
+}
+
+/** The processing settings with overrides (of a prompt rule or a workflow's "analyze" action); null prompt = keep the system prompt. */
+export function processingWith(base: Processing, o: PromptRuleConfig['overrides'], promptText: string | null): Processing {
   const defined = <T extends object>(obj: T) => Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as Partial<T>;
   const wanted = o.customFields ? new Set(o.customFields.map(normalizeName)) : null;
   const p: Processing = {
     ...base,
-    systemPrompt: promptText,
+    systemPrompt: promptText ?? base.systemPrompt,
     functions: { ...base.functions, ...defined(o.functions) } as Processing['functions'],
     restrict: { ...base.restrict, ...defined(o.restrict) } as Processing['restrict'],
     customFields: wanted ? base.customFields.filter((c) => wanted.has(normalizeName(c.name))) : base.customFields,
@@ -85,7 +89,7 @@ export function ruleProcessing(base: Processing, rule: PromptRule, promptText: s
   return p;
 }
 
-async function documentFacts(meta: MetadataCache, doc: ArchiveDocument, withExtras: boolean): Promise<DocumentFacts> {
+export async function documentFacts(meta: MetadataCache, doc: ArchiveDocument, withExtras: boolean): Promise<DocumentFacts> {
   await meta.snapshot();
   const extras = withExtras ? await meta.extras() : null;
   const name = (n: string | null | undefined) => (n ? normalizeName(n) : null);

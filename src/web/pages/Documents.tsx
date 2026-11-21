@@ -10,6 +10,7 @@ import {
   RefreshCw,
   ScanText,
   Search,
+  Play,
   Sparkles,
   Square,
   Tag,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { BulkEditInput, BulkEditResult, DocumentFacetsResponse, DocumentListResponse, DocumentRow, SavedView } from '@shared/api';
 import { Page } from '../components/Layout';
+import { RunWorkflowModal } from '../components/workflowEditor';
 import { Alert, Badge, Button, EmptyState, Field, IconButton, Input, LinkButton, Modal, PageHeader, Select, SlideOver, Skeleton, TagInput, useConfirm, useToast } from '../components/ui';
 import { apiParams, DocumentThumb, idSet, searchFromState, SORT_OPTIONS, stateFromSearch, StatusIcon, TagChips, toggleId, useArchive, type ListState } from '../components/documents';
 import { errorMessage, get, post, qs } from '../lib/api';
@@ -199,6 +201,7 @@ export default function DocumentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [facets, setFacets] = useState<DocumentFacetsResponse | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [runWorkflow, setRunWorkflow] = useState(false);
   const [allMatching, setAllMatching] = useState(false);
   const [bulk, setBulk] = useState<BulkKind | null>(null);
   const [busy, setBusy] = useState(false);
@@ -524,6 +527,11 @@ export default function DocumentsPage() {
           <Button size="sm" variant="ghost" icon={<Sparkles className="size-3.5" />} disabled={busy} onClick={() => runBulk({ action: 'analyze' }, 'Queued for analysis')}>
             Analyse
           </Button>
+          {!allMatching && (
+            <Button size="sm" variant="ghost" icon={<Play className="size-3.5" />} disabled={busy} onClick={() => setRunWorkflow(true)}>
+              Workflow…
+            </Button>
+          )}
           {admin && (
             <Button size="sm" variant="ghost" icon={<ScanText className="size-3.5" />} disabled={busy} onClick={() => runBulk({ action: 'ocr' }, 'Queued for OCR')}>
               OCR
@@ -556,6 +564,7 @@ export default function DocumentsPage() {
         </div>
       </div>
 
+      {runWorkflow && <RunWorkflowModal documentIds={[...selected]} onClose={() => setRunWorkflow(false)} />}
       {bulk && (
         <BulkEditModal
           kind={bulk}

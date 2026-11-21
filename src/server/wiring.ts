@@ -38,7 +38,13 @@ export function wireDocumentEvents(ctx: AppContext, { rag, ocr, engine }: WiredS
         // needed, then the AI analysis) – no waiting for the next scan.
         if (engine && e.source !== 'scan' && e.source !== 'webhook' && ctx.archiveMode() === 'builtin') {
           const prompt = e.prompt !== undefined ? promptText(ctx, e.prompt) : undefined;
-          engine.enqueue(e.id, { source: 'ingest', analyze: !e.skipAnalysis, prompt });
+          const c = e.context ?? {};
+          engine.enqueue(e.id, {
+            source: 'ingest',
+            analyze: !e.skipAnalysis,
+            prompt,
+            intake: { channel: e.source, mailFrom: c.mail_from, mailSubject: c.mail_subject, folder: c.folder, filename: c.filename },
+          });
         }
         rag.requestSync();
         break;

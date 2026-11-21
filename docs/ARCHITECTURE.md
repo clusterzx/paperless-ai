@@ -32,7 +32,9 @@ src/
     paperless/           Paperless-ngx client (API v7–v10), metadata cache with get-or-create
     ai/                  OpenAI-compatible/Azure, Anthropic and Ollama clients, JSON extraction, token estimation
     processing/          prompt builder, analyzer, applier (+ undo), engine (queue/scheduler), external API
-    rag/                 chunker, SQLite store (FTS5), vector index, local embedder (worker), service, document chat
+    rag/                 chunker, SQLite store (FTS5), vector index (worker), local embedder (worker), service, document chat
+    archive/             built-in archive: LocalBackend, blob store, intake (upload, folder, mail), maintenance, counters
+    workflows/           triggers → conditions → actions, analysis.before (prompt rules), run log, notifications
     ocr/                 PaddleOCR via ONNX Runtime (child process): rendering, detection post-processing, recognition,
                          reading order, text-quality heuristic, service (when to read, write-back, undo)
     http/ routes/        Fastify app, auth levels, SSE helper, route modules
@@ -139,6 +141,27 @@ manual ──────┘                                   │
   the `events` function enabled, so nothing else is asked for or changed. `calendar/ics.ts` writes the
   iCal feed (RFC 5545: escaping, 75-octet folding, all-day/floating times, alarms) behind a secret
   token in the URL (`kv: calendar.feedToken`).
+
+## Workflows
+
+```
+document events ─┐                     ┌─ conditions (cheap first, AI questions last, cached) ─┐
+schedule / dates ┼─▶ workflow_runs ───▶│                                                       ├─▶ step log
+manual / API ────┘   (queue, durable)  └─ actions: field changes in one write, notifications …  ┘
+processing job ─▶ analysis.before workflows (synchronous) ─▶ prompt + settings for the AI analysis
+```
+
+* `workflows/engine.ts` turns document events (added, processed, updated, new version), cron
+  schedules, dates and manual requests into runs; a worker takes them (one at a time per
+  document), evaluates the conditions and runs the actions with the workflow's own scope
+  (its library, or everything for global ones). Interrupted runs are queued again on start.
+* Loop protection: a workflow's own change never triggers it again, chains end at depth 3, and at
+  most 10 runs per workflow and document per hour.
+* `analysis.before` is evaluated inside the processing job (`workflows/analysis.ts`) – this is what
+  prompt rules are now. New documents wait for their `document.added` workflows (bounded), so a
+  workflow can still skip or shape the analysis.
+* Notifications: in the app, e-mail (`notifications.smtp`, nodemailer), webhooks with an HMAC
+  signature (`X-Paperless-AI-Signature`) or as ntfy / Gotify messages; retried up to three times.
 
 ## OCR
 

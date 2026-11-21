@@ -90,6 +90,7 @@ const ENTRIES: Entry[] = [
   ['POST', '/api/documents/post_document', upload],
   ['POST', '/api/documents/:id/versions', upload],
   ['POST', '/share-target', upload],
+  ['*', '/dav/*', upload],
   ['POST', '/api/webhook/document', webhook],
 
   // ---------------------------------------------------------------- library administration (owners, checked per library)

@@ -115,6 +115,12 @@ export const ENV_MAPPINGS: Mapping[] = [
 
   { env: 'PAPERLESS_AI_ARCHIVE', path: 'archive.mode', parse: (v) => (/^(builtin|built-in|standalone)$/i.test(v.trim()) ? 'builtin' : v.trim().toLowerCase()) },
   { env: 'PAPERLESS_AI_STORAGE_DIR', path: 'archive.builtin.storageDir', parse: s },
+  { env: 'PAPERLESS_AI_SMTP_HOST', path: 'notifications.smtp.host', parse: s },
+  { env: 'PAPERLESS_AI_SMTP_PORT', path: 'notifications.smtp.port', parse: s },
+  { env: 'PAPERLESS_AI_SMTP_SECURITY', path: 'notifications.smtp.security', parse: s },
+  { env: 'PAPERLESS_AI_SMTP_USER', path: 'notifications.smtp.username', parse: s },
+  { env: 'PAPERLESS_AI_SMTP_PASSWORD', path: 'notifications.smtp.password', parse: s },
+  { env: 'PAPERLESS_AI_SMTP_FROM', path: 'notifications.smtp.from', parse: s },
   { env: 'PAPERLESS_AI_CONSUME_DIR', path: 'archive.builtin.consumeDir', parse: s },
   { env: 'PAPERLESS_AI_CONSUME_POLL', path: 'archive.builtin.consumePollSeconds', parse: i },
   { env: 'PAPERLESS_AI_MAX_UPLOAD_MB', path: 'archive.builtin.maxUploadMb', parse: i },

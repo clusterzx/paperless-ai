@@ -1,5 +1,6 @@
 import { ARCHIVE_SCHEMA, LIB_FTS } from '../archive/schema.js';
 import { COUNTER_TRIGGERS, rebuildCounters, SORT_INDEXES } from '../archive/counters.js';
+import { WORKFLOW_SCHEMA } from '../workflows/storage.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
@@ -422,6 +423,11 @@ const MIGRATIONS: Migration[] = [
         if (db.prepare('SELECT 1 FROM lib_documents LIMIT 1').get()) db.prepare("INSERT OR REPLACE INTO kv (key, value) VALUES ('archive.fts_rebuild', 'true')").run();
       }
     },
+  },
+  {
+    version: 14,
+    name: 'workflows',
+    up: (db) => db.exec(WORKFLOW_SCHEMA),
   },
 ];
 

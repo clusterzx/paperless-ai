@@ -16,13 +16,15 @@ import { logger } from '../logger.js';
 import type { OcrService } from '../ocr/service.js';
 import { analyzeContent } from './analyzer.js';
 import { applyPlannedUpdate, planAutomaticUpdate } from './applier.js';
-import { matchPromptRule } from './promptRules.js';
-import { ruleLabel } from '../../shared/promptRules.js';
+import { planAnalysis, planFromAction, type AnalysisPlan } from '../workflows/analysis.js';
+import type { RunSubject } from '../workflows/evaluate.js';
+import type { PromptRow } from '../db/promptsRepo.js';
+import type { PromptRuleOverrides } from '../../shared/promptRules.js';
 
 const log = logger.child({ module: 'processing' });
 
 export interface EnqueueOptions {
-  source: 'scan' | 'webhook' | 'api' | 'manual' | 'ocr' | 'ingest';
+  source: 'scan' | 'webhook' | 'api' | 'manual' | 'ocr' | 'ingest' | 'workflow';
   /** false: read (OCR) and index only – no AI analysis (intake option "do not analyse"). */
   analyze?: boolean;
   /** Process even if the document was processed before. */
@@ -31,6 +33,18 @@ export interface EnqueueOptions {
   prompt?: string;
   /** Read the document with OCR first, whatever the automatic OCR mode says. */
   ocr?: boolean;
+  /** "analyze" action of a workflow: this prompt and these overrides instead of the `analysis.before` workflows. */
+  analysis?: { prompt: PromptRow | null; overrides: PromptRuleOverrides; workflow: string };
+  /** Intake details of a new document (conditions of `analysis.before`). */
+  intake?: RunSubject['intake'];
+}
+
+/** What the processing job needs from the workflow engine. */
+export interface WorkflowHooks {
+  /** Wait for the `document.added` workflows of a new document. */
+  settle(documentId: number): Promise<void>;
+  /** A `document.added` workflow skipped the analysis. */
+  takeSkip(documentId: number): string | null;
 }
 
 /** Reason of documents skipped for missing text – they are picked up again once automatic OCR is enabled. */
@@ -62,6 +76,8 @@ export function validateCron(expr: string): string | null {
 }
 
 export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, outcome: JobOutcome]; idle: [] }> {
+  /** Set when the workflow engine runs (server, tests). */
+  workflows: WorkflowHooks | null = null;
   private readonly queue: Job[] = [];
   private readonly queued = new Set<number>();
   private readonly active = new Map<number, ProcessingJob>();
@@ -411,6 +427,11 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
     const repo = this.ctx.repos.documents;
     let doc: ArchiveDocument | undefined;
     try {
+      // A new document: its document.added workflows may move it or skip the analysis first.
+      if (this.workflows && job.source === 'ingest') {
+        if (info) info.stage = 'workflows';
+        await this.workflows.settle(documentId);
+      }
       if (!job.force) {
         const state = repo.get(documentId);
         if (state?.status === 'processed') return 'unchanged';
@@ -457,6 +478,12 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
         content = this.ocr.storedText(doc) ?? content;
         if (this.ctx.cfg.ocr.enabled) this.ocr.assess(doc);
       }
+      const skippedBy = this.workflows?.takeSkip(documentId) ?? null;
+      if (skippedBy && !job.force) {
+        repo.markSkipped(documentId, doc.title, skippedBy, doc.modified ?? null);
+        log.info(`Document ${documentId}: ${skippedBy}`);
+        return 'skipped';
+      }
       if (job.analyze === false) {
         // A new version of an analysed document keeps its analysis; new documents wait for one.
         if (repo.get(documentId)?.status === 'processed') repo.markProcessed(documentId, doc.title, doc.modified ?? null);
@@ -473,18 +500,26 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
         return 'skipped';
       }
       if (info) info.stage = 'analyzing';
-      // A prompt sent with the request (webhook, API) wins; otherwise the first matching prompt rule.
-      const rule = job.prompt ? null : await matchPromptRule(this.ctx, doc);
-      const processing = rule?.processing ?? this.ctx.cfg.processing;
-      this.modelsUsed.add(rule?.model ?? null);
-      log.info(`Analyzing document ${documentId} "${doc.title}"${rule ? ` with the prompt "${rule.prompt.name}" (${ruleLabel(rule.rule, rule.index)})` : ''}`);
+      // A prompt sent with the request (webhook, API) wins; then the "analyze" action that queued the
+      // job; otherwise the workflows before the analysis (prompt rules).
+      let shaping: AnalysisPlan | null = null;
+      if (job.analysis) shaping = planFromAction(this.ctx, job.analysis.prompt, job.analysis.overrides, job.analysis.workflow);
+      else if (!job.prompt) shaping = await planAnalysis(this.ctx, doc, { record: true, intake: job.intake });
+      if (shaping?.skip) {
+        repo.markSkipped(documentId, doc.title, shaping.skip, doc.modified ?? null);
+        log.info(`Document ${documentId}: ${shaping.skip}`);
+        return 'skipped';
+      }
+      const processing = shaping?.processing ?? this.ctx.cfg.processing;
+      this.modelsUsed.add(shaping?.model ?? null);
+      log.info(`Analyzing document ${documentId} "${doc.title}"${shaping?.source ? ` with ${shaping.prompt ? `the prompt "${shaping.prompt.name}"` : 'the system prompt'} (workflow "${shaping.source.name}")` : ''}`);
       const analysis = await analyzeContent(this.ctx, content, {
         feature: 'process',
         documentId,
-        customPrompt: job.prompt ?? rule?.prompt.prompt,
+        customPrompt: job.prompt ?? shaping?.prompt?.prompt,
         filename: doc.original_file_name,
-        processing: rule?.processing,
-        model: rule?.model,
+        processing: shaping?.processing,
+        model: shaping?.model ?? undefined,
         libraryId: doc.library_id ?? null,
       });
       if (info) info.stage = 'saving';
@@ -492,7 +527,7 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       const updated = await applyPlannedUpdate(this.ctx, doc, plan, {
         source: job.source,
         analysis,
-        prompt: rule ? { id: rule.prompt.id, name: rule.prompt.name } : null,
+        prompt: shaping?.prompt ? { id: shaping.prompt.id, name: shaping.prompt.name } : null,
       });
       // Our own change must not make the OCR text look outdated; the OCR page shows the new title.
       this.ctx.repos.ocr.followVersion(documentId, doc.modified ?? null, updated.modified ?? null);

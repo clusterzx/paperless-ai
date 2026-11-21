@@ -9,6 +9,7 @@ import { ConfigStore } from './config/store.js';
 import { importLegacyDatabase, openDatabase, type Db } from './db/database.js';
 import { createRepos, type NewUsage, type Repos } from './db/repos.js';
 import { moveRagIndex, openIndexDatabase } from './db/indexDatabase.js';
+import { moveConfigRulesToWorkflows } from './workflows/promptRules.js';
 import { PaperlessClient } from './paperless/client.js';
 import { MetadataCache } from './backend/metadata.js';
 import { PaperlessBackend } from './backend/paperless.js';
@@ -64,6 +65,8 @@ export class AppContext {
     this.repos = createRepos(this.db);
     if (!opts.memoryDb) importLegacyDatabase(this.db, path.join(opts.dataDir, 'documents.db'));
     this.config.on('change', (next, prev) => this.onConfigChange(next, prev));
+    // Prompt rules of older versions (in config.json) are workflows now.
+    moveConfigRulesToWorkflows(this);
   }
 
   get cfg(): AppConfig {
@@ -71,6 +74,8 @@ export class AppContext {
   }
 
   private onConfigChange(next: AppConfig, prev: AppConfig): void {
+    // Rules written into the configuration (API of ≤ 4.4, scripts) become workflows as well.
+    if (next.processing.promptRules.length && next.processing.promptRules !== prev.processing.promptRules) moveConfigRulesToWorkflows(this);
     if (this.backendCache && this.backendCache.key !== this.backendKey(next)) {
       const old = this.backendCache.backend;
       this.backendCache = null;

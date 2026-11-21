@@ -8,7 +8,7 @@ import { promptWizardSchema } from '../config/schema.js';
 import type { PromptRatingRow, PromptRow } from '../db/promptsRepo.js';
 import { logger } from '../logger.js';
 import { rulePrompt } from '../processing/promptRules.js';
-import { ruleLabel } from '../../shared/promptRules.js';
+import { lockedRuleWorkflows } from '../workflows/promptRules.js';
 
 const log = logger.child({ module: 'prompts' });
 
@@ -46,10 +46,14 @@ export const promptRoutes =
     const usage = () => {
       const documents = ctx.repos.history.promptUsage();
       const rules = new Map<number, string[]>();
-      ctx.cfg.processing.promptRules.forEach((rule, index) => {
-        const p = rulePrompt(ctx, rule);
-        if (p) rules.set(p.id, [...(rules.get(p.id) ?? []), ruleLabel(rule, index)]);
-      });
+      // Workflows (and prompt rules) that analyse with a prompt.
+      for (const wf of [...lockedRuleWorkflows(ctx), ...ctx.repos.workflows.list()]) {
+        for (const action of wf.actions) {
+          if (action.type !== 'analyze' || action.prompt === null) continue;
+          const p = rulePrompt(ctx, { prompt: action.prompt });
+          if (p) rules.set(p.id, [...new Set([...(rules.get(p.id) ?? []), wf.name])]);
+        }
+      }
       return (id: number) => ({ documents: documents.get(id) ?? 0, rules: rules.get(id) ?? [] });
     };
 
@@ -124,7 +128,7 @@ export const promptRoutes =
 
     app.delete('/api/prompts/:id', { schema: { params: z.object({ id }) } }, async (req, reply) => {
       const inUse = usage()(req.params.id).rules;
-      if (inUse.length) throw new HttpProblem(409, `The prompt is used by the prompt rule ${inUse.map((r) => `"${r}"`).join(', ')} – remove or change the rule first`);
+      if (inUse.length) throw new HttpProblem(409, `The prompt is used by the workflow (prompt rule) ${inUse.map((r) => `"${r}"`).join(', ')} – remove or change it first`);
       if (!repo.delete(req.params.id)) throw notFound('Prompt not found');
       return reply.code(204).send();
     });

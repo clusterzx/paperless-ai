@@ -23,6 +23,7 @@ import { OcrService } from '../src/server/ocr/service.js';
 import { FakeOcrEngine } from '../test/helpers/fakeOcr.js';
 import { hashPassword } from '../src/server/auth.js';
 import { wireDocumentEvents } from '../src/server/wiring.js';
+import { WorkflowEngine } from '../src/server/workflows/engine.js';
 import { makePdf } from '../test/helpers/pdf.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -229,8 +230,11 @@ const engine = new ProcessingEngine(ctx, ocr);
 const rag = new RagService(ctx);
 engine.on('idle', () => rag.requestSync());
 wireDocumentEvents(ctx, { rag, ocr, engine });
+const workflows = new WorkflowEngine(ctx, engine);
+engine.workflows = workflows;
+workflows.start();
 const staticDir = path.resolve(here, '..', 'dist', 'public');
-const app = await buildApp({ ctx, engine, rag, ocr }, { staticDir });
+const app = await buildApp({ ctx, engine, rag, ocr, workflows }, { staticDir });
 // `--mode builtin` (or DEMO_ARCHIVE=builtin): the same samples, but stored in the built-in archive instead of the mock Paperless-ngx.
 const modeArg = process.argv.indexOf('--mode');
 const demoArchive = modeArg >= 0 ? process.argv[modeArg + 1] : process.env.DEMO_ARCHIVE;
@@ -265,7 +269,7 @@ console.log(`Fake OpenID Connect provider: ${oidc.url} (client ${oidc.clientId} 
 
 const shutdown = async () => {
   await app.close();
-  await Promise.all([engine.stop(), rag.stop(), paperless.close(), llm.close(), oidc.close()]);
+  await Promise.all([engine.stop(), rag.stop(), workflows.stop(), paperless.close(), llm.close(), oidc.close()]);
   ctx.close();
   fs.rmSync(dataDir, { recursive: true, force: true });
   process.exit(0);

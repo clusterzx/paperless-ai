@@ -1,0 +1,187 @@
+/**
+ * E-mail intake with a fake IMAP server: attachments are stored once (also when a message is
+ * fetched again), rules add tags / skip the analysis / ignore senders, messages are marked or
+ * moved afterwards, and the password is stored encrypted.
+ */
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createHarness, type Harness } from '../helpers/appHarness.js';
+import { makePdf } from '../helpers/pdf.js';
+import type { LocalBackend } from '../../src/server/archive/backend.js';
+import type { MailClient } from '../../src/server/archive/mail.js';
+import type { MailAccountInfo } from '../../src/shared/api.js';
+
+interface FakeMessage {
+  source: Buffer;
+  flags: Set<string>;
+}
+
+class FakeImap {
+  folders = new Map<string, { uidValidity: number; messages: Map<number, FakeMessage> }>([['INBOX', { uidValidity: 7, messages: new Map() }], ['Archived', { uidValidity: 9, messages: new Map() }]]);
+  logins: string[] = [];
+  private nextUid = 1;
+
+  add(source: string, folder = 'INBOX'): number {
+    const uid = this.nextUid++;
+    this.folders.get(folder)!.messages.set(uid, { source: Buffer.from(source), flags: new Set() });
+    return uid;
+  }
+
+  client(password: string): MailClient {
+    let open = 'INBOX';
+    const box = () => this.folders.get(open)!;
+    return {
+      connect: async () => {
+        if (password !== 'imap-secret') throw new Error('Authentication failed');
+        this.logins.push(password);
+      },
+      mailboxOpen: async (path) => {
+        open = path;
+        return { uidValidity: BigInt(box().uidValidity), exists: box().messages.size };
+      },
+      search: async (q) => {
+        const from = Number(q.uid.split(':')[0]);
+        return [...box().messages.keys()].filter((u) => u >= from);
+      },
+      fetchOne: async (uid) => {
+        const m = box().messages.get(Number(uid));
+        return m ? { source: m.source } : false;
+      },
+      messageFlagsAdd: async (uid, flags) => {
+        for (const f of flags) box().messages.get(Number(uid))?.flags.add(f);
+        return true;
+      },
+      messageMove: async (uid, dest) => {
+        const m = box().messages.get(Number(uid))!;
+        box().messages.delete(Number(uid));
+        this.folders.get(dest)!.messages.set(Number(uid), m);
+        return true;
+      },
+      messageDelete: async (uid) => box().messages.delete(Number(uid)),
+      list: async () => [...this.folders.keys()].map((path) => ({ path })),
+      logout: async () => undefined,
+    };
+  }
+}
+
+function message(opts: { from: string; subject: string; attachments: { name: string; data: Buffer; type: string; inline?: boolean }[] }): string {
+  const b = 'BOUNDARY42';
+  const parts = [
+    `From: ${opts.from}`,
+    'To: archive@example.com',
+    `Subject: ${opts.subject}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${b}"`,
+    '',
+    `--${b}`,
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    'Siehe Anhang.',
+  ];
+  for (const a of opts.attachments) {
+    parts.push(
+      `--${b}`,
+      `Content-Type: ${a.type}; name="${a.name}"`,
+      `Content-Disposition: ${a.inline ? 'inline' : 'attachment'}; filename="${a.name}"`,
+      'Content-Transfer-Encoding: base64',
+      '',
+      a.data.toString('base64').replace(/.{76}/g, '$&\r\n'),
+    );
+  }
+  parts.push(`--${b}--`, '');
+  return parts.join('\r\n');
+}
+
+let h: Harness;
+let imap: FakeImap;
+let cookie: string;
+beforeEach(async () => {
+  h = await createHarness({ archive: 'builtin' });
+  cookie = await h.login();
+  imap = new FakeImap();
+  (h.ctx.archive() as LocalBackend).mail.clientFactory = (a) => imap.client(a.password);
+});
+afterEach(() => h.close());
+
+const local = () => h.ctx.archive() as LocalBackend;
+
+describe('e-mail intake', () => {
+  it('stores attachments once, applies rules and marks or moves the messages', async () => {
+    const lib = local().ensureDefaultLibrary();
+    const invoice = makePdf([['Rechnung 2024-11 der Stadtwerke']]);
+    const u1 = imap.add(message({ from: 'Stadtwerke <rechnung@stadtwerke.example>', subject: 'Ihre Rechnung', attachments: [{ name: 'rechnung.pdf', data: invoice, type: 'application/pdf' }] }));
+    const u2 = imap.add(message({ from: 'newsletter@shop.example', subject: 'Angebote', attachments: [{ name: 'flyer.pdf', data: makePdf([['Angebote der Woche']]), type: 'application/pdf' }] }));
+    const u3 = imap.add(message({ from: 'Oma <oma@example.com>', subject: 'Fotos', attachments: [{ name: 'logo.png', data: Buffer.from('89504e470d0a1a0a0000', 'hex'), type: 'image/png', inline: true }] }));
+
+    const created = await h.inject({
+      method: 'POST',
+      url: `/api/libraries/${lib}/intake/mail`,
+      headers: { cookie },
+      payload: {
+        name: 'Familie',
+        host: 'imap.example.com',
+        username: 'archive@example.com',
+        password: 'imap-secret',
+        after: 'move',
+        afterFolder: 'Archived',
+        rules: [
+          { from: 'newsletter@', ignore: true },
+          { from: 'stadtwerke', tags: ['Strom'], skipAnalysis: true },
+        ],
+      },
+    });
+    expect(created.statusCode, created.body).toBe(200);
+    const account = created.json() as MailAccountInfo;
+    // The password is stored encrypted and never sent back.
+    expect(created.body).not.toContain('imap-secret');
+    const stored = h.ctx.db.prepare('SELECT password_enc FROM intake_mail_accounts WHERE id = ?').get(account.id) as { password_enc: string };
+    expect(stored.password_enc.startsWith('v1:')).toBe(true);
+    expect(stored.password_enc).not.toContain('imap-secret');
+
+    const check = await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } });
+    expect(check.json()).toMatchObject({ messages: 3, stored: 1, ignored: 1, errors: [] });
+    await h.engine.drain();
+    await h.workflows.drain();
+
+    const docs = h.ctx.db.prepare("SELECT id, original_filename, source FROM lib_documents WHERE source = 'mail'").all() as { id: number; original_filename: string }[];
+    expect(docs.map((d) => d.original_filename)).toEqual(['rechnung.pdf']);
+    const meta = h.ctx.metadata(lib);
+    await meta.snapshot(true);
+    const doc = await h.ctx.backend().getDocument(docs[0].id);
+    expect(doc.tags.map((t) => meta.tagName(t))).toEqual(['Strom']);
+    expect(h.ctx.repos.documents.get(doc.id)?.status).toBe('skipped'); // stored without analysis
+    // The stored message moved, the ignored and the one without a document stayed.
+    expect([...imap.folders.get('Archived')!.messages.keys()]).toEqual([u1]);
+    expect([...imap.folders.get('INBOX')!.messages.keys()].sort()).toEqual([u2, u3]);
+
+    // Nothing is fetched twice: the next check starts after the last UID.
+    const again = await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } });
+    expect(again.json()).toMatchObject({ messages: 0, stored: 0 });
+
+    // A rebuilt folder (new UIDVALIDITY) is read again – the intake references prevent duplicates.
+    imap.folders.get('Archived')!.messages.delete(u1);
+    imap.folders.get('INBOX')!.messages.set(u1, { source: Buffer.from(message({ from: 'Stadtwerke <rechnung@stadtwerke.example>', subject: 'Ihre Rechnung', attachments: [{ name: 'rechnung.pdf', data: invoice, type: 'application/pdf' }] })), flags: new Set() });
+    imap.folders.get('INBOX')!.uidValidity = 8;
+    await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } });
+    expect((h.ctx.db.prepare("SELECT COUNT(*) AS c FROM lib_documents WHERE source = 'mail'").get() as { c: number }).c).toBe(1);
+  });
+
+  it('tests the connection, keeps the password on updates and reports errors on the account', async () => {
+    const lib = local().ensureDefaultLibrary();
+    const bad = await h.inject({ method: 'POST', url: '/api/intake/mail/test', headers: { cookie }, payload: { host: 'imap.example.com', username: 'x', password: 'wrong' } });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error).toContain('Authentication failed');
+    const ok = await h.inject({ method: 'POST', url: '/api/intake/mail/test', headers: { cookie }, payload: { host: 'imap.example.com', username: 'x', password: 'imap-secret' } });
+    expect(ok.json()).toEqual({ folders: ['INBOX', 'Archived'] });
+
+    const account = (await h.inject({ method: 'POST', url: `/api/libraries/${lib}/intake/mail`, headers: { cookie }, payload: { name: 'A', host: 'h', username: 'u', password: 'imap-secret' } })).json() as MailAccountInfo;
+    const upd = await h.inject({ method: 'PUT', url: `/api/intake/mail/${account.id}`, headers: { cookie }, payload: { name: 'B', host: 'h', username: 'u', password: '' } });
+    expect(upd.json().name).toBe('B');
+    expect((await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } })).json().errors).toEqual([]);
+
+    // A wrong password is shown on the account.
+    await h.inject({ method: 'PUT', url: `/api/intake/mail/${account.id}`, headers: { cookie }, payload: { name: 'B', host: 'h', username: 'u', password: 'nope' } });
+    await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } });
+    const list = (await h.inject({ method: 'GET', url: `/api/libraries/${lib}/intake/mail`, headers: { cookie } })).json() as MailAccountInfo[];
+    expect(list[0].lastError).toContain('Authentication failed');
+  });
+});
