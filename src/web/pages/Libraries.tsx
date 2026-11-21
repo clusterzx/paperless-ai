@@ -202,7 +202,7 @@ function LibraryPanel({
     ...(manage ? [{ id: 'folders' as const, label: 'Watch folders' }, { id: 'mail' as const, label: 'E-mail' }] : []),
   ];
   return (
-    <SlideOver open onClose={onClose} title={library.name} description={`${formatNumber(library.documents)} documents`}>
+    <SlideOver open onClose={onClose} size="lg" title={library.name} description={`${formatNumber(library.documents)} documents`}>
       <Tabs id="library" value={tab} onChange={setTab} tabs={tabs} />
       <div className="mt-5" {...tabPanelProps('library', tab)}>
         {tab === 'settings' ? (
