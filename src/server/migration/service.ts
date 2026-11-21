@@ -127,6 +127,15 @@ export class MigrationService {
     return next;
   }
 
+  /** Documents of the built-in archive (trash included) that were not imported by this migration. */
+  ownDocuments(): number {
+    return (
+      this.ctx.db
+        .prepare('SELECT COUNT(*) AS c FROM lib_documents d WHERE NOT EXISTS (SELECT 1 FROM migration_items m WHERE m.ngx_id = d.id AND m.imported_modified IS NOT NULL)')
+        .get() as { c: number }
+    ).c;
+  }
+
   status(): MigrationStatus {
     const s = this.stored();
     const rows = this.ctx.db.prepare('SELECT status, COUNT(*) AS c FROM migration_items GROUP BY status').all() as { status: string; c: number }[];
@@ -148,6 +157,7 @@ export class MigrationService {
       finishedAt: s.finishedAt,
       lastSyncAt: s.lastSyncAt,
       cutoverAt: s.cutoverAt,
+      ownDocuments: this.ownDocuments(),
       libraries: s.libraries,
     };
   }
@@ -354,6 +364,15 @@ export class MigrationService {
   async start(strategy: MigrationStrategy, options: MigrationOptions): Promise<MigrationStatus> {
     if (this.loop) throw new Error('The migration is running already');
     if (this.ctx.archiveMode() === 'builtin' && this.stored().state === 'cutover') throw new Error('The archive was switched already – use the sync');
+    // The documents keep their Paperless-ngx ids: next to documents added in the built-in archive
+    // itself they would collide (and must never replace them).
+    const own = this.ownDocuments();
+    if (own) {
+      throw new Error(
+        `The built-in archive has ${own} document(s) of its own. The migration keeps the document ids of Paperless-ngx and needs an archive without them: ` +
+          'run it from companion mode (Paperless-ngx connected) into a new installation, or empty the built-in archive first.',
+      );
+    }
     const snap = await this.load();
     const plan = await this.plan(strategy, options, snap);
     const repo = this.ctx.repos.libraries;
@@ -516,6 +535,8 @@ export class MigrationService {
     const d = (await c.req<NgxDoc>(`/documents/${id}/`, { query: { full_perms: true } })) as NgxDoc;
     const item = db.prepare('SELECT * FROM migration_items WHERE ngx_id = ?').get(id) as { status: string; imported_modified: string | null; checksum: string | null } | undefined;
     const existing = local.row(id, true);
+    // Never overwrite a document that this migration did not import (same id, added in the built-in archive).
+    if (existing && !item?.imported_modified) throw new Error(`The built-in archive has its own document ${id} – it is not replaced`);
     if (existing && item?.status === 'imported' && item.imported_modified === d.modified) {
       db.prepare("UPDATE migration_items SET status = 'imported', updated_at = ? WHERE ngx_id = ?").run(Date.now(), id);
       return null;
@@ -717,6 +738,7 @@ export class MigrationService {
   rollback(): { changes: number } {
     if (this.ctx.archiveMode() !== 'builtin') throw new Error('Paperless-ngx is in use already');
     const s = this.stored();
+    if (s.state !== 'cutover') throw new Error('This installation was not switched by the migration – there is no Paperless-ngx to switch back to');
     const changes = s.cutoverAt ? (this.ctx.db.prepare("SELECT COUNT(*) AS c FROM lib_document_events WHERE at > ? AND actor_type != 'import'").get(s.cutoverAt) as { c: number }).c : 0;
     this.ctx.config.update({ archive: { mode: 'paperless' } });
     this.save({ state: 'imported', cutoverAt: null });

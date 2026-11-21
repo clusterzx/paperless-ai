@@ -63,6 +63,10 @@ export default function MigrationPage() {
   const s = status;
   const started = Boolean(s && s.counts.total > 0);
   const switched = s?.state === 'cutover' || s?.mode === 'builtin';
+  /** Switched by this assistant (not an installation that started with the built-in archive). */
+  const cutover = s?.state === 'cutover';
+  // Documents added in the built-in archive itself: the import (same ids as Paperless-ngx) cannot run next to them.
+  const blocked = Boolean(s && s.ownDocuments > 0);
   const progress = s && s.counts.total ? Math.round(((s.counts.imported + s.counts.failed + s.counts.skipped + s.counts.deleted) / s.counts.total) * 100) : 0;
 
   return (
@@ -75,7 +79,13 @@ export default function MigrationPage() {
         <Skeleton className="h-64 rounded-2xl" />
       ) : (
         <div className="space-y-5">
-          {switched && (
+          {blocked && (
+            <Alert tone="warn" title={`The built-in archive has ${formatNumber(s.ownDocuments)} document(s) of its own`}>
+              The import keeps the document ids of Paperless-ngx, so the AI history, OCR results and “Ask your archive” stay valid – next to documents added here it would
+              collide with their ids. Run it from companion mode (Paperless-AI connected to Paperless-ngx) in a new installation, or empty the built-in archive first.
+            </Alert>
+          )}
+          {cutover && (
             <Alert tone="success" title="The built-in archive is in use">
               Switched {s.cutoverAt ? formatDate(s.cutoverAt, true) : ''}. Keep Paperless-ngx (read-only) for a while before you shut it down – switching back is possible as long as it exists.
             </Alert>
@@ -240,7 +250,7 @@ export default function MigrationPage() {
               )}
               <div className="flex flex-wrap gap-2">
                 {!started && (
-                  <Button variant="primary" icon={<Play className="size-4" />} disabled={!plan} loading={busy === 'start'} onClick={() => void run('start', () => post('/api/migration/start', { strategy, options }), () => 'Import started')}>
+                  <Button variant="primary" icon={<Play className="size-4" />} disabled={!plan || blocked} loading={busy === 'start'} onClick={() => void run('start', () => post('/api/migration/start', { strategy, options }), () => 'Import started')}>
                     Start the import
                   </Button>
                 )}
@@ -281,17 +291,19 @@ export default function MigrationPage() {
               <div className="flex flex-wrap items-center gap-3">
                 <CheckCircle2 className="size-5 text-success" />
                 <span className="text-sm">The built-in archive is in use.</span>
-                <Button
-                  variant="ghost"
-                  icon={<Undo2 className="size-4" />}
-                  onClick={async () => {
-                    if (!(await confirm({ title: 'Switch back to Paperless-ngx?', message: 'Changes made in the built-in archive since the switch are not in Paperless-ngx.', confirmLabel: 'Switch back', danger: true }))) return;
-                    await run('rollback', () => post<{ changes: number }>('/api/migration/rollback'), (r) => `Back on Paperless-ngx – ${r.changes} change(s) since the switch stay in the built-in archive`);
-                    await refresh();
-                  }}
-                >
-                  Switch back
-                </Button>
+                {cutover && (
+                  <Button
+                    variant="ghost"
+                    icon={<Undo2 className="size-4" />}
+                    onClick={async () => {
+                      if (!(await confirm({ title: 'Switch back to Paperless-ngx?', message: 'Changes made in the built-in archive since the switch are not in Paperless-ngx.', confirmLabel: 'Switch back', danger: true }))) return;
+                      await run('rollback', () => post<{ changes: number }>('/api/migration/rollback'), (r) => `Back on Paperless-ngx – ${r.changes} change(s) since the switch stay in the built-in archive`);
+                      await refresh();
+                    }}
+                  >
+                    Switch back
+                  </Button>
+                )}
               </div>
             ) : (
               <Button

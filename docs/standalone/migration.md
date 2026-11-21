@@ -83,6 +83,13 @@ CREATE TABLE migration_items (
 -- kv 'migration.paperless': strategy, mapping, started/finished timestamps, last sync, cutover time
 ```
 
+**Only into an archive without documents of its own.** Because the ids are kept, the import cannot
+run next to documents that were added in the built-in archive itself (an installation that started
+with the built-in archive): the start is refused while there are any (`MigrationStatus.ownDocuments`),
+and a single document whose id is taken by such a document is never replaced – it fails with a
+reason (e.g. a document added after the cutover and a new ngx document in a later sync). Rolling back
+is only possible after a cutover by the assistant.
+
 **Why the same id and the same `modified`:** the processing state (`documents`), the AI history,
 the OCR results, the calendar and the RAG index reference document ids and compare `modified`.
 With both unchanged, everything stays valid. There is no re-analysis, no new OCR and no

@@ -194,6 +194,47 @@ describe('migration from Paperless-ngx', () => {
     void local;
   });
 
+  it('never replaces documents added in the built-in archive itself', async () => {
+    await seed();
+    const db = h.ctx.db;
+    const lib = h.ctx.repos.libraries.create('Eigenes', null, { trashDays: 30 });
+    const own = (id: number) =>
+      db
+        .prepare("INSERT INTO lib_documents (id, library_id, title, added, modified, mime_type, source) VALUES (?, ?, 'Mein eigenes Dokument', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'application/pdf', 'upload')")
+        .run(id, lib);
+    const title = (id: number) => (db.prepare('SELECT title FROM lib_documents WHERE id = ?').get(id) as { title: string } | undefined)?.title;
+    const status = async () => (await h.inject({ method: 'GET', url: '/api/migration/status', headers: { cookie } })).json() as MigrationStatus;
+    const start = () => post('/api/migration/start', { strategy: { kind: 'single', libraryName: 'Archiv' }, options: { archived: false, createUsers: false, concurrency: 4 } });
+
+    // Same id as a Paperless-ngx document: the import does not start at all.
+    own(102);
+    expect((await status()).ownDocuments).toBe(1);
+    const refused = await start();
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toContain('1 document(s) of its own');
+    expect(title(102)).toBe('Mein eigenes Dokument');
+
+    // Without them it runs; a document added here later with the id of a new ngx document is kept.
+    db.prepare('DELETE FROM lib_documents WHERE id = 102').run();
+    expect((await start()).statusCode).toBe(200);
+    await waitFor(async () => (await status()).state === 'imported');
+    expect((await status()).ownDocuments).toBe(0);
+    own(104);
+    h.paperless.addDocument({ id: 104, title: 'Neu in Paperless-ngx', content: 'Neu', owner: null, created: '2024-06-01', file: { data: makePdf([['Neu in Paperless-ngx']]), contentType: 'application/pdf' } });
+    await post('/api/migration/sync');
+    await waitFor(async () => (await status()).counts.pending === 0 && !(await status()).running);
+    expect(title(104)).toBe('Mein eigenes Dokument');
+    expect((await status()).errors).toEqual([{ id: 104, error: 'The built-in archive has its own document 104 – it is not replaced' }]);
+  });
+
+  it('does not switch an installation back that started with the built-in archive', async () => {
+    h = await createHarness({ archive: 'builtin' });
+    cookie = await h.login();
+    const res = await post('/api/migration/rollback');
+    expect(res.statusCode).toBe(409);
+    expect(h.ctx.archiveMode()).toBe('builtin');
+  });
+
   it('discards an import before the cutover', async () => {
     await seed();
     const patchesBefore = h.paperless.calls('PATCH', /\/api\/documents\//).length;

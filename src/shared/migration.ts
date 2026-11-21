@@ -59,6 +59,11 @@ export interface MigrationStatus {
   lastSyncAt: number | null;
   cutoverAt: number | null;
   libraries: number[];
+  /**
+   * Documents of the built-in archive that did not come from this migration (added in the built-in
+   * archive itself). The migration keeps the ids of Paperless-ngx, so it cannot start next to them.
+   */
+  ownDocuments: number;
 }
 
 export interface ExportResult {

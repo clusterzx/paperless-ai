@@ -187,9 +187,6 @@ test('shows a correspondent the AI created after the lists were loaded', async (
   const id = ((await res.json()) as { results: { documentId: number }[] }).results[0].documentId;
   await expect.poll(async () => ((await (await page.request.get(`/api/documents/${id}`)).json()) as { correspondent: number | null }).correspondent, { timeout: 15_000 }).not.toBeNull();
   // Within the app (no reload): the cached lists do not know the new correspondent yet.
-  await page.evaluate((url) => {
-    history.pushState(null, '', url);
-    dispatchEvent(new PopStateEvent('popstate'));
-  }, `/documents/${id}`);
+  await page.evaluate(`history.pushState(null, '', '/documents/${id}'); dispatchEvent(new PopStateEvent('popstate'));`);
   await expect(page.getByLabel('Correspondent')).toHaveValue('Bundesamt für Justiz');
 });
