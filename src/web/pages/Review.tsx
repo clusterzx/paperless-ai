@@ -127,7 +127,7 @@ function ReviewDocument({ documentId }: { documentId: number }) {
             Chat
           </Button>
           <LinkButton href={d.url} size="sm" variant="ghost" icon={<ExternalLink className="size-4" />}>
-            Paperless
+            Open
           </LinkButton>
         </div>
       </div>
@@ -180,7 +180,7 @@ function ReviewDocument({ documentId }: { documentId: number }) {
             <Field label={<>Document date<Changed on={form.created !== original.created} /></>}>
               <Input type="date" value={form.created} onChange={(e) => set('created', e.target.value)} className="max-w-xs" />
             </Field>
-            <Field label={<>Tags<Changed on={JSON.stringify(form.tags) !== JSON.stringify(original.tags)} /></>} hint="New tags are created in Paperless when saving.">
+            <Field label={<>Tags<Changed on={JSON.stringify(form.tags) !== JSON.stringify(original.tags)} /></>} hint="New tags are created when saving.">
               <TagInput value={form.tags} onChange={(v) => set('tags', v)} suggestions={meta.tags.map((t) => t.name)} />
             </Field>
             {suggestedMissing.length > 0 && (
@@ -216,7 +216,7 @@ function ReviewDocument({ documentId }: { documentId: number }) {
                 Reset
               </Button>
               <Button variant="primary" icon={<Save className="size-4" />} disabled={!dirty} loading={saving} onClick={save}>
-                Save to Paperless
+                Save
               </Button>
             </div>
           </div>

@@ -113,7 +113,7 @@ function MetadataModal({ initial, onClose }: { initial: MetaKind | null; onClose
   const items = data.data?.[kind] ?? [];
   const shown = items.filter((i) => i.name.toLowerCase().includes(filter.toLowerCase()));
   return (
-    <Modal open={open} onClose={onClose} title="Paperless metadata" size="md">
+    <Modal open={open} onClose={onClose} title="Archive metadata" size="md">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Segmented
           label="Metadata type"
@@ -161,7 +161,7 @@ function LiveStatus({ status, onChange }: { status: ProcessingStatus; onChange: 
       : rateLimited
         ? 'Waiting for the AI provider'
         : status.scanning
-          ? 'Scanning Paperless'
+          ? 'Scanning the archive'
           : 'All caught up';
   return (
     <section className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-surface p-5 shadow-card">
@@ -204,7 +204,7 @@ function LiveStatus({ status, onChange }: { status: ProcessingStatus; onChange: 
               <span className="shrink-0 text-xs text-faint">{timeAgo(status.lastProcessed.processedAt)}</span>
             </>
           ) : (
-            <span className="text-muted">{status.paused ? 'Processing is paused – new documents wait in the queue.' : 'Waiting for new documents in Paperless.'}</span>
+            <span className="text-muted">{status.paused ? 'Processing is paused – new documents wait in the queue.' : 'Waiting for new documents.'}</span>
           )}
         </div>
       )}
@@ -263,7 +263,7 @@ function RecentChanges() {
   return (
     <Card
       title="Recent changes"
-      description="What the AI changed in Paperless"
+      description="What the AI changed in your documents"
       icon={<History />}
       actions={
         <Link href="/history" className={buttonClass({ size: 'sm', variant: 'ghost' })}>
@@ -351,14 +351,14 @@ export default function DashboardPage() {
     }
   };
 
-  const total = d?.paperless.documents ?? 0;
+  const total = d?.archive.documents ?? 0;
   const processed = live?.counts.processed ?? 0;
   // Clamped: states of documents deleted in Paperless are only cleaned up by the next scan.
   const pct = total ? Math.min(100, Math.round((processed / total) * 100)) : 0;
   const coverage: Slice[] = useMemo(() => {
     if (!d || !live) return [];
     const { processed, failed, skipped } = live.counts;
-    const open = Math.max(0, d.paperless.documents - processed - failed - skipped);
+    const open = Math.max(0, d.archive.documents - processed - failed - skipped);
     return [
       { label: 'Processed by AI', value: processed, color: 'var(--accent)' },
       { label: 'Not processed yet', value: open, color: 'var(--border-strong)' },
@@ -395,8 +395,8 @@ export default function DashboardPage() {
             {d ? (
               <>
                 <span className="inline-flex items-center gap-1.5">
-                  <span className={cn('size-1.5 rounded-full', d.paperless.connected ? 'bg-success' : 'bg-danger')} />
-                  {d.paperless.connected ? `Paperless-ngx ${d.paperless.version ?? ''}` : 'Paperless-ngx unreachable'}
+                  <span className={cn('size-1.5 rounded-full', d.archive.connected ? 'bg-success' : 'bg-danger')} />
+                  {d.archive.connected ? `${d.archive.label} ${d.archive.version ?? ''}` : `${d.archive.label} unreachable`}
                 </span>
                 <span className="text-faint">·</span>
                 <span>
@@ -432,9 +432,9 @@ export default function DashboardPage() {
           {dash.error}
         </Alert>
       )}
-      {d && !d.paperless.connected && (
-        <Alert tone="danger" className="mb-6" title="Paperless-ngx is not reachable">
-          {d.paperless.error} – check the{' '}
+      {d && !d.archive.connected && (
+        <Alert tone="danger" className="mb-6" title={`${d.archive.label} is not reachable`}>
+          {d.archive.error} – check the{' '}
           <Link href="/settings" className="underline">
             connection settings
           </Link>
@@ -475,7 +475,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 gap-4 lg:col-span-12 lg:grid-cols-4">
           {d ? (
             <>
-              <Stat label="Documents" value={formatNumber(d.paperless.documents)} icon={<FileText />} hint={d.paperless.apiVersion ? `API v${d.paperless.apiVersion}` : undefined} />
+              <Stat label="Documents" value={formatNumber(d.archive.documents)} icon={<FileText />} hint={d.archive.apiVersion ? `API v${d.archive.apiVersion}` : undefined} />
               <Stat label="Processed (30 days)" value={formatNumber(last30)} icon={<Activity />}>
                 <Sparkline values={timeline.map((t) => t.value)} className="mt-3" />
               </Stat>
@@ -483,7 +483,7 @@ export default function DashboardPage() {
                 label="Tags · Correspondents"
                 value={
                   <span>
-                    {formatNumber(d.paperless.tags)} <span className="text-faint">·</span> {formatNumber(d.paperless.correspondents)}
+                    {formatNumber(d.archive.tags)} <span className="text-faint">·</span> {formatNumber(d.archive.correspondents)}
                   </span>
                 }
                 icon={<Tags />}

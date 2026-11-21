@@ -13,7 +13,7 @@ let memberCookie: string;
 const keys: Partial<Record<ApiScope | 'all', string>> = {};
 
 /** Streams and routes that never answer quickly. */
-const SKIP = new Set(['GET /api/logs/stream']);
+const SKIP = new Set(['GET /api/logs/stream', 'GET /api/events']);
 
 beforeAll(async () => {
   h = await createHarness();

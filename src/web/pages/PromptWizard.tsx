@@ -134,13 +134,13 @@ function TestPanel({ state, prompt }: { state: WizardState; prompt: string }) {
       }
     }
     setRunning(false);
-    toast.success('Test finished – nothing was changed in Paperless');
+    toast.success('Test finished – nothing was changed');
   };
 
   const byId = new Map((docs.data ?? []).map((d) => [d.id, d]));
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted">Try the new prompt on a few documents. Nothing is saved or changed in Paperless.</p>
+      <p className="text-sm text-muted">Try the new prompt on a few documents. Nothing is saved or changed.</p>
       <div className="relative">
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-faint" />
         <Input className="pl-9" placeholder="Search documents…" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -408,7 +408,7 @@ export default function PromptWizardPage() {
         <div className="space-y-4 rounded-xl border border-border p-4">
           <Switch
             label="Only use existing tags"
-            description={`The AI picks from the ${tagNames.length} tags in Paperless and never creates new ones.`}
+            description={`The AI picks from the ${tagNames.length} tags of the archive and never creates new ones.`}
             checked={state.restrict.tags}
             locked={locked['processing.restrict.tags']}
             onChange={(v) => setState({ ...state, restrict: { ...state.restrict, tags: v } })}
@@ -422,13 +422,13 @@ export default function PromptWizardPage() {
           <Switch label="Short company names" description="“Amazon” instead of “Amazon EU S.à r.l., German branch”." checked={a.correspondentShort} onChange={(v) => setA('correspondentShort', v)} />
           <Switch label="Private persons as correspondent" description="Turn off if only companies and authorities should become correspondents." checked={a.correspondentPersons} onChange={(v) => setA('correspondentPersons', v)} />
         </div>
-        <Field label="Document types to use" hint="The AI prefers these types. Existing types from Paperless are suggested.">
+        <Field label="Document types to use" hint="The AI prefers these types. Existing types are suggested.">
           <TagInput value={a.documentTypes} onChange={(v) => setA('documentTypes', v)} suggestions={typeSuggestions} placeholder="e.g. Invoice, Contract, Letter" />
         </Field>
         <div className="space-y-4 rounded-xl border border-border p-4">
           <Switch
             label="Show the AI the existing names"
-            description="Tags, correspondents and document types from Paperless are listed in the prompt so the AI reuses them (recommended)."
+            description="Tags, correspondents and document types of the archive are listed in the prompt so the AI reuses them (recommended)."
             checked={state.useExistingData}
             locked={locked['processing.useExistingData']}
             onChange={(v) => setState({ ...state, useExistingData: v })}
@@ -450,7 +450,7 @@ export default function PromptWizardPage() {
     ),
     changes: (
       <div className="space-y-4">
-        <p className="text-sm text-muted">The AI only fills in what is switched on – everything else in Paperless stays untouched.</p>
+        <p className="text-sm text-muted">The AI only fills in what is switched on – everything else stays untouched.</p>
         {(
           [
             ['title', 'Title'],

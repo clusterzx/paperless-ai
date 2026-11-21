@@ -9,7 +9,7 @@ import { Alert, Input, Pagination, Skeleton } from './ui';
 
 type Doc = DocumentSummary & { status?: string | null };
 
-/** Searchable list of Paperless documents. */
+/** Searchable list of documents. */
 export function DocumentPicker({
   selected,
   onSelect,

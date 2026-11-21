@@ -74,11 +74,11 @@ function OcrCell({ item }: { item: OcrDocumentItem }) {
         {r.revertedAt ? (
           <Badge tone="warn">Reverted</Badge>
         ) : r.keptOriginal ? (
-          <Badge tone="warn" title="The OCR text did not score better than the existing text – Paperless keeps its text">
+          <Badge tone="warn" title="The OCR text did not score better than the existing text – the existing text is kept">
             Original kept
           </Badge>
         ) : (
-          <Badge tone="success">{r.writtenBack ? 'Saved in Paperless' : 'Done'}</Badge>
+          <Badge tone="success">{r.writtenBack ? 'Saved' : 'Done'}</Badge>
         )}
         {r.provider && <Badge>{r.provider.toUpperCase()}</Badge>}
         {r.scoreBefore !== null && r.scoreAfter !== null && (
@@ -129,7 +129,7 @@ function TextModal({
             </Button>
           ) : (
             <Button variant="primary" icon={<Save className="size-4" />} onClick={() => onApply(d.id)}>
-              Save OCR text in Paperless
+              Save OCR text
             </Button>
           )
         ) : undefined
@@ -141,7 +141,7 @@ function TextModal({
       ) : (
         <div className="space-y-4">
           {d.ocr?.keptOriginal && !d.inPaperless && (
-            <Alert tone="warn" title="Paperless kept its text">
+            <Alert tone="warn" title="The existing text was kept">
               The OCR result did not score better ({d.ocr.scoreAfter}/100) than the existing text ({d.ocr.scoreBefore}/100), so it was not saved and the AI
               analysed the existing text. If the OCR text is better anyway, save it – the document is then analysed again.
             </Alert>
@@ -149,12 +149,12 @@ function TextModal({
           <div className="grid gap-4 md:grid-cols-2">
             {[
               {
-                label: d.inPaperless ? 'Before OCR' : 'Text in Paperless',
+                label: d.inPaperless ? 'Before OCR' : 'Text of the document',
                 text: d.originalText,
                 extra: <QualityBadge quality={d.originalQuality} />,
               },
               {
-                label: d.inPaperless ? 'PaddleOCR result – now in Paperless' : 'PaddleOCR result',
+                label: d.inPaperless ? 'PaddleOCR result – now saved' : 'PaddleOCR result',
                 text: d.ocrText,
                 extra: <QualityBadge quality={d.ocrQuality} />,
               },
@@ -224,7 +224,7 @@ export default function OcrPage() {
       const writeBack = s?.writeBack ?? true;
       const ok = await confirm({
         title: `Read ${count} document(s) with OCR?`,
-        message: `PaddleOCR reads the documents${writeBack ? ' and replaces their text in Paperless (can be reverted)' : ''}. Afterwards they run through the AI analysis again (title, tags, correspondent, …).`,
+        message: `PaddleOCR reads the documents${writeBack ? ' and replace their text (can be reverted)' : ''}. Afterwards they run through the AI analysis again (title, tags, correspondent, …).`,
         confirmLabel: 'Start OCR',
       });
       if (!ok) return;
@@ -236,21 +236,21 @@ export default function OcrPage() {
   const apply = (id: number) =>
     act(async () => {
       const ok = await confirm({
-        title: 'Save the OCR text in Paperless?',
-        message: 'The text of the document in Paperless is replaced with the OCR result (the current text is kept for undo), and the AI analyses the document again.',
+        title: 'Save the OCR text?',
+        message: 'The text of the document is replaced with the OCR result (the current text is kept for undo), and the AI analyses the document again.',
         confirmLabel: 'Save OCR text',
       });
       if (!ok) return;
       await post(`/api/ocr/documents/${id}/apply`);
       setDetail(null);
-      toast.success('OCR text saved in Paperless – the document is analysed again');
+      toast.success('OCR text saved – the document is analysed again');
     });
 
   const revert = (id: number) =>
     act(async () => {
       const ok = await confirm({
         title: 'Restore the text before OCR?',
-        message: 'The text Paperless had before the OCR is restored. Title, tags etc. set by the AI stay – undo them in the history if needed.',
+        message: 'The text from before the OCR is restored. Title, tags etc. set by the AI stay – undo them in the history if needed.',
         confirmLabel: 'Revert',
         danger: true,
       });
@@ -311,7 +311,7 @@ export default function OcrPage() {
             <Settings2 className="size-4 text-faint" /> Mode: <b className="font-medium">{s ? MODE_LABEL[s.mode] ?? s.mode : '…'}</b>
           </span>
           <span>
-            Text in Paperless: <b className="font-medium">{s?.writeBack ? 'replaced (with undo)' : 'unchanged'}</b>
+            Text of the document: <b className="font-medium">{s?.writeBack ? 'replaced (with undo)' : 'unchanged'}</b>
           </span>
           <span>
             Device: <b className="font-medium">{s?.provider ? s.provider.toUpperCase() : 'loaded on first use'}</b>
@@ -441,7 +441,7 @@ export default function OcrPage() {
                           <Button size="sm" variant="ghost" aria-label="Run OCR" title="Read with OCR" disabled={disabled || Boolean(i.job)} onClick={() => run({ ids: [i.id] }, 1)}>
                             <ScanText className="size-4" />
                           </Button>
-                          <LinkButton href={i.url} size="sm" variant="ghost" aria-label="Open in Paperless" title="Open in Paperless">
+                          <LinkButton href={i.url} size="sm" variant="ghost" aria-label="Open the document" title="Open the document">
                             <ExternalLink className="size-4" />
                           </LinkButton>
                         </div>

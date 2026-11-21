@@ -3,7 +3,11 @@ import { Link, useLocation } from 'wouter';
 import {
   Check,
   ChevronsUpDown,
+  Bookmark,
   FileSearch,
+  Files,
+  Inbox,
+  Tags,
   FlaskConical,
   BookMarked,
   Heart,
@@ -24,7 +28,8 @@ import {
   Sun,
   X,
 } from 'lucide-react';
-import type { ProcessingStatus } from '@shared/api';
+import type { ProcessingStatus, SavedView } from '@shared/api';
+import { searchFromState } from './documents';
 import { errorMessage, get, post } from '../lib/api';
 import { cn } from '../lib/format';
 import { hasUnsavedChanges, useInterval } from '../lib/hooks';
@@ -209,7 +214,7 @@ function ProcessingPulse() {
     : status.current.length
       ? `Analysing ${status.current.length} document${status.current.length > 1 ? 's' : ''}`
       : status.scanning
-        ? 'Scanning Paperless…'
+        ? 'Scanning the archive…'
         : 'All caught up';
   return (
     <Link href="/" className="block rounded-xl border border-border bg-surface/70 px-3 py-2.5 transition hover:bg-surface">
@@ -256,10 +261,21 @@ export function Layout({ children }: { children: ReactNode }) {
   );
 
   const rag = Boolean(session?.features.rag);
+  // Saved views shown in the navigation (reloaded when the documents page saves one).
+  const [views, setViews] = useState<SavedView[]>([]);
+  useEffect(() => {
+    if (!session?.user || !session.archive) return;
+    const load = () => get<SavedView[]>('/api/saved-views').then((v) => setViews(v.filter((x) => x.inNavigation)), () => setViews([]));
+    void load();
+    window.addEventListener('saved-views-changed', load);
+    return () => window.removeEventListener('saved-views-changed', load);
+  }, [session?.user, session?.archive]);
   /** Members do not see the administration (settings, prompts, logs). */
   const admin = session?.user?.role === 'admin';
   const nav: NavItem[] = [
     { href: '/', label: 'Dashboard', icon: <LayoutDashboard />, keywords: 'home overview status' },
+    { href: '/documents', label: 'Documents', icon: <Files />, hidden: !session?.archive, keywords: 'archive list search browse files' },
+    { href: '/inbox', label: 'Inbox', icon: <Inbox />, hidden: !session?.archive, keywords: 'upload scan import add' },
     { href: '/ask', label: 'Ask your archive', icon: <Sparkles />, hidden: !rag, keywords: 'rag question search' },
     { href: '/chat', label: 'Document chat', icon: <MessageSquareText />, keywords: 'conversation' },
     { href: '/review', label: 'Manual review', icon: <FileSearch />, keywords: 'analyse suggest' },
@@ -268,6 +284,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { href: '/history', label: 'History', icon: <History />, keywords: 'undo changes' },
     { href: '/ocr', label: 'OCR', icon: <ScanText />, hidden: !admin, keywords: 'text recognition scan paddleocr quality' },
     { href: '/calendar', label: 'Calendar', icon: <CalendarDays />, hidden: !session?.features.calendar, keywords: 'dates deadlines appointments due ical' },
+    { href: '/metadata', label: 'Tags & metadata', icon: <Tags />, hidden: !session?.archive, keywords: 'tags correspondents document types custom fields merge rename' },
   ];
   const secondary: NavItem[] = [
     { href: '/settings', label: 'Settings', icon: <Settings />, keywords: 'configuration preferences' },
@@ -355,6 +372,14 @@ export function Layout({ children }: { children: ReactNode }) {
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3" aria-label="Main">
         <div className="px-2.5 pt-1 pb-2 text-[11px] font-medium tracking-wide text-faint uppercase">Workspace</div>
         {nav.map(renderItem)}
+        {views.length > 0 && (
+          <>
+            <div className="px-2.5 pt-5 pb-2 text-[11px] font-medium tracking-wide text-faint uppercase">Views</div>
+            {views.map((v) =>
+              renderItem({ href: `/documents${searchFromState(v.filter)}`, label: v.name, icon: <Bookmark /> }),
+            )}
+          </>
+        )}
         <div className="px-2.5 pt-5 pb-2 text-[11px] font-medium tracking-wide text-faint uppercase">System</div>
         {secondary.map(renderItem)}
       </nav>

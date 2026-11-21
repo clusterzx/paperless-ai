@@ -19,6 +19,10 @@ const CalendarPage = lazy(() => import('./pages/Calendar'));
 const PromptWizardPage = lazy(() => import('./pages/PromptWizard'));
 const SettingsPage = lazy(() => import('./pages/Settings'));
 const LogsPage = lazy(() => import('./pages/Logs'));
+const DocumentsPage = lazy(() => import('./pages/Documents'));
+const DocumentPage = lazy(() => import('./pages/Document'));
+const InboxPage = lazy(() => import('./pages/Inbox'));
+const MetadataPage = lazy(() => import('./pages/Metadata'));
 
 function FullScreenSpinner() {
   return (
@@ -108,6 +112,10 @@ function Routes() {
         <Suspense fallback={<FullScreenSpinner />}>
           <Switch>
             <Route path="/" component={DashboardPage} />
+            <Route path="/documents" component={DocumentsPage} />
+            <Route path="/documents/:id" component={DocumentPage} />
+            <Route path="/inbox" component={InboxPage} />
+            <Route path="/metadata" component={MetadataPage} />
             <Route path="/ask" component={AskPage} />
             <Route path="/chat" component={ChatPage} />
             <Route path="/review" component={ReviewPage} />

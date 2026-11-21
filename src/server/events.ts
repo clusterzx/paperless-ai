@@ -20,6 +20,15 @@ export type DocumentEvent =
 
 export type DocumentEventType = DocumentEvent['type'];
 
+/** Progress of an intake attempt (upload, watch folder, mail …) for the inbox page. */
+export interface IntakeEvent {
+  intakeId: number;
+  status: 'pending' | 'stored' | 'duplicate' | 'failed' | 'rejected';
+  documentId?: number | null;
+  filename?: string | null;
+  libraryId?: number | null;
+}
+
 export class DocumentEvents {
   private readonly emitter = new EventEmitter();
 
@@ -42,5 +51,20 @@ export class DocumentEvents {
   on(listener: (e: DocumentEvent) => void): () => void {
     this.emitter.on('event', listener);
     return () => this.emitter.off('event', listener);
+  }
+
+  emitIntake(event: IntakeEvent): void {
+    for (const listener of this.emitter.listeners('intake') as ((e: IntakeEvent) => void)[]) {
+      try {
+        listener(event);
+      } catch (err) {
+        log.error({ err }, 'Intake event listener failed');
+      }
+    }
+  }
+
+  onIntake(listener: (e: IntakeEvent) => void): () => void {
+    this.emitter.on('intake', listener);
+    return () => this.emitter.off('intake', listener);
   }
 }

@@ -22,6 +22,7 @@ import { RagService } from '../src/server/rag/service.js';
 import { OcrService } from '../src/server/ocr/service.js';
 import { FakeOcrEngine } from '../test/helpers/fakeOcr.js';
 import { hashPassword } from '../src/server/auth.js';
+import { wireDocumentEvents } from '../src/server/wiring.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.DEMO_PORT ?? 3456);
@@ -216,7 +217,7 @@ if (!fresh) {
     rag: { enabled: true, embeddingProvider: 'custom', embeddingModel: 'mock-embed' },
     ocr: { enabled: true, mode: 'manual' },
   });
-  ctx.repos.users.create('admin', await hashPassword('demo1234'));
+  ctx.repos.users.create('admin', await hashPassword('demo1234'), 'admin');
 }
 // Stand-in OCR: "reads" the scanned documents of the sample archive.
 const demoOcr = new FakeOcrEngine();
@@ -226,7 +227,7 @@ const ocr = process.env.DEMO_REAL_OCR === '1' ? new OcrService(ctx) : new OcrSer
 const engine = new ProcessingEngine(ctx, ocr);
 const rag = new RagService(ctx);
 engine.on('idle', () => rag.requestSync());
-ocr.onTextChanged = (id) => rag.invalidate(id);
+wireDocumentEvents(ctx, { rag, ocr });
 const staticDir = path.resolve(here, '..', 'dist', 'public');
 const app = await buildApp({ ctx, engine, rag, ocr }, { staticDir });
 app.get('/__demo/info', { config: { auth: 'public' } }, async () => ({
