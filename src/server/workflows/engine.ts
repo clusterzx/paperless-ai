@@ -16,7 +16,7 @@ import { evaluateGroup, type RunSubject } from './evaluate.js';
 import { runActions, workflowScope, type ActionHooks } from './actions.js';
 import type { QueuedRun } from './storage.js';
 import type { PromptRuleOverrides } from '../../shared/promptRules.js';
-import type { DryRunResult, RunStep, Trigger, Workflow, WorkflowDefinition } from '../../shared/workflows.js';
+import type { Action, DryRunResult, RunStep, Trigger, Workflow, WorkflowDefinition } from '../../shared/workflows.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
 
@@ -455,7 +455,9 @@ export class WorkflowEngine {
     const changes: DryRunResult['changes'] = [];
     if (matched) {
       // A dry run sends nothing: webhook actions get an inert address (the plan shows the real host).
-      const actions = def.actions.map((a) => (a.type === 'notify_webhook' ? { ...a, url: DRY_RUN_URL, previewHost: hostOf(a.url), secret: undefined } : a));
+      const actions = def.actions.map((a): Action =>
+        a.type === 'notify_webhook' ? { type: 'notify_webhook', preset: a.preset, url: DRY_RUN_URL, previewHost: hostOf(a.url) } : a,
+      );
       try {
         await runActions(actions, { ...env, workflow: { id: def.id ?? 0, name: def.name, libraryId: def.libraryId, allowedLibraries: def.allowedLibraries }, runId: null, dryRun: true, hooks: {}, changes });
       } catch {

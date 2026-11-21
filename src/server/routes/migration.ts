@@ -110,10 +110,13 @@ export const migrationRoutes =
      * (e.g. a mounted volume) – never anywhere else on the server. Relative names are below <data>/exports.
      */
     const exportDirectory = (requested: string | undefined, format: 'ngx' | 'plain'): string => {
-      const roots = [path.resolve(ctx.dataDir, 'exports'), ...(ctx.cfg.archive.builtin.exportDir ? [path.resolve(ctx.cfg.archive.builtin.exportDir)] : [])];
-      const target = requested ? path.resolve(roots[0], requested) : path.join(roots[0], `${format}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
-      const allowed = roots.find((root) => target.startsWith(root + path.sep));
-      if (!allowed) throw new HttpProblem(400, `Exports go into a folder below ${roots.join(' or ')} – set PAPERLESS_AI_EXPORT_DIR to allow another directory`);
+      const root = path.resolve(ctx.dataDir, 'exports');
+      const extra = ctx.cfg.archive.builtin.exportDir ? path.resolve(ctx.cfg.archive.builtin.exportDir) : null;
+      if (!requested) return path.join(root, `${format}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+      const target = path.resolve(root, requested);
+      if (!target.startsWith(root + path.sep) && !(extra !== null && target.startsWith(extra + path.sep))) {
+        throw new HttpProblem(400, `Exports go into a folder below ${extra ? `${root} or ${extra}` : root} – set PAPERLESS_AI_EXPORT_DIR to allow another directory`);
+      }
       return target;
     };
     const run = async (libraryIds: number[] | null, body: z.output<typeof exportBody>): Promise<ExportResult> => {
