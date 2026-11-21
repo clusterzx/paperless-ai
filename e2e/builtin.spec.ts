@@ -174,3 +174,22 @@ test('the dashboard follows new documents without a reload', async ({ page }) =>
   // The tiles used to be reloaded only every minute while the processing card counted live.
   await expect(tile).toHaveText(new RegExp(`^${before + 1} of ${before + 1} documents$`), { timeout: 15_000 });
 });
+
+test('shows a correspondent the AI created after the lists were loaded', async ({ page }) => {
+  await login(page);
+  // Open a document: the app loads (and caches) the lists of tags and correspondents.
+  const list = (await (await page.request.get('/api/documents?pageSize=1')).json()) as { results: { id: number }[] };
+  await page.goto(`/documents/${list.results[0].id}`);
+  await expect(page.getByLabel('Correspondent')).toBeVisible();
+  const res = await page.request.post('/api/documents/upload', {
+    multipart: { file: { name: 'bfj.pdf', mimeType: 'application/pdf', buffer: makePdf([['Bundesamt für Justiz', 'Zahlungsbestätigung über 13,00 EUR']]) } },
+  });
+  const id = ((await res.json()) as { results: { documentId: number }[] }).results[0].documentId;
+  await expect.poll(async () => ((await (await page.request.get(`/api/documents/${id}`)).json()) as { correspondent: number | null }).correspondent, { timeout: 15_000 }).not.toBeNull();
+  // Within the app (no reload): the cached lists do not know the new correspondent yet.
+  await page.evaluate((url) => {
+    history.pushState(null, '', url);
+    dispatchEvent(new PopStateEvent('popstate'));
+  }, `/documents/${id}`);
+  await expect(page.getByLabel('Correspondent')).toHaveValue('Bundesamt für Justiz');
+});
