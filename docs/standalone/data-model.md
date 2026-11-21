@@ -72,7 +72,7 @@ CREATE TABLE api_keys (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   prefix TEXT NOT NULL,              -- first 8 characters, shown in the UI and used for lookup
-  hash TEXT NOT NULL,                -- scrypt hash of the full key
+  hash TEXT NOT NULL,                -- SHA-256 of the full key (256 random bits – no slow hash needed)
   scopes TEXT NOT NULL DEFAULT '["read"]',   -- JSON, see access-control.md
   library_ids TEXT,                  -- JSON array; NULL = all libraries of the user
   created_at INTEGER NOT NULL,
@@ -86,7 +86,8 @@ CREATE UNIQUE INDEX api_keys_prefix ON api_keys(prefix);
 -- feed of the first admin, so existing subscriptions keep working).
 CREATE TABLE calendar_feeds (
   user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  token_hash TEXT NOT NULL UNIQUE,   -- SHA-256 of the random token in the feed URL
+  token TEXT NOT NULL,               -- the random token in the feed URL (shown again, like before)
+  token_hash TEXT NOT NULL UNIQUE,   -- its SHA-256, for the lookup
   created_at INTEGER NOT NULL
 );
 

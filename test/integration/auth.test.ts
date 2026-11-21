@@ -112,7 +112,7 @@ describe('authentication', () => {
   });
 
   it('sessions of deleted users are rejected', async () => {
-    const id = h.ctx.repos.users.create('temp', 'x');
+    const id = h.ctx.repos.users.create('temp', 'x', 'admin');
     const token = await issueSession(h.ctx, h.ctx.repos.users.byId(id)!);
     expect((await h.inject({ method: 'GET', url: '/api/usage', headers: { cookie: `${SESSION_COOKIE}=${token}` } })).statusCode).toBe(200);
     h.ctx.repos.users.delete(id);

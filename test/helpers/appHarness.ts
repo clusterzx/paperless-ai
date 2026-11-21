@@ -122,7 +122,8 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
     inject: (o) => app.inject(o),
     async login(username = TEST_USER, password = TEST_PASSWORD) {
       if (cookie && username === TEST_USER && password === TEST_PASSWORD) return cookie;
-      if (!ctx.repos.users.byUsername(username)) ctx.repos.users.create(username, await hashPassword(password));
+      // The default test user administrates the instance (like the account created by the setup).
+      if (!ctx.repos.users.byUsername(username)) ctx.repos.users.create(username, await hashPassword(password), username === TEST_USER ? 'admin' : 'member');
       const res = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username, password } });
       if (res.statusCode !== 200) throw new Error(`Login failed: ${res.statusCode} ${res.body}`);
       const c = res.cookies.find((x) => x.name === SESSION_COOKIE);

@@ -262,7 +262,7 @@ export interface SessionInfo {
   setupRequired: boolean;
   /** No user account exists yet (first start). */
   needsUser: boolean;
-  user?: { id: number; username: string };
+  user?: { id: number; username: string; role: InstanceRole };
   version: string;
   features: { rag: boolean; calendar: boolean };
   /** The archive backend (null while it is not configured). */
@@ -317,8 +317,71 @@ export interface TwoFactorStatus {
 }
 
 /** Answer of /api/account. */
+export type InstanceRole = 'admin' | 'member';
+export type LibraryRole = 'owner' | 'editor' | 'viewer';
+export const API_SCOPES = ['read', 'write', 'upload', 'chat', 'webhook', 'admin'] as const;
+export type ApiScope = (typeof API_SCOPES)[number];
+
+export interface UserInfo {
+  id: number;
+  username: string;
+  role: InstanceRole;
+  displayName: string | null;
+  email: string | null;
+  disabled: boolean;
+  createdAt: number;
+  sso: boolean;
+  password: boolean;
+  twoFactor: boolean;
+  groups: { id: number; name: string }[];
+}
+
+export interface GroupInfo {
+  id: number;
+  name: string;
+  /** Synchronised from single sign-on (name and members are read-only). */
+  sso: boolean;
+  members: number[];
+  createdAt: number;
+}
+
+export interface ApiKeyInfo {
+  id: number;
+  name: string;
+  prefix: string;
+  scopes: ApiScope[];
+  libraryIds: number[] | null;
+  createdAt: number;
+  lastUsedAt: number | null;
+  expiresAt: number | null;
+  revoked: boolean;
+  /** Admin listing: the owner of the key. */
+  user?: { id: number; username: string };
+}
+
+export interface AuditEntryInfo {
+  id: number;
+  at: number;
+  actor: string;
+  actorType: string;
+  action: string;
+  target: string | null;
+  libraryId: number | null;
+  details: Record<string, unknown>;
+}
+
+export interface NotificationInfo {
+  id: number;
+  at: number;
+  title: string;
+  body: string;
+  link: string | null;
+  read: boolean;
+}
+
 export interface AccountInfo {
-  user: { id: number; username: string } | null;
+  user: { id: number; username: string; role: InstanceRole; displayName: string | null; email: string | null } | null;
+  groups: { id: number; name: string }[];
   users: { id: number; username: string; createdAt: number }[];
   twoFactor: TwoFactorStatus | null;
   /** Accounts created by single sign-on have no password (and no local two-factor authentication). */

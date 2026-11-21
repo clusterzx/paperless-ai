@@ -288,6 +288,118 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX history_prompt ON history(prompt_id) WHERE prompt_id IS NOT NULL;
       `),
   },
+  {
+    version: 11,
+    name: 'roles, groups, api keys, libraries',
+    up: (db) =>
+      db.exec(`
+        -- Instance roles. Existing accounts could do everything: they become admins.
+        ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member'));
+        ALTER TABLE users ADD COLUMN display_name TEXT;
+        ALTER TABLE users ADD COLUMN email TEXT;
+        ALTER TABLE users ADD COLUMN disabled_at INTEGER;
+        UPDATE users SET role = 'admin';
+
+        CREATE TABLE groups (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          -- groups synchronised from the OIDC groups claim are not edited by hand
+          oidc_name TEXT UNIQUE,
+          created_at INTEGER NOT NULL
+        );
+        CREATE TABLE group_members (
+          group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          PRIMARY KEY (group_id, user_id)
+        ) WITHOUT ROWID;
+        CREATE INDEX group_members_user ON group_members(user_id);
+
+        -- API keys per user: pai_<prefix>_<secret>; only the SHA-256 of the full key is stored.
+        CREATE TABLE api_keys (
+          id INTEGER PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          prefix TEXT NOT NULL,
+          hash TEXT NOT NULL,
+          scopes TEXT NOT NULL DEFAULT '["read"]',
+          library_ids TEXT,
+          created_at INTEGER NOT NULL,
+          last_used_at INTEGER,
+          expires_at INTEGER,
+          revoked_at INTEGER
+        );
+        CREATE UNIQUE INDEX api_keys_prefix ON api_keys(prefix);
+        CREATE INDEX api_keys_user ON api_keys(user_id);
+
+        -- Libraries of the built-in archive with their members (users or groups) and roles.
+        CREATE TABLE libraries (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          settings TEXT NOT NULL DEFAULT '{}',
+          created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          created_at INTEGER NOT NULL,
+          deleted_at INTEGER
+        );
+        CREATE TABLE library_members (
+          library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+          principal_type TEXT NOT NULL CHECK (principal_type IN ('user', 'group')),
+          principal_id INTEGER NOT NULL,
+          role TEXT NOT NULL CHECK (role IN ('owner', 'editor', 'viewer')),
+          PRIMARY KEY (library_id, principal_type, principal_id)
+        ) WITHOUT ROWID;
+        CREATE INDEX library_members_principal ON library_members(principal_type, principal_id);
+
+        -- Changes that are not document changes (users, roles, memberships, keys, settings).
+        CREATE TABLE audit_log (
+          id INTEGER PRIMARY KEY,
+          at INTEGER NOT NULL,
+          actor_type TEXT NOT NULL,
+          actor_id INTEGER,
+          actor_name TEXT,
+          action TEXT NOT NULL,
+          target TEXT,
+          library_id INTEGER,
+          details TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX audit_log_at ON audit_log(at);
+        CREATE INDEX audit_log_library ON audit_log(library_id, at) WHERE library_id IS NOT NULL;
+
+        -- iCal feed per user: the random token in the URL is the key (looked up by its SHA-256).
+        CREATE TABLE calendar_feeds (
+          user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          token TEXT NOT NULL,
+          token_hash TEXT NOT NULL UNIQUE,
+          created_at INTEGER NOT NULL
+        );
+
+        -- Saved views of the document list (per user, optionally shared with a library).
+        CREATE TABLE saved_views (
+          id INTEGER PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          library_id INTEGER,
+          name TEXT NOT NULL,
+          filter TEXT NOT NULL,
+          columns TEXT NOT NULL DEFAULT '[]',
+          sort TEXT,
+          position INTEGER NOT NULL DEFAULT 0,
+          in_navigation INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX saved_views_user ON saved_views(user_id, position);
+
+        -- In-app notifications (workflow actions, intake failures, migration …).
+        CREATE TABLE notifications (
+          id INTEGER PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          at INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          body TEXT NOT NULL DEFAULT '',
+          link TEXT,
+          read_at INTEGER
+        );
+        CREATE INDEX notifications_user ON notifications(user_id, read_at, at);
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {
@@ -346,7 +458,8 @@ export function importLegacyDatabase(db: Db, legacyFile: string): boolean {
     db.transaction(() => {
       if (tables.has('users')) {
         const insert = db.prepare(
-          `INSERT OR IGNORE INTO users (username, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+          // Accounts of ≤ 3.x could do everything: they become admins.
+          `INSERT OR IGNORE INTO users (username, password_hash, role, created_at, updated_at) VALUES (?, ?, 'admin', ?, ?)`,
         );
         for (const u of all<{ username: string; password: string; created_at: string }>('SELECT * FROM users')) {
           if (!u.username || !u.password) continue;

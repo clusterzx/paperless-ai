@@ -174,13 +174,26 @@ export class OidcService {
     return { identity: { issuer: String(idClaims.iss), subject: idClaims.sub, claims, idToken: tokens.id_token }, flow };
   }
 
+  /** Group names of the identity (from the configured groups claim). */
+  groups(identity: OidcIdentity): string[] {
+    const raw = identity.claims[this.ctx.cfg.auth.oidc.groupsClaim];
+    return (Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(/[,\s]+/) : []).map((g) => String(g).trim()).filter(Boolean);
+  }
+
   /** Is the identity in one of the allowed groups (if any are configured)? */
   allowed(identity: OidcIdentity): boolean {
     const o = this.ctx.cfg.auth.oidc;
     if (!o.allowedGroups.length) return true;
-    const raw = identity.claims[o.groupsClaim];
-    const groups = (Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(/[,\s]+/) : []).map((g) => String(g).toLowerCase());
+    const groups = this.groups(identity).map((g) => g.toLowerCase());
     return o.allowedGroups.some((g) => groups.includes(g.toLowerCase()));
+  }
+
+  /** Admin by group membership: true / false, or null when no admin groups are configured. */
+  adminByGroups(identity: OidcIdentity): boolean | null {
+    const o = this.ctx.cfg.auth.oidc;
+    if (!o.adminGroups.length) return null;
+    const groups = this.groups(identity).map((g) => g.toLowerCase());
+    return o.adminGroups.some((g) => groups.includes(g.toLowerCase()));
   }
 
   /** A free user name for a new account, from the configured claim (then preferred_username, email, name, sub). */

@@ -13,9 +13,11 @@ import { NotConfiguredError } from '../context.js';
 import type { ProcessingEngine } from '../processing/engine.js';
 import type { RagService } from '../rag/service.js';
 import type { OcrService } from '../ocr/service.js';
-import { authenticate } from '../auth.js';
+import { resolveAccess } from '../auth.js';
 import { PaperlessError } from '../paperless/client.js';
 import { ArchiveError } from '../backend/types.js';
+import { hasScope, isAdmin } from '../access/scope.js';
+import { policyFor } from './policy.js';
 import { AiError } from '../ai/types.js';
 import { logger } from '../logger.js';
 import { endEventStreams, HttpProblem } from './helpers.js';
@@ -29,6 +31,7 @@ import { oidcRoutes } from '../routes/oidc.js';
 import { promptRoutes } from '../routes/prompts.js';
 import { promptRuleRoutes } from '../routes/promptRules.js';
 import { twoFactorRoutes } from '../routes/twoFactor.js';
+import { accessRoutes } from '../routes/access.js';
 import { calendarRoutes } from '../routes/calendar.js';
 
 export interface Services {
@@ -44,6 +47,10 @@ export type AuthLevel = 'public' | 'user' | 'session' | 'setup';
 declare module 'fastify' {
   interface FastifyContextConfig {
     auth?: AuthLevel;
+  }
+  interface FastifyInstance {
+    /** All routes with their auth level (permission matrix test, route listing). */
+    registeredRoutes: { method: string; url: string; auth: AuthLevel | undefined }[];
   }
 }
 
@@ -96,6 +103,10 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     bodyLimit: 10 * 1024 * 1024,
     routerOptions: { ignoreTrailingSlash: true },
   });
+  app.decorate('registeredRoutes', [] as FastifyInstance['registeredRoutes']);
+  app.addHook('onRoute', (r) => {
+    for (const method of [r.method].flat()) app.registeredRoutes.push({ method: String(method), url: r.url, auth: r.config?.auth });
+  });
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
@@ -136,11 +147,17 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   });
 
   app.decorateRequest('principal', null);
-  app.addHook('preHandler', async (req, reply) => {
+  app.decorateRequest('access', null);
+  // Before the body is parsed and validated: unauthenticated or unauthorised callers learn nothing
+  // about the input a route expects.
+  app.addHook('onRequest', async (req, reply) => {
+    if (reply.sent) return;
     // API routes require authentication unless they opt out; static assets and docs are public.
     const url = req.routeOptions.url ?? '';
     let level: AuthLevel = req.routeOptions.config?.auth ?? (url.startsWith('/api/') || url.startsWith('/chat/') ? 'user' : 'public');
-    req.principal = await authenticate(ctx, req);
+    const resolved = await resolveAccess(ctx, req);
+    req.principal = resolved.principal;
+    req.access = resolved.access;
     if (level === 'public') return;
     if (level === 'setup') {
       // Open only on a fresh installation (nobody could log in yet); afterwards a logged-in user is
@@ -148,9 +165,14 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
       if (ctx.needsSetup() && ctx.repos.users.count() === 0) return;
       level = 'session';
     }
-    if (!req.principal) return reply.code(401).send({ error: 'Authentication required' });
-    if (level === 'session' && req.principal.kind !== 'user') {
+    if (!req.principal || !req.access) return reply.code(401).send({ error: 'Authentication required' });
+    if (level === 'session' && !(req.principal.kind === 'user' && req.principal.via === 'session')) {
       return reply.code(403).send({ error: 'This action requires a logged-in user (API keys are not allowed)' });
+    }
+    const policy = policyFor(req.method, url);
+    if (policy.admin && !isAdmin(req.access)) return reply.code(403).send({ error: 'Only administrators can do this', code: 'admin_required' });
+    if (!hasScope(req.access, policy.scope)) {
+      return reply.code(403).send({ error: `The API key does not have the "${policy.scope}" scope`, code: 'scope_missing' });
     }
   });
 
@@ -186,6 +208,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(promptRuleRoutes(services));
   await app.register(twoFactorRoutes(services));
   await app.register(calendarRoutes(services));
+  await app.register(accessRoutes(services));
 
   // Web UI (single page app)
   const staticDir = opts.staticDir;

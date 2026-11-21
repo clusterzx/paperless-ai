@@ -210,6 +210,8 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'OIDC_USERNAME_CLAIM', path: 'auth.oidc.usernameClaim', parse: s },
   { env: 'OIDC_GROUPS_CLAIM', path: 'auth.oidc.groupsClaim', parse: s },
   { env: 'OIDC_ALLOWED_GROUPS', path: 'auth.oidc.allowedGroups', parse: (v) => parseList(v) },
+  { env: 'OIDC_ADMIN_GROUPS', path: 'auth.oidc.adminGroups', parse: (v) => parseList(v) },
+  { env: 'OIDC_SYNC_GROUPS', path: 'auth.oidc.syncGroups', parse: b },
   { env: 'OIDC_AUTO_CREATE', path: 'auth.oidc.autoCreate', parse: b },
   { env: 'OIDC_PROVIDER_LOGOUT', path: 'auth.oidc.providerLogout', parse: b },
 

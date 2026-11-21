@@ -101,6 +101,33 @@ describe('single sign-on (OIDC)', () => {
     expect(cookieOf(ok.done, SESSION_COOKIE)).not.toBeNull();
   });
 
+  it('maps provider groups to admins and Paperless-AI groups', async () => {
+    const { hh, provider } = await setup({ oidc: { adminGroups: ['pai-admins'] } });
+    // an existing admin, so that the SSO account is not the first one (the first one is always admin)
+    await hh.login();
+    provider.user = { sub: 'sub-anna', claims: { preferred_username: 'anna', groups: ['family'] } };
+    await sso(hh);
+    const anna = hh.ctx.repos.users.byUsername('anna')!;
+    expect(anna.role).toBe('member');
+    expect(hh.ctx.repos.groups.groupsOf(anna.id).map((g) => g.name)).toEqual(['family']);
+
+    provider.user.claims.groups = ['family', 'pai-admins'];
+    await sso(hh);
+    expect(hh.ctx.repos.users.byUsername('anna')!.role).toBe('admin');
+    expect(hh.ctx.repos.groups.groupsOf(anna.id).map((g) => g.name)).toEqual(['family', 'pai-admins']);
+
+    provider.user.claims.groups = [];
+    await sso(hh);
+    expect(hh.ctx.repos.users.byUsername('anna')!.role).toBe('member');
+    expect(hh.ctx.repos.groups.groupsOf(anna.id)).toEqual([]);
+
+    // disabled accounts cannot sign in with SSO either
+    hh.ctx.repos.users.setDisabled(anna.id, true);
+    const refused = await sso(hh);
+    expect(location(refused.done)).toContain('sso_error=');
+    expect(cookieOf(refused.done, SESSION_COOKIE)).toBeNull();
+  });
+
   it('reports cancelled, expired and replayed sign-ins on the login page', async () => {
     const { hh, provider } = await setup();
     await hh.login(); // an account exists – errors go to the login page

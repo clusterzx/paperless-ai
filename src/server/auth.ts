@@ -7,15 +7,20 @@ import { jwtVerify, SignJWT } from 'jose';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from './context.js';
 import type { UserRow } from './db/repos.js';
+import { ApiKeysRepo, type ApiKeyRow } from './db/accessRepo.js';
+import type { AccessScope, Principal } from './access/scope.js';
+import { scopeFor } from './access/context.js';
 
 export const SESSION_COOKIE = 'paperless_ai_session';
 const BCRYPT_ROUNDS = 12;
 
-export type Principal = { kind: 'user'; userId: number; username: string } | { kind: 'apiKey' };
+export type { Principal } from './access/scope.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
     principal: Principal | null;
+    /** What the caller may access (null = not authenticated). */
+    access: AccessScope | null;
   }
 }
 
@@ -54,8 +59,8 @@ export async function verifySession(ctx: AppContext, token: string): Promise<Pri
   try {
     const { payload } = await jwtVerify(token, secret(ctx), { algorithms: ['HS256'] });
     const user = ctx.repos.users.byId(Number(payload.sub));
-    if (!user || user.token_version !== payload.ver) return null;
-    return { kind: 'user', userId: user.id, username: user.username };
+    if (!user || user.token_version !== payload.ver || user.disabled_at) return null;
+    return { kind: 'user', userId: user.id, username: user.username, role: user.role, via: 'session' };
   } catch {
     return null;
   }
@@ -82,7 +87,7 @@ export async function verifyTwoFactorTicket(ctx: AppContext, ticket: string): Pr
     if (payload.typ !== '2fa') return null;
     const user = ctx.repos.users.byId(Number(payload.sub));
     // A changed password (or 2FA switched off) invalidates open tickets.
-    return user && user.token_version === payload.ver && user.totp_enabled_at ? user : null;
+    return user && user.token_version === payload.ver && user.totp_enabled_at && !user.disabled_at ? user : null;
   } catch {
     return null;
   }
@@ -101,20 +106,58 @@ export function newApiKey(): string {
   return randomBytes(32).toString('hex');
 }
 
-/** Resolve the caller from the session cookie, a Bearer token or the x-api-key header. */
-export async function authenticate(ctx: AppContext, req: FastifyRequest): Promise<Principal | null> {
+export interface Authenticated {
+  principal: Principal;
+  /** The personal API key used (null for sessions and the legacy key). */
+  key: ApiKeyRow | null;
+}
+
+/** A personal API key (pai_…) or the global legacy key. */
+function fromApiKey(ctx: AppContext, candidate: string): Authenticated | null {
+  if (ApiKeysRepo.looksLikeKey(candidate)) {
+    const key = ctx.repos.apiKeys.verify(candidate);
+    if (!key) return null;
+    const user = ctx.repos.users.byId(key.user_id);
+    if (!user || user.disabled_at) return null;
+    return { principal: { kind: 'user', userId: user.id, username: user.username, role: user.role, via: 'apiKey', apiKeyId: key.id }, key };
+  }
+  if (apiKeyMatches(ctx, candidate)) return { principal: { kind: 'legacyApiKey' }, key: null };
+  return null;
+}
+
+/**
+ * Resolve the caller from the session cookie, a Bearer token, `Authorization: Token <key>` (as
+ * Paperless-ngx clients send it) or the x-api-key header.
+ */
+export async function authenticate(ctx: AppContext, req: FastifyRequest): Promise<Authenticated | null> {
   const headerKey = req.headers['x-api-key'];
-  if (typeof headerKey === 'string' && apiKeyMatches(ctx, headerKey)) return { kind: 'apiKey' };
+  if (typeof headerKey === 'string' && headerKey) {
+    const a = fromApiKey(ctx, headerKey);
+    if (a) return a;
+  }
   const auth = req.headers.authorization;
-  if (auth?.startsWith('Bearer ')) {
-    const token = auth.slice(7).trim();
-    if (apiKeyMatches(ctx, token)) return { kind: 'apiKey' };
-    const p = await verifySession(ctx, token);
-    if (p) return p;
+  if (auth?.startsWith('Bearer ') || auth?.startsWith('Token ')) {
+    const token = auth.slice(auth.indexOf(' ') + 1).trim();
+    const a = fromApiKey(ctx, token);
+    if (a) return a;
+    if (auth.startsWith('Bearer ')) {
+      const p = await verifySession(ctx, token);
+      if (p) return { principal: p, key: null };
+    }
   }
   const cookie = req.cookies?.[SESSION_COOKIE];
-  if (cookie) return verifySession(ctx, cookie);
+  if (cookie) {
+    const p = await verifySession(ctx, cookie);
+    if (p) return { principal: p, key: null };
+  }
   return null;
+}
+
+/** Authenticate and build the access scope of a request. */
+export async function resolveAccess(ctx: AppContext, req: FastifyRequest): Promise<{ principal: Principal | null; access: AccessScope | null }> {
+  const a = await authenticate(ctx, req);
+  if (!a) return { principal: null, access: null };
+  return { principal: a.principal, access: scopeFor(ctx, a.principal, a.key) };
 }
 
 export function isSecureRequest(req: FastifyRequest): boolean {

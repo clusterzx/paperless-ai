@@ -8,6 +8,7 @@ import { deepMerge } from '../config/store.js';
 import { normalizePaperlessUrl } from '../config/legacy.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
 import { newApiKey } from '../auth.js';
+import { audit } from '../access/context.js';
 import { validateCron } from '../processing/engine.js';
 import { clearExternalApiCache, fetchExternalData } from '../processing/externalApi.js';
 import { localEmbeddingsAvailable } from '../rag/localEmbedder.js';
@@ -108,6 +109,7 @@ export const settingsRoutes =
         ctx.config.update(patch);
         clearExternalApiCache();
         log.info('Settings saved');
+        audit(ctx, req.access, 'settings.saved', null, { sections: Object.keys(patch) });
 
         // Create configured custom fields in Paperless right away so problems show up immediately.
         if (ctx.cfg.processing.functions.customFields && ctx.cfg.processing.customFields.length && ctx.archiveConfigured()) {
@@ -163,7 +165,8 @@ export const settingsRoutes =
 
     app.get('/api/settings/api-key', { config: { auth: 'session' } }, async () => ({ apiKey: ctx.cfg.security.apiKey }));
 
-    app.post('/api/settings/api-key/regenerate', { config: { auth: 'session' } }, async () => {
+    app.post('/api/settings/api-key/regenerate', { config: { auth: 'session' } }, async (req) => {
+      audit(ctx, req.access, 'apikey.legacy_regenerated');
       if (ctx.config.lockedPaths['security.apiKey']) throw badRequest('The API key is set via the API_KEY environment variable and cannot be changed here');
       const apiKey = newApiKey();
       ctx.config.update({ security: { apiKey } });
