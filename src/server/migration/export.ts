@@ -64,11 +64,11 @@ function csvCell(v: unknown): string {
   return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-async function copyBlob(blobs: BlobStore, sha: string, target: string): Promise<{ bytes: number; md5: string }> {
+async function copyBlob(blobs: BlobStore, sha: string, target: string, algorithm: ExportChecksums = 'sha256'): Promise<{ bytes: number; checksum: string }> {
   const data = await blobs.read(sha);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, data);
-  return { bytes: data.length, md5: createHash('md5').update(data).digest('hex') };
+  return { bytes: data.length, checksum: createHash(algorithm).update(data).digest('hex') };
 }
 
 /** A file name not used yet in this directory. */
@@ -79,7 +79,17 @@ function unique(dir: string, base: string, ext: string, used: Set<string>): stri
   return name;
 }
 
-export async function exportArchive(ctx: AppContext, blobs: BlobStore, opts: { format: 'ngx' | 'plain'; directory: string; libraryIds: number[] | null }): Promise<ExportResult> {
+/**
+ * Checksums in the Paperless-ngx manifest: current Paperless-ngx computes SHA-256, older versions MD5.
+ * The importer stores them as they are; Paperless-ngx's sanity checker then compares them with the files.
+ */
+export type ExportChecksums = 'sha256' | 'md5';
+
+export async function exportArchive(
+  ctx: AppContext,
+  blobs: BlobStore,
+  opts: { format: 'ngx' | 'plain'; directory: string; libraryIds: number[] | null; checksums?: ExportChecksums },
+): Promise<ExportResult> {
   const db = ctx.db;
   const dir = path.resolve(opts.directory);
   fs.mkdirSync(dir, { recursive: true });
@@ -203,7 +213,7 @@ export async function exportArchive(ctx: AppContext, blobs: BlobStore, opts: { f
     const ext = path.extname(original.original_filename ?? '').slice(1) || extensionFor(original.mime_type);
     const base = `${String(d.id).padStart(7, '0')}`;
     const fileName = `${base}.${ext}`;
-    const o = await copyBlob(blobs, original.blob_sha256, path.join(dir, fileName));
+    const o = await copyBlob(blobs, original.blob_sha256, path.join(dir, fileName), opts.checksums);
     files++;
     bytes += o.bytes;
     const record: Record<string, unknown> = {
@@ -217,7 +227,7 @@ export async function exportArchive(ctx: AppContext, blobs: BlobStore, opts: { f
         document_type: d.document_type_id !== null ? mt.map.get(d.document_type_id) : null,
         content: (textOf.get(d.id, d.current_version) as { text: string } | undefined)?.text ?? '',
         mime_type: original.mime_type,
-        checksum: o.md5,
+        checksum: o.checksum,
         archive_checksum: null,
         page_count: d.page_count,
         created: d.created ?? d.added.slice(0, 10),
@@ -237,10 +247,10 @@ export async function exportArchive(ctx: AppContext, blobs: BlobStore, opts: { f
     };
     const archive = f.find((x) => x.kind === 'archive');
     if (archive) {
-      const a = await copyBlob(blobs, archive.blob_sha256, path.join(dir, `${base}-archive.pdf`));
+      const a = await copyBlob(blobs, archive.blob_sha256, path.join(dir, `${base}-archive.pdf`), opts.checksums);
       files++;
       bytes += a.bytes;
-      (record.fields as Record<string, unknown>).archive_checksum = a.md5;
+      (record.fields as Record<string, unknown>).archive_checksum = a.checksum;
       (record.fields as Record<string, unknown>).archive_filename = `${base}-archive.pdf`;
       record.__exported_archive_name__ = `${base}-archive.pdf`;
     }

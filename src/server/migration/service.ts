@@ -32,6 +32,20 @@ const log = logger.child({ module: 'migration' });
 
 const STATE_KEY = 'migration.paperless';
 
+/**
+ * Compare a file with the checksum Paperless-ngx reports. Paperless-ngx computed MD5 for a long time,
+ * current versions SHA-256 (documents of older installations may keep their MD5): the length of the
+ * hex digest tells which. Null when it matches (or there is no checksum to compare with).
+ */
+export function checksumProblem(data: Uint8Array, expected: string | null | undefined): string | null {
+  if (!expected) return null;
+  const want = expected.trim().toLowerCase();
+  const algorithm = { 32: 'md5', 40: 'sha1', 64: 'sha256', 128: 'sha512' }[want.length];
+  if (!algorithm) return null; // unknown format: nothing to compare with
+  const got = createHash(algorithm).update(data).digest('hex');
+  return got === want ? null : `${algorithm} ${want.slice(0, 12)}…, the file has ${got.slice(0, 12)}…, ${data.length} bytes`;
+}
+
 interface StoredState {
   state: MigrationState;
   strategy: MigrationStrategy | null;
@@ -473,6 +487,8 @@ export class MigrationService {
 
   resume(): MigrationStatus {
     if (!this.loop && this.stored().state !== 'cutover') {
+      // "Continue" is also the way to retry documents that failed three times (e.g. after an update).
+      this.ctx.db.prepare("UPDATE migration_items SET attempts = 0 WHERE status = 'failed'").run();
       this.save({ state: 'importing' });
       this.run();
     }
@@ -598,9 +614,8 @@ export class MigrationService {
     let archived: { sha256: string; size: number } | null = null;
     if (fileChanged) {
       const file = await c.download(id, true);
-      if (meta.original_checksum && createHash('md5').update(file.data).digest('hex') !== meta.original_checksum) {
-        throw new Error('The downloaded file does not match the checksum Paperless-ngx reports');
-      }
+      const problem = checksumProblem(file.data, meta.original_checksum);
+      if (problem) throw new Error(`The downloaded file does not match the checksum Paperless-ngx reports (${problem})`);
       const blob = await local.blobs.putBytes(file.data);
       const mime = sniffType(file.data) ?? d.mime_type ?? file.contentType;
       db.prepare('INSERT OR IGNORE INTO blobs (sha256, size, mime_type, created_at) VALUES (?, ?, ?, ?)').run(blob.sha256, blob.size, mime, Date.now());

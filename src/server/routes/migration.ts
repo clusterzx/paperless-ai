@@ -30,7 +30,13 @@ const strategy = z.discriminatedUnion('kind', [
 const options = z
   .object({ archived: z.boolean().default(false), createUsers: z.boolean().default(true), concurrency: z.number().int().min(1).max(16).default(4), analyze: z.boolean().default(false) })
   .prefault({});
-const exportBody = z.object({ format: z.enum(['ngx', 'plain']), directory: z.string().trim().max(1000).optional(), libraryIds: z.array(z.number().int().positive()).max(1000).optional() });
+const exportBody = z.object({
+  format: z.enum(['ngx', 'plain']),
+  directory: z.string().trim().max(1000).optional(),
+  libraryIds: z.array(z.number().int().positive()).max(1000).optional(),
+  /** Paperless-ngx format: SHA-256 (current versions) or MD5 (older ones). */
+  checksums: z.enum(['sha256', 'md5']).default('sha256'),
+});
 
 export const migrationRoutes =
   ({ ctx, engine, rag }: Services): FastifyPluginAsync =>
@@ -103,7 +109,7 @@ export const migrationRoutes =
       const b = ctx.archive();
       if (!(b instanceof LocalBackend)) throw new HttpProblem(409, 'Exports are for the built-in archive – Paperless-ngx has its own document_exporter');
       const dir = body.directory || path.join(ctx.dataDir, 'exports', `${body.format}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
-      return guard(() => exportArchive(ctx, b.blobs, { format: body.format, directory: dir, libraryIds }));
+      return guard(() => exportArchive(ctx, b.blobs, { format: body.format, directory: dir, libraryIds, checksums: body.checksums }));
     };
     app.post('/api/archive/export', { schema: { body: exportBody, description: 'Export documents (all or some libraries) into a directory on the server.' } }, async (req) => {
       const res = await run(req.body.libraryIds ?? null, req.body);
@@ -111,10 +117,10 @@ export const migrationRoutes =
       return res;
     });
     // Owners export their library (into data/exports – they cannot choose a directory on the server).
-    app.post('/api/libraries/:id/export', { schema: { params: z.object({ id: z.coerce.number().int().positive() }), body: exportBody.pick({ format: true }) } }, async (req) => {
+    app.post('/api/libraries/:id/export', { schema: { params: z.object({ id: z.coerce.number().int().positive() }), body: exportBody.pick({ format: true, checksums: true }) } }, async (req) => {
       if (!ctx.repos.libraries.get(req.params.id)) throw notFound('Library not found');
       if (!(isAdmin(req.access!) || roleIn(req.access!, req.params.id) === 'owner')) throw new HttpProblem(403, 'Only owners of the library can export it');
-      const res = await run([req.params.id], { format: req.body.format });
+      const res = await run([req.params.id], { format: req.body.format, checksums: req.body.checksums });
       audit(ctx, req.access, 'library.exported', `library:${req.params.id}`, { format: res.format, documents: res.documents }, req.params.id);
       return res;
     });

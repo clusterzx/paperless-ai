@@ -13,6 +13,7 @@ import type { MigrationPlan, MigrationReport, MigrationStatus } from '../../src/
 import type { LocalBackend } from '../../src/server/archive/backend.js';
 import { SYSTEM_SCOPE } from '../../src/server/access/scope.js';
 import { IMPORTED_REASON } from '../../src/server/processing/engine.js';
+import { checksumProblem } from '../../src/server/migration/service.js';
 
 let h: Harness;
 let cookie: string;
@@ -21,6 +22,7 @@ afterEach(async () => {
 });
 
 const md5 = (b: Buffer) => createHash('md5').update(b).digest('hex');
+const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const pdfA = makePdf([['Stromrechnung März', 'Stadtwerke', '84,20 EUR']]);
 const pdfB = makePdf([['Mietvertrag', 'Leopoldstraße 12']]);
 
@@ -181,8 +183,13 @@ describe('migration from Paperless-ngx', () => {
     expect(ngx).toMatchObject({ documents: 3 });
     const manifest = JSON.parse(fs.readFileSync(path.join(ngxDir, 'manifest.json'), 'utf8')) as { model: string; pk: number; fields: Record<string, unknown>; __exported_file_name__?: string }[];
     const doc101 = manifest.find((m) => m.model === 'documents.document' && m.pk === 101)!;
-    expect(doc101.fields).toMatchObject({ title: 'Stromrechnung März 2024', checksum: md5(pdfA), archive_serial_number: 17, created: '2024-03-31', storage_type: 'unencrypted' });
+    expect(doc101.fields).toMatchObject({ title: 'Stromrechnung März 2024', checksum: sha256(pdfA), archive_serial_number: 17, created: '2024-03-31', storage_type: 'unencrypted' });
     expect(md5(fs.readFileSync(path.join(ngxDir, doc101.__exported_file_name__!)))).toBe(md5(pdfA));
+    // For an older Paperless-ngx: MD5 checksums.
+    const oldDir = path.join(h.dataDir, 'export-ngx-md5');
+    await post('/api/archive/export', { format: 'ngx', directory: oldDir, checksums: 'md5' });
+    const oldManifest = JSON.parse(fs.readFileSync(path.join(oldDir, 'manifest.json'), 'utf8')) as { model: string; pk: number; fields: Record<string, unknown> }[];
+    expect(oldManifest.find((m) => m.model === 'documents.document' && m.pk === 101)!.fields.checksum).toBe(md5(pdfA));
     expect(manifest.filter((m) => m.model === 'documents.customfieldinstance' && m.fields.document === 101).map((m) => m.fields.value_monetary ?? m.fields.value_select ?? m.fields.value_int)).toEqual(
       expect.arrayContaining(['EUR84.20', 'a1']),
     );
@@ -239,10 +246,16 @@ describe('migration from Paperless-ngx', () => {
 
   it('discards an import before the cutover', async () => {
     await seed();
+    h.paperless.checksums = 'md5'; // an older Paperless-ngx: its MD5 checksums are checked as well
     const patchesBefore = h.paperless.calls('PATCH', /\/api\/documents\//).length;
     await post('/api/migration/start', { strategy: { kind: 'single', libraryName: 'Archiv' }, options: { archived: false, createUsers: false, concurrency: 4 } });
     await waitFor(async () => ((await h.inject({ method: 'GET', url: '/api/migration/status', headers: { cookie } })).json() as MigrationStatus).state === 'imported');
     expect((h.ctx.db.prepare('SELECT COUNT(*) AS c FROM lib_documents').get() as { c: number }).c).toBe(3);
+    // "Continue" retries documents that failed three times.
+    h.ctx.db.prepare("UPDATE migration_items SET status = 'failed', attempts = 3, error = 'x' WHERE ngx_id = 103").run();
+    await post('/api/migration/resume');
+    await waitFor(async () => ((await h.inject({ method: 'GET', url: '/api/migration/status', headers: { cookie } })).json() as MigrationStatus).state === 'imported');
+    expect(((await h.inject({ method: 'GET', url: '/api/migration/status', headers: { cookie } })).json() as MigrationStatus).counts).toMatchObject({ imported: 3, failed: 0 });
     const res = await post('/api/migration/discard');
     expect(res.statusCode, res.body).toBe(200);
     expect((h.ctx.db.prepare('SELECT COUNT(*) AS c FROM lib_documents').get() as { c: number }).c).toBe(0);
@@ -252,6 +265,17 @@ describe('migration from Paperless-ngx', () => {
     // Paperless-ngx is untouched (only read).
     expect(h.paperless.calls('PATCH', /\/api\/documents\//)).toHaveLength(patchesBefore);
     void SYSTEM_SCOPE;
+  });
+});
+
+describe('checksums of Paperless-ngx', () => {
+  it('compares SHA-256 (current versions) and MD5 (older ones) and reports a mismatch', () => {
+    expect(checksumProblem(pdfA, sha256(pdfA))).toBeNull();
+    expect(checksumProblem(pdfA, md5(pdfA).toUpperCase())).toBeNull();
+    expect(checksumProblem(pdfA, sha256(pdfB))).toMatch(/^sha256 .+ bytes$/);
+    expect(checksumProblem(pdfA, md5(pdfB))).toMatch(/^md5 /);
+    expect(checksumProblem(pdfA, null)).toBeNull();
+    expect(checksumProblem(pdfA, 'not-a-digest')).toBeNull();
   });
 });
 

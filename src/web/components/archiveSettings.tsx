@@ -212,12 +212,13 @@ function ExportCard() {
   const toast = useToast();
   const [format, setFormat] = useState<'ngx' | 'plain'>('plain');
   const [directory, setDirectory] = useState('');
+  const [checksums, setChecksums] = useState<'sha256' | 'md5'>('sha256');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ExportResult | null>(null);
   const run = async () => {
     setBusy(true);
     try {
-      const r = await post<ExportResult>('/api/archive/export', { format, directory: directory.trim() || undefined });
+      const r = await post<ExportResult>('/api/archive/export', { format, directory: directory.trim() || undefined, checksums });
       setResult(r);
       toast.success(`${r.documents} document(s) exported`);
     } catch (err) {
@@ -239,6 +240,14 @@ function ExportCard() {
           <Field label="Directory on the server" hint="Empty: data/exports/<format>-<time>. Must be empty.">
             <Input value={directory} placeholder="/exports/archive" onChange={(e) => setDirectory(e.target.value)} />
           </Field>
+          {format === 'ngx' && (
+            <Field label="Checksums" hint="As the target Paperless-ngx computes them – its sanity check compares them with the files.">
+              <Select value={checksums} onChange={(e) => setChecksums(e.target.value as 'sha256' | 'md5')}>
+                <option value="sha256">SHA-256 (current Paperless-ngx)</option>
+                <option value="md5">MD5 (older Paperless-ngx)</option>
+              </Select>
+            </Field>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Button loading={busy} onClick={() => void run()}>

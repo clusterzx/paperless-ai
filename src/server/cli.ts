@@ -7,7 +7,7 @@
  *   paperless-ai migrate start   (same options) – imports and waits until it is done
  *   paperless-ai migrate sync | status | discard
  *   paperless-ai migrate cutover – stop the server first (it switches the archive mode)
- *   paperless-ai export --format ngx|plain --out <directory> [--library <id> …]
+ *   paperless-ai export --format ngx|plain --out <directory> [--library <id> …] [--checksums sha256|md5]
  *
  * Uses the data directory of the server (PAPERLESS_AI_DATA_DIR or ./data, or --data <dir>).
  */
@@ -45,7 +45,7 @@ const print = (v: unknown) => process.stdout.write(`${JSON.stringify(v, (_, x) =
 
 const USAGE = `Usage:
   paperless-ai migrate analyse|plan|start|sync|status|cutover|discard [--strategy single:<name>|owner:<shared>] [--archived] [--no-create-users] [--concurrency n] [--analyze]
-  paperless-ai export --format ngx|plain --out <directory> [--library <id> …]
+  paperless-ai export --format ngx|plain --out <directory> [--library <id> …] [--checksums sha256|md5 (Paperless-ngx: md5 for older versions)]
 Options: --data <directory> (default: PAPERLESS_AI_DATA_DIR or ./data)`;
 
 export async function main(argv: string[]): Promise<number> {
@@ -115,7 +115,8 @@ export async function main(argv: string[]): Promise<number> {
       const backend = new LocalBackend(ctx, { passive: true });
       try {
         const libs = args(all, 'library').map(Number);
-        print(await exportArchive(ctx, backend.blobs, { format, directory: out, libraryIds: libs.length ? libs : null }));
+        const checksums = arg(all, 'checksums') === 'md5' ? 'md5' : 'sha256';
+        print(await exportArchive(ctx, backend.blobs, { format, directory: out, libraryIds: libs.length ? libs : null, checksums }));
       } finally {
         await backend.close();
       }

@@ -102,6 +102,10 @@ built-in archive (e.g. added after a cutover and a switch back). A single docume
 by such a document is never replaced – it fails with a reason. Rolling back is only possible after a
 cutover by the assistant.
 
+**Checksums:** every downloaded original is compared with the checksum Paperless-ngx reports –
+SHA-256 in current versions, MD5 in older ones (and for documents of older installations); the
+length of the digest tells which. "Continue" retries documents that failed (e.g. after an update).
+
 **Why the same id and the same `modified`:** the processing state (`documents`), the AI history,
 the OCR results, the calendar and the RAG index reference document ids and compare `modified`.
 With both unchanged, everything stays valid. There is no re-analysis, no new OCR and no
@@ -182,7 +186,9 @@ Two exports, both from Settings → Archive (admins; owners for their libraries)
    files, the way `document_exporter` writes them, so that `document_importer` can read it into a
    fresh Paperless-ngx. The format depends on the Paperless-ngx version. The export targets the
    current major version, and a CI job checks the round trip against the official Paperless-ngx
-   image ([testing-and-operations.md](testing-and-operations.md#3-ci)).
+   image ([testing-and-operations.md](testing-and-operations.md#3-ci)), including its sanity check.
+   Checksums: SHA-256 as current Paperless-ngx computes them, MD5 for older versions (option; the
+   importer stores the values as they are and the sanity checker compares them with the files).
 2. **Plain export:** folders `library/correspondent/year/` with the original files named after
    their titles, plus `metadata.json` and `metadata.csv`. Readable without any software, and a
    guarantee that the data is never locked in.

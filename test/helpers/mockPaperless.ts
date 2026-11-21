@@ -103,6 +103,8 @@ export class MockPaperless {
   defaultVersion: number;
   serverVersion: string;
   user: { id: number; username: string; is_superuser?: boolean };
+  /** Checksum algorithm of the metadata endpoint: current Paperless-ngx SHA-256, older versions MD5. */
+  checksums: 'sha256' | 'md5' = 'sha256';
 
   readonly docs = new Map<number, MockDoc>();
   readonly tags = new Map<number, MockNamed>();
@@ -358,14 +360,15 @@ export class MockPaperless {
     if ((m = /^\/api\/documents\/(\d+)\/metadata\/$/.exec(path)) && record.method === 'GET') {
       const doc = this.docs.get(Number(m[1]));
       if (!doc) return send(404, { detail: 'Not found.' });
-      const md5 = (b: Buffer) => createHash('md5').update(b).digest('hex');
+      // Paperless-ngx 2.x reports SHA-256; older versions (and their documents) MD5.
+      const sum = (b: Buffer) => createHash(this.checksums).update(b).digest('hex');
       return send(200, {
-        original_checksum: md5(doc.file.data),
+        original_checksum: sum(doc.file.data),
         original_size: doc.file.data.length,
         original_mime_type: doc.file.contentType,
         original_filename: doc.original_file_name,
         has_archive_version: Boolean(doc.archive),
-        archive_checksum: doc.archive ? md5(doc.archive) : null,
+        archive_checksum: doc.archive ? sum(doc.archive) : null,
         archive_size: doc.archive?.length ?? null,
       });
     }
