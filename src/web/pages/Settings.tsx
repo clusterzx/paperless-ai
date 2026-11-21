@@ -18,11 +18,13 @@ import {
   Sparkles,
   UserCog,
   Users,
+  Archive as ArchiveIcon,
   ScrollText,
   Webhook,
   Workflow,
 } from 'lucide-react';
 import { ApiKeysCard, AuditLogCard, UsersTab } from '../components/accessAdmin';
+import { ArchiveSection } from '../components/archiveSettings';
 import { Page } from '../components/Layout';
 import { TwoFactorCard } from '../components/twoFactor';
 import { SingleSignOnCard } from '../components/singleSignOn';
@@ -68,7 +70,7 @@ interface SettingsResponse {
   ocr: { available: boolean; cudaAvailable: boolean };
 }
 
-const TAB_IDS = ['connection', 'ai', 'processing', 'prompt', 'fields', 'ocr', 'external', 'rag', 'signin', 'integrations', 'users', 'audit', 'keys', 'account'] as const;
+const TAB_IDS = ['archive', 'connection', 'ai', 'processing', 'prompt', 'fields', 'ocr', 'external', 'rag', 'signin', 'integrations', 'users', 'audit', 'keys', 'account'] as const;
 /** Tabs members see (everything else is administration). */
 const MEMBER_TABS = ['account', 'keys'] as const;
 type TabId = (typeof TAB_IDS)[number];
@@ -326,7 +328,9 @@ function AdminSettings() {
   const [, navigate] = useLocation();
   const requested = new URLSearchParams(search).get('tab');
   // Unknown tabs (old links, typos) show the first tab instead of an empty page.
-  const tab: TabId = TAB_IDS.find((t) => t === requested) ?? 'connection';
+  const { session } = useSession();
+  const builtin = session?.archive?.mode === 'builtin';
+  const tab: TabId = TAB_IDS.find((t) => t === requested && (t !== 'archive' || builtin)) ?? (builtin ? 'archive' : 'connection');
   const [loaded, setLoaded] = useState<SettingsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, set, setDraft] = useDraft<Config | null>(null);
@@ -399,7 +403,8 @@ function AdminSettings() {
   const locked = loaded.locked;
   const tagNames = meta.tags.map((t) => t.name);
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
-    { id: 'connection', label: 'Paperless', icon: <Link2 className="size-4" /> },
+    ...(builtin ? [{ id: 'archive' as const, label: 'Archive', icon: <ArchiveIcon className="size-4" /> }] : []),
+    { id: 'connection', label: builtin ? 'Paperless-ngx (import)' : 'Paperless', icon: <Link2 className="size-4" /> },
     { id: 'ai', label: 'AI provider', icon: <Bot className="size-4" /> },
     { id: 'processing', label: 'Processing', icon: <ListChecks className="size-4" /> },
     { id: 'prompt', label: 'Prompt', icon: <MessageSquareQuote className="size-4" /> },
@@ -436,6 +441,7 @@ function AdminSettings() {
               Some settings are defined by environment variables (marked with a lock) and cannot be changed here.
             </Alert>
           )}
+          {tab === 'archive' && <ArchiveSection draft={draft} set={set} locked={locked} />}
           {tab === 'connection' && (
             <Card
               title="Paperless-ngx connection"

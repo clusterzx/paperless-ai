@@ -32,6 +32,7 @@ import { oidcRoutes } from '../routes/oidc.js';
 import { promptRoutes } from '../routes/prompts.js';
 import { promptRuleRoutes } from '../routes/promptRules.js';
 import { twoFactorRoutes } from '../routes/twoFactor.js';
+import { archiveRoutes } from '../routes/archive.js';
 import { metadataRoutes } from '../routes/metadata.js';
 import { accessRoutes } from '../routes/access.js';
 import { calendarRoutes } from '../routes/calendar.js';
@@ -214,6 +215,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(calendarRoutes(services));
   await app.register(accessRoutes(services));
   await app.register(metadataRoutes(services));
+  await app.register(archiveRoutes(services));
 
   // Web UI (single page app)
   const staticDir = opts.staticDir;

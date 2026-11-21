@@ -32,7 +32,7 @@ async function main(): Promise<void> {
   const rag = new RagService(ctx);
   // Keep the search index fresh after documents were changed by the AI or got a new text from OCR.
   engine.on('idle', () => rag.requestSync());
-  wireDocumentEvents(ctx, { rag, ocr });
+  wireDocumentEvents(ctx, { rag, ocr, engine });
   if (ctx.cfg.ocr.enabled && !(await ocr.isAvailable())) {
     log.warn('OCR is enabled, but its libraries are not installed (onnxruntime-node, sharp, @hyzyla/pdfium) – OCR is skipped');
   }

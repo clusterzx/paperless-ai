@@ -23,6 +23,7 @@ import { OcrService } from '../src/server/ocr/service.js';
 import { FakeOcrEngine } from '../test/helpers/fakeOcr.js';
 import { hashPassword } from '../src/server/auth.js';
 import { wireDocumentEvents } from '../src/server/wiring.js';
+import { makePdf } from '../test/helpers/pdf.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.DEMO_PORT ?? 3456);
@@ -227,9 +228,22 @@ const ocr = process.env.DEMO_REAL_OCR === '1' ? new OcrService(ctx) : new OcrSer
 const engine = new ProcessingEngine(ctx, ocr);
 const rag = new RagService(ctx);
 engine.on('idle', () => rag.requestSync());
-wireDocumentEvents(ctx, { rag, ocr });
+wireDocumentEvents(ctx, { rag, ocr, engine });
 const staticDir = path.resolve(here, '..', 'dist', 'public');
 const app = await buildApp({ ctx, engine, rag, ocr }, { staticDir });
+// DEMO_ARCHIVE=builtin: the same samples, but stored in the built-in archive instead of the mock Paperless-ngx.
+if (!fresh && process.env.DEMO_ARCHIVE === 'builtin') {
+  ctx.config.update({ archive: { mode: 'builtin', builtin: { storageDir: path.join(dataDir, 'library') } }, ocr: { enabled: true, mode: 'poor' } });
+  const backend = ctx.backend();
+  for (const doc of [...paperless.docs.values()]) {
+    const lines = (doc.content || doc.title).split('\n');
+    await backend.ingest({ data: makePdf([lines]), filename: `${doc.title.replace(/\.pdf$/i, '')}.pdf` }, 'import', {
+      title: doc.title,
+      created: doc.created,
+      skipAnalysis: true,
+    });
+  }
+}
 app.get('/__demo/info', { config: { auth: 'public' } }, async () => ({
   paperlessUrl: paperless.url,
   paperlessToken: paperless.token,

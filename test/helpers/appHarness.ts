@@ -36,6 +36,8 @@ export interface HarnessOptions {
   configured?: boolean;
   memoryDb?: boolean;
   env?: Record<string, string | undefined>;
+  /** Run with the built-in archive instead of the mock Paperless-ngx. */
+  archive?: 'paperless' | 'builtin';
 }
 
 export interface Harness {
@@ -97,13 +99,15 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
   const base: DeepPartial<AppConfig> = configured
     ? baseConfig(paperless, llm, opts)
     : { processing: { automatic: false }, rag: { autoSync: false, embeddingProvider: 'none' } };
-  ctx.config.update(deepMerge(base, opts.config ?? {}));
+  const archive: DeepPartial<AppConfig> =
+    opts.archive === 'builtin' ? { archive: { mode: 'builtin', builtin: { storageDir: path.join(dataDir, 'library') } }, ocr: { enabled: true, mode: 'poor' } } : {};
+  ctx.config.update(deepMerge(deepMerge(base, archive), opts.config ?? {}));
 
   const ocrEngine = new FakeOcrEngine();
   const ocr = new OcrService(ctx, () => ocrEngine);
   const engine = new ProcessingEngine(ctx, ocr);
   const rag = new RagService(ctx);
-  wireDocumentEvents(ctx, { rag, ocr });
+  wireDocumentEvents(ctx, { rag, ocr, engine });
   const app = await buildApp({ ctx, engine, rag, ocr });
   await app.ready();
 

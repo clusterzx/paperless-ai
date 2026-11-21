@@ -11,6 +11,7 @@ import { createRepos, type NewUsage, type Repos } from './db/repos.js';
 import { PaperlessClient } from './paperless/client.js';
 import { MetadataCache } from './backend/metadata.js';
 import { PaperlessBackend } from './backend/paperless.js';
+import { LocalBackend } from './archive/backend.js';
 import type { DocumentBackend } from './backend/types.js';
 import { BackendView } from './backend/view.js';
 import { SYSTEM_SCOPE, type AccessScope } from './access/scope.js';
@@ -88,7 +89,7 @@ export class AppContext {
 
   /** The archive backend of the configured mode can be used. */
   archiveConfigured(): boolean {
-    return this.archiveMode() === 'builtin' ? AppContext.builtinFactory !== null : this.paperlessConfigured();
+    return this.archiveMode() === 'builtin' ? true : this.paperlessConfigured();
   }
 
   /** Setup finished and both the archive and the AI provider are configured. */
@@ -99,12 +100,6 @@ export class AppContext {
   needsSetup(): boolean {
     return this.repos.users.count() === 0 || !this.cfg.setupCompleted;
   }
-
-  /**
-   * Factory of the built-in archive backend. Registered by archive/backend.ts (keeps the context free
-   * of the archive's dependencies and avoids an import cycle).
-   */
-  static builtinFactory: ((ctx: AppContext) => DocumentBackend) | null = null;
 
   private backendKey(cfg: AppConfig): string {
     if (cfg.archive.mode === 'builtin') return `builtin|${cfg.archive.builtin.storageDir}`;
@@ -117,8 +112,7 @@ export class AppContext {
     let backend: DocumentBackend;
     const metadata = new Map<string, MetadataCache>();
     if (this.archiveMode() === 'builtin') {
-      if (!AppContext.builtinFactory) throw new NotConfiguredError('The built-in archive is not available in this installation');
-      backend = AppContext.builtinFactory(this);
+      backend = new LocalBackend(this);
     } else {
       if (!this.paperlessConfigured()) throw new NotConfiguredError('Paperless-ngx is not configured yet');
       backend = new PaperlessBackend({

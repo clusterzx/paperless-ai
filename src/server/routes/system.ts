@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { networkFsWarning } from '../archive/fsinfo.js';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -124,6 +126,10 @@ export const systemRoutes =
       defaults: { systemPrompt: DEFAULT_SYSTEM_PROMPT },
       localEmbeddings: await localEmbeddingsAvailable(),
       needsUser: ctx.repos.users.count() === 0,
+      archive: {
+        defaultStorageDir: path.join(ctx.dataDir, 'library'),
+        networkWarning: networkFsWarning(ctx.dataDir),
+      },
     }));
 
     app.post('/api/setup/test-paperless', { config: { auth: 'setup' }, schema: { body: z.object({ url: z.string(), token: z.string() }) } }, async (req) =>
@@ -152,8 +158,11 @@ export const systemRoutes =
       // Validate the merged configuration before testing anything.
       const merged = configSchema.parse(deepMerge(structuredClone(ctx.cfg), withoutMaskedSecrets(patch)));
 
-      const pl = await testPaperlessConnection(merged.paperless.url, storedPaperlessToken(ctx, merged.paperless.url, patch.paperless?.token, isUser(req)));
-      if (!pl.ok) return reply.code(400).send({ error: pl.message, step: 'paperless' });
+      // The built-in archive needs no connection; companion mode needs a working Paperless-ngx.
+      if (merged.archive.mode !== 'builtin') {
+        const pl = await testPaperlessConnection(merged.paperless.url, storedPaperlessToken(ctx, merged.paperless.url, patch.paperless?.token, isUser(req)));
+        if (!pl.ok) return reply.code(400).send({ error: pl.message, step: 'paperless' });
+      }
       if (!req.body.force) {
         const ai = await testAiConnection(ctx, patch.ai ?? {}, { trusted: isUser(req) });
         if (!ai.ok) return reply.code(400).send({ error: ai.message, step: 'ai', canForce: true });
@@ -174,7 +183,16 @@ export const systemRoutes =
         log.info(`Created user "${req.body.username}"`);
       }
       if (user) setSessionCookie(reply, req, await issueSession(ctx, user), ctx.cfg.security.sessionHours);
-      log.info('Setup completed');
+      if (ctx.archiveMode() === 'builtin' && user) {
+        // The setup account owns the first library (it may have been created before the account existed).
+        ctx.archive();
+        for (const lib of ctx.repos.libraries.list()) if (!ctx.repos.libraries.owners(lib.id).length) ctx.repos.libraries.setMember(lib.id, 'user', user.id, 'owner');
+        if (typeof req.body.config?.libraryName === 'string' && req.body.config.libraryName.trim()) {
+          const first = ctx.repos.libraries.list()[0];
+          if (first) ctx.repos.libraries.update(first.id, { name: String(req.body.config.libraryName).trim().slice(0, 100) });
+        }
+      }
+      log.info(`Setup completed (${ctx.archiveMode() === 'builtin' ? 'built-in archive' : 'with Paperless-ngx'})`);
       if (ctx.cfg.rag.enabled) rag.requestSync();
       return { ok: true };
     });

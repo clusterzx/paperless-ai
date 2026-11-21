@@ -10,7 +10,16 @@ import { logger } from './logger.js';
 const log = logger.child({ module: 'events' });
 
 export type DocumentEvent =
-  | { type: 'document.added'; id: number; source: IngestChannel | 'scan' | 'webhook'; libraryId?: number | null }
+  | {
+      type: 'document.added';
+      id: number;
+      source: IngestChannel | 'scan' | 'webhook';
+      libraryId?: number | null;
+      /** Intake hints for the processing: store and read only, a library prompt, extra context. */
+      skipAnalysis?: boolean;
+      prompt?: number | string;
+      context?: Record<string, string>;
+    }
   | { type: 'document.updated'; id: number; fields: string[]; origin: ChangeOrigin; libraryId?: number | null }
   | { type: 'document.version_added'; id: number; version: number; libraryId?: number | null }
   | { type: 'document.deleted'; id: number; origin: ChangeOrigin; libraryId?: number | null }

@@ -184,7 +184,15 @@ interface ReceivedFile {
 }
 
 /** Read a multipart upload (files + hint fields) and hand every file to the archive. */
-export async function receiveUploads(ctx: AppContext, req: FastifyRequest, channel: IngestChannel, extraHints: IngestHints = {}): Promise<UploadResult[]> {
+export async function receiveUploads(
+  ctx: AppContext,
+  req: FastifyRequest,
+  channel: IngestChannel,
+  extraHints: IngestHints = {},
+  /** Hints from the form fields in another format (e.g. Paperless-ngx's post_document). */
+  hintsFrom?: (fields: Record<string, string[]>) => Promise<IngestHints>,
+  _fileField?: string,
+): Promise<UploadResult[]> {
   if (!req.isMultipart()) throw badRequest('Send the files as multipart/form-data');
   const limit = ctx.cfg.archive.builtin.maxUploadMb * MB;
   const dir = path.join(ctx.dataDir, 'tmp');
@@ -218,7 +226,8 @@ export async function receiveUploads(ctx: AppContext, req: FastifyRequest, chann
     const tags = (fields.tags ?? []).flatMap((t) => t.split(',')).map((t) => t.trim()).filter(Boolean);
     const libraryId = one('libraryId') ? Number(one('libraryId')) : undefined;
     const idempotency = req.headers['idempotency-key'];
-    const hints: IngestHints = {
+    const custom = hintsFrom ? await hintsFrom(fields) : null;
+    const hints: IngestHints = custom ? { ...extraHints, ...stripUndefined(custom) } : {
       ...extraHints,
       ...(libraryId ? { libraryId } : {}),
       ...(one('title') ? { title: one('title') } : {}),
@@ -229,6 +238,7 @@ export async function receiveUploads(ctx: AppContext, req: FastifyRequest, chann
       ...(/^(1|true|yes)$/i.test(one('skipAnalysis') ?? '') ? { skipAnalysis: true } : {}),
       ...(one('prompt') ? { prompt: /^\d+$/.test(one('prompt')!) ? Number(one('prompt')) : one('prompt') } : {}),
       ...(one('replaces') ? { replaces: Number(one('replaces')) } : {}),
+      ...(one('comment') ? { context: { comment: one('comment')! } } : {}),
     };
     if (!files.length) throw badRequest('No file received (form field "file")');
     const backend = ctx.backend(req.access!);
@@ -251,6 +261,10 @@ export async function receiveUploads(ctx: AppContext, req: FastifyRequest, chann
   } finally {
     for (const f of files) fs.rmSync(f.path, { force: true });
   }
+}
+
+function stripUndefined<T extends object>(o: T): T {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && !(Array.isArray(v) && !v.length))) as T;
 }
 
 // ---------------------------------------------------------------- serving files

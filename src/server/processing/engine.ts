@@ -22,7 +22,9 @@ import { ruleLabel } from '../../shared/promptRules.js';
 const log = logger.child({ module: 'processing' });
 
 export interface EnqueueOptions {
-  source: 'scan' | 'webhook' | 'api' | 'manual' | 'ocr';
+  source: 'scan' | 'webhook' | 'api' | 'manual' | 'ocr' | 'ingest';
+  /** false: read (OCR) and index only – no AI analysis (intake option "do not analyse"). */
+  analyze?: boolean;
   /** Process even if the document was processed before. */
   force?: boolean;
   /** Replace the system prompt for this document (webhook `prompt`). */
@@ -34,6 +36,8 @@ export interface EnqueueOptions {
 /** Reason of documents skipped for missing text – they are picked up again once automatic OCR is enabled. */
 export const NO_TEXT_REASON = 'No text content (OCR not finished or failed)';
 const NO_TEXT_AFTER_OCR = 'No text found, not even with OCR';
+/** Intake option: stored and read, but not analysed (until someone asks for it). */
+export const ANALYSIS_SKIPPED_REASON = 'Not analysed (intake option)';
 
 interface Job extends EnqueueOptions {
   documentId: number;
@@ -272,7 +276,7 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       case 'skipped':
         // Without text before automatic OCR was enabled: now it can be read.
         if (state.reason === NO_TEXT_REASON && this.ocrAutomatic()) return true;
-        return state.reason !== 'reverted' && changed;
+        return state.reason !== 'reverted' && state.reason !== ANALYSIS_SKIPPED_REASON && changed;
       default:
         return true;
     }
@@ -437,6 +441,13 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       } else if (this.ocr) {
         content = this.ocr.storedText(doc) ?? content;
         if (this.ctx.cfg.ocr.enabled) this.ocr.assess(doc);
+      }
+      if (job.analyze === false) {
+        // A new version of an analysed document keeps its analysis; new documents wait for one.
+        if (repo.get(documentId)?.status === 'processed') repo.markProcessed(documentId, doc.title, doc.modified ?? null);
+        else repo.markSkipped(documentId, doc.title, ANALYSIS_SKIPPED_REASON, doc.modified ?? null);
+        log.info(`Document ${documentId} stored without AI analysis (intake option)`);
+        return 'skipped';
       }
       if (content.trim().length < 10) {
         // A failed OCR run is an error (retried up to maxAttempts), not a document without text.

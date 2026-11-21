@@ -1,3 +1,4 @@
+import { ARCHIVE_SCHEMA } from '../archive/schema.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
@@ -400,16 +401,27 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX notifications_user ON notifications(user_id, read_at, at);
       `),
   },
+  {
+    version: 12,
+    name: 'built-in archive',
+    up: (db) => db.exec(ARCHIVE_SCHEMA),
+  },
 ];
 
 export function openDatabase(file: string): Db {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
+  const fresh = file === ':memory:' || !fs.existsSync(file);
   const db = new BetterSqlite3(file);
+  // Only possible before the first table exists; older databases switch with a one-time VACUUM.
+  if (fresh) db.pragma('auto_vacuum = INCREMENTAL');
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
   db.pragma('temp_store = MEMORY');
+  db.pragma('cache_size = -65536');
+  db.pragma('journal_size_limit = 67108864');
+  if (file !== ':memory:') db.pragma('mmap_size = 268435456');
   migrate(db);
   return db;
 }
