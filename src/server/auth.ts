@@ -136,6 +136,12 @@ export async function authenticate(ctx: AppContext, req: FastifyRequest): Promis
     if (a) return a;
   }
   const auth = req.headers.authorization;
+  // HTTP Basic with an API key as the password (WebDAV clients, scanners); the user name is ignored.
+  if (auth?.startsWith('Basic ')) {
+    const decoded = Buffer.from(auth.slice(6).trim(), 'base64').toString('utf8');
+    const a = fromApiKey(ctx, decoded.slice(decoded.indexOf(':') + 1));
+    if (a) return a;
+  }
   if (auth?.startsWith('Bearer ') || auth?.startsWith('Token ')) {
     const token = auth.slice(auth.indexOf(' ') + 1).trim();
     const a = fromApiKey(ctx, token);

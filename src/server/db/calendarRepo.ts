@@ -63,6 +63,16 @@ export class CalendarRepo {
     })();
   }
 
+  /** One more date for a document (workflows) – an equal date that exists already is kept. */
+  addEvent(documentId: number, documentTitle: string | null, e: SuggestedEvent): boolean {
+    const existing = this.db.prepare('SELECT date, title FROM calendar_events WHERE document_id = ?').all(documentId) as { date: string; title: string }[];
+    if (existing.some((d) => sameEvent(d, e))) return false;
+    this.db
+      .prepare('INSERT INTO calendar_events (document_id, document_title, title, date, time, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(documentId, documentTitle, e.title, e.date, e.time, e.kind, Date.now());
+    return true;
+  }
+
   /** Forget the dates of a deleted document (and that it was scanned). */
   removeDocument(documentId: number): void {
     this.db.prepare('DELETE FROM calendar_events WHERE document_id = ?').run(documentId);

@@ -167,8 +167,37 @@ export const configSchema = z.object({
           trashDays: z.coerce.number().int().min(1).max(3650).default(30),
           /** WebDAV inbox at /dav/inbox/ (upload with an API key). */
           webdav: bool(true),
+          /** Minutes between two checks of the e-mail accounts of the libraries. */
+          mailPollMinutes: z.coerce.number().int().min(1).max(1440).default(5),
         })
         .prefault({}),
+    })
+    .prefault({}),
+  /** E-mail for workflow notifications. */
+  notifications: z
+    .object({
+      smtp: z
+        .object({
+          host: str(),
+          port: z.coerce.number().int().min(1).max(65535).default(587),
+          /** 'starttls' (587), 'tls' (465) or 'none' (local relays only). */
+          security: z.enum(['starttls', 'tls', 'none']).default('starttls'),
+          username: str(),
+          password: str(),
+          /** Sender address, e.g. "Paperless-AI <archive@example.com>". */
+          from: str(),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
+  workflows: z
+    .object({
+      /** Workflow runs at the same time. */
+      concurrency: z.coerce.number().int().min(1).max(8).default(2),
+      /** Days successful runs are kept in the run log. */
+      retentionDays: z.coerce.number().int().min(1).max(3650).default(90),
+      /** Days failed runs are kept. */
+      failedRetentionDays: z.coerce.number().int().min(1).max(3650).default(365),
     })
     .prefault({}),
   ai: z
@@ -396,6 +425,7 @@ export const SECRET_PATHS = [
   'security.apiKey',
   'security.jwtSecret',
   'auth.oidc.clientSecret',
+  'notifications.smtp.password',
 ] as const;
 
 export const SECRET_MASK = '••••••••';

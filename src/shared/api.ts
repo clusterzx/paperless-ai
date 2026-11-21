@@ -763,3 +763,28 @@ export interface TextDiffLine {
   type: 'same' | 'add' | 'del';
   text: string;
 }
+
+export interface MailRuleInfo {
+  from?: string;
+  subject?: string;
+  tags?: string[];
+  skipAnalysis?: boolean;
+  ignore?: boolean;
+}
+
+export interface MailAccountInfo {
+  id: number;
+  libraryId: number;
+  name: string;
+  host: string;
+  port: number;
+  security: 'tls' | 'starttls' | 'none';
+  username: string;
+  folders: string[];
+  rules: MailRuleInfo[];
+  after: 'seen' | 'move' | 'delete';
+  afterFolder: string | null;
+  enabled: boolean;
+  lastError: string | null;
+  lastCheckedAt: number | null;
+}

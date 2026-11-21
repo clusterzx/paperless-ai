@@ -16,7 +16,8 @@ import { toRow } from '../http/documentQuery.js';
 import { receiveUploads } from './documentOps.js';
 import { diffLines } from '../archive/diff.js';
 
-import type { DocumentVersionInfo, LibraryCandidates, LibraryInfo, LibraryMember, TextDiffLine, WatchFolder } from '../../shared/api.js';
+import type { DocumentVersionInfo, LibraryCandidates, LibraryInfo, LibraryMember, MailAccountInfo, TextDiffLine, WatchFolder } from '../../shared/api.js';
+import type { MailAccountRow } from '../archive/mail.js';
 
 const id = z.object({ id: z.coerce.number().int().positive() });
 
@@ -198,6 +199,140 @@ export const archiveRoutes =
       ownerOrAdmin(req.access!, row.library_id);
       ctx.db.prepare('DELETE FROM intake_folders WHERE id = ?').run(req.params.id);
       return { ok: true };
+    });
+
+    // ---------------------------------------------------------------- e-mail accounts of a library
+
+    const mailRule = z.object({
+      from: z.string().max(300).optional(),
+      subject: z.string().max(300).optional(),
+      tags: z.array(z.string().trim().min(1).max(128)).max(50).optional(),
+      skipAnalysis: z.boolean().optional(),
+      ignore: z.boolean().optional(),
+    });
+    const mailBody = z.object({
+      name: z.string().trim().min(1).max(100),
+      host: z.string().trim().min(1).max(300),
+      port: z.number().int().min(1).max(65535).default(993),
+      security: z.enum(['tls', 'starttls', 'none']).default('tls'),
+      username: z.string().trim().min(1).max(300),
+      /** Empty on an update: keep the stored password. */
+      password: z.string().max(500).default(''),
+      folders: z.array(z.string().trim().min(1).max(300)).min(1).max(20).default(['INBOX']),
+      rules: z.array(mailRule).max(50).default([]),
+      after: z.enum(['seen', 'move', 'delete']).default('seen'),
+      afterFolder: z.string().trim().max(300).nullable().default(null),
+      enabled: z.boolean().default(true),
+    });
+    const mailDto = (r: MailAccountRow): MailAccountInfo => ({
+      id: r.id,
+      libraryId: r.library_id,
+      name: r.name,
+      host: r.host,
+      port: r.port,
+      security: r.security,
+      username: r.username,
+      folders: JSON.parse(r.folders || '[]') as string[],
+      rules: JSON.parse(r.rules || '[]') as MailAccountInfo['rules'],
+      after: r.after,
+      afterFolder: r.after_folder,
+      enabled: Boolean(r.enabled),
+      lastError: r.last_error,
+      lastCheckedAt: r.last_checked_at,
+    });
+    const mailRow = (accountId: number) => {
+      const row = ctx.db.prepare('SELECT * FROM intake_mail_accounts WHERE id = ?').get(accountId) as MailAccountRow | undefined;
+      if (!row) throw notFound('E-mail account not found');
+      return row;
+    };
+    // Mail servers are hosts on the network: only administrators connect the archive to one.
+    const adminOnly = (scope: AccessScope) => {
+      if (!isAdmin(scope)) throw new HttpProblem(403, 'Only administrators can set up e-mail accounts');
+    };
+
+    app.get('/api/libraries/:id/intake/mail', { schema: { params: id } }, async (req): Promise<MailAccountInfo[]> => {
+      local('E-mail intake');
+      ownerOrAdmin(req.access!, req.params.id);
+      return (ctx.db.prepare('SELECT * FROM intake_mail_accounts WHERE library_id = ? ORDER BY name').all(req.params.id) as MailAccountRow[]).map(mailDto);
+    });
+
+    app.post('/api/libraries/:id/intake/mail', { schema: { params: id, body: mailBody } }, async (req): Promise<MailAccountInfo> => {
+      const b = local('E-mail intake');
+      adminOnly(req.access!);
+      ownerOrAdmin(req.access!, req.params.id);
+      if (!req.body.password) throw badRequest('The password is missing');
+      const m = req.body;
+      const accountId = Number(
+        ctx.db
+          .prepare(
+            `INSERT INTO intake_mail_accounts (library_id, name, host, port, security, username, password_enc, folders, rules, after, after_folder, enabled)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(req.params.id, m.name, m.host, m.port, m.security, m.username, b.mail.sealPassword(m.password), JSON.stringify(m.folders), JSON.stringify(m.rules), m.after, m.afterFolder, m.enabled ? 1 : 0).lastInsertRowid,
+      );
+      audit(ctx, req.access, 'library.changed', `library:${req.params.id}`, { mailAccount: `${m.username}@${m.host}` }, req.params.id);
+      b.mail.start();
+      return mailDto(mailRow(accountId));
+    });
+
+    app.put('/api/intake/mail/:id', { schema: { params: id, body: mailBody } }, async (req): Promise<MailAccountInfo> => {
+      const b = local('E-mail intake');
+      adminOnly(req.access!);
+      const row = mailRow(req.params.id);
+      const m = req.body;
+      ctx.db
+        .prepare(
+          `UPDATE intake_mail_accounts SET name = ?, host = ?, port = ?, security = ?, username = ?, password_enc = ?, folders = ?, rules = ?, after = ?, after_folder = ?, enabled = ?,
+             state = CASE WHEN host = ? AND username = ? THEN state ELSE '{}' END WHERE id = ?`,
+        )
+        .run(
+          m.name,
+          m.host,
+          m.port,
+          m.security,
+          m.username,
+          m.password ? b.mail.sealPassword(m.password) : row.password_enc,
+          JSON.stringify(m.folders),
+          JSON.stringify(m.rules),
+          m.after,
+          m.afterFolder,
+          m.enabled ? 1 : 0,
+          m.host,
+          m.username,
+          row.id,
+        );
+      if (m.enabled) b.mail.start();
+      return mailDto(mailRow(row.id));
+    });
+
+    app.delete('/api/intake/mail/:id', { schema: { params: id } }, async (req) => {
+      local('E-mail intake');
+      const row = mailRow(req.params.id);
+      ownerOrAdmin(req.access!, row.library_id);
+      ctx.db.prepare('DELETE FROM intake_mail_accounts WHERE id = ?').run(row.id);
+      return { ok: true };
+    });
+
+    app.post(
+      '/api/intake/mail/test',
+      { schema: { description: 'Connect with these settings (or the stored password of `accountId`) and list the folders.', body: mailBody.partial({ name: true }).extend({ accountId: z.number().int().positive().optional() }) } },
+      async (req) => {
+        const b = local('E-mail intake');
+        adminOnly(req.access!);
+        const password = req.body.password || (req.body.accountId ? b.mail.password(mailRow(req.body.accountId)) : '');
+        try {
+          return { folders: await b.mail.test({ host: req.body.host, port: req.body.port, security: req.body.security, username: req.body.username, password }) };
+        } catch (err) {
+          throw new HttpProblem(400, `Connection failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      },
+    );
+
+    app.post('/api/intake/mail/:id/check', { schema: { params: id } }, async (req) => {
+      const b = local('E-mail intake');
+      const row = mailRow(req.params.id);
+      ownerOrAdmin(req.access!, row.library_id);
+      return b.mail.check(row.id);
     });
 
     // ---------------------------------------------------------------- intake

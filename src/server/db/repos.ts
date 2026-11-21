@@ -1,6 +1,7 @@
 import type { Db } from './database.js';
 import { OcrRepo } from './ocrRepo.js';
 import { inLibraries, libsCond } from './scoped.js';
+import { WorkflowRepo } from '../workflows/storage.js';
 import { PromptsRepo } from './promptsRepo.js';
 import { CalendarRepo } from './calendarRepo.js';
 import { ApiKeysRepo, AuditRepo, CalendarFeedsRepo, GroupsRepo, LibrariesRepo, NotificationsRepo, SavedViewsRepo } from './accessRepo.js';
@@ -542,7 +543,7 @@ export class HistoryRepo {
 // ---------------------------------------------------------------- usage
 
 export interface NewUsage {
-  feature: 'process' | 'manual' | 'playground' | 'chat' | 'rag' | 'test' | 'calendar';
+  feature: 'process' | 'manual' | 'playground' | 'chat' | 'rag' | 'test' | 'calendar' | 'workflow';
   documentId?: number | null;
   provider?: string;
   model?: string;
@@ -662,6 +663,7 @@ export interface Repos {
   calendarFeeds: CalendarFeedsRepo;
   savedViews: SavedViewsRepo;
   notifications: NotificationsRepo;
+  workflows: WorkflowRepo;
 }
 
 export function createRepos(db: Db): Repos {
@@ -681,5 +683,6 @@ export function createRepos(db: Db): Repos {
     ocr: new OcrRepo(db),
     prompts: new PromptsRepo(db),
     calendar: new CalendarRepo(db),
+    workflows: new WorkflowRepo(db),
   };
 }

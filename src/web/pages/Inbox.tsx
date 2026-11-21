@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { Link } from 'wouter';
 import { CheckCircle2, CircleAlert, FileUp, Loader2, RotateCcw, UploadCloud } from 'lucide-react';
 import type { UploadResult } from '@shared/api';
@@ -78,6 +78,15 @@ export default function InboxPage() {
   const [library, setLibrary] = useState('');
   const [drag, setDrag] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  // Files shared from another app (installed app, share target) arrive here.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (!q.has('shared') && !q.has('shareError')) return;
+    const error = q.get('shareError');
+    if (error) toast.error(error);
+    else toast.success(`${q.get('shared')} of ${q.get('of')} shared file(s) received`);
+    window.history.replaceState(null, '', '/inbox');
+  }, [toast]);
   const libraries = useAsync((signal) => (archive?.capabilities.libraries ? get<LibraryOption[]>('/api/libraries', signal) : Promise.resolve([])), [archive?.capabilities.libraries]);
   const intake = useAsync((signal) => (native ? get<IntakeRow[]>('/api/intake?limit=50', signal) : Promise.resolve([] as IntakeRow[])), [native]);
   useLiveEvents((e) => {

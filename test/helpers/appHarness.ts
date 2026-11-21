@@ -14,6 +14,7 @@ import { OcrService } from '../../src/server/ocr/service.js';
 import { FakeOcrEngine } from './fakeOcr.js';
 import { buildApp } from '../../src/server/http/app.js';
 import { wireDocumentEvents } from '../../src/server/wiring.js';
+import { WorkflowEngine } from '../../src/server/workflows/engine.js';
 import { hashPassword, SESSION_COOKIE } from '../../src/server/auth.js';
 import type { AppConfig, DeepPartial } from '../../src/server/config/schema.js';
 import { deepMerge } from '../../src/server/config/store.js';
@@ -45,6 +46,7 @@ export interface Harness {
   engine: ProcessingEngine;
   rag: RagService;
   ocr: OcrService;
+  workflows: WorkflowEngine;
   /** Stand-in for PaddleOCR (set its text/error to control OCR results). */
   ocrEngine: FakeOcrEngine;
   app: FastifyInstance;
@@ -108,7 +110,10 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
   const engine = new ProcessingEngine(ctx, ocr);
   const rag = new RagService(ctx);
   wireDocumentEvents(ctx, { rag, ocr, engine });
-  const app = await buildApp({ ctx, engine, rag, ocr });
+  const workflows = new WorkflowEngine(ctx, engine);
+  engine.workflows = workflows;
+  workflows.start();
+  const app = await buildApp({ ctx, engine, rag, ocr, workflows });
   await app.ready();
 
   let cookie: string | null = null;
@@ -118,6 +123,7 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
     engine,
     rag,
     ocr,
+    workflows,
     ocrEngine,
     app,
     paperless,
@@ -139,6 +145,7 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
     apiKeyHeaders: () => ({ 'x-api-key': ctx.cfg.security.apiKey }),
     async close() {
       await app.close();
+      await workflows.stop();
       await engine.stop();
       await rag.stop();
       ctx.close();

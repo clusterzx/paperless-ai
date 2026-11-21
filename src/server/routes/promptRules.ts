@@ -1,13 +1,16 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import type { MatchedPromptRule, PromptRulesInfo } from '../../shared/promptRules.js';
+import type { MatchedPromptRule, PromptRuleConfig, PromptRulesInfo } from '../../shared/promptRules.js';
 import { ruleLabel } from '../../shared/promptRules.js';
 import type { Services } from '../http/app.js';
 import { HttpProblem } from '../http/helpers.js';
 import { promptRuleSchema } from '../config/schema.js';
 import { activeModel } from '../ai/factory.js';
-import { describeMatch, matchPromptRule, rulePrompt } from '../processing/promptRules.js';
+import { rulePrompt } from '../processing/promptRules.js';
+import { describePlan, planAnalysis } from '../workflows/analysis.js';
+import { replaceRuleWorkflows, ruleWorkflows } from '../workflows/promptRules.js';
+import { userIdOf } from '../access/scope.js';
 import { logger } from '../logger.js';
 
 const log = logger.child({ module: 'prompt-rules' });
@@ -22,8 +25,13 @@ export const promptRuleRoutes =
     const info = async (): Promise<PromptRulesInfo> => {
       // Storage paths and users for the conditions – empty while Paperless is not set up or without permission.
       const extras = ctx.isConfigured() ? await ctx.metadata().extras().catch(() => null) : null;
+      // Rules from the environment, or the workflows that have the shape of a prompt rule.
+      const env = locked();
+      const rules: PromptRuleConfig[] = env ? ctx.cfg.processing.promptRules : ruleWorkflows(ctx).map((r) => r.rule);
+      const before = ctx.repos.workflows.list({ trigger: 'analysis.before' }).length;
       return {
-        rules: ctx.cfg.processing.promptRules.map((rule) => {
+        otherWorkflows: env ? before : before - rules.length,
+        rules: rules.map((rule) => {
           const prompt = rulePrompt(ctx, rule);
           return {
             ...rule,
@@ -57,8 +65,8 @@ export const promptRuleRoutes =
         req.body.rules.forEach((rule, index) => {
           if (!rulePrompt(ctx, rule)) throw new HttpProblem(400, `${ruleLabel(rule, index)}: the prompt is not in the prompt library`);
         });
-        ctx.config.update({ processing: { promptRules: req.body.rules } });
-        log.info(`Prompt rules saved (${req.body.rules.length})`);
+        replaceRuleWorkflows(ctx, req.body.rules, userIdOf(req.access!));
+        log.info(`Prompt rules saved (${req.body.rules.length} workflow(s) before the analysis)`);
         return info();
       },
     );
@@ -72,9 +80,8 @@ export const promptRuleRoutes =
         },
       },
       async (req): Promise<{ rule: MatchedPromptRule | null }> => {
-        const doc = await ctx.backend().getDocument(req.params.documentId);
-        const rule = await matchPromptRule(ctx, doc);
-        return { rule: rule ? describeMatch(rule) : null };
+        const doc = await ctx.backend(req.access!).getDocument(req.params.documentId);
+        return { rule: describePlan(await planAnalysis(ctx, doc, { record: false })) };
       },
     );
   };

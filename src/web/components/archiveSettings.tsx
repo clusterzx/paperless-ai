@@ -2,7 +2,7 @@
  * Settings → Archive (built-in archive): storage, intake limits, trash, and the health of the store.
  */
 import { useState } from 'react';
-import { Archive, HardDrive, ShieldCheck, Wrench } from 'lucide-react';
+import { Archive, HardDrive, Mail, ShieldCheck, Wrench } from 'lucide-react';
 import { Alert, Badge, Button, Card, Field, Input, NumberInput, Select, Skeleton, Switch, useToast } from './ui';
 import type { Config, Locked } from './settingsForms';
 import { errorMessage, get, post } from '../lib/api';
@@ -136,5 +136,63 @@ export function ArchiveSection({ draft, set, locked }: { draft: Config; set: (pa
         )}
       </Card>
     </div>
+  );
+}
+
+/** Settings → Notifications: the mail server for workflow e-mails. */
+export function NotificationsSection({ draft, set, locked, dirty }: { draft: Config; set: (path: string, value: unknown) => void; locked: Locked; dirty: boolean }) {
+  const toast = useToast();
+  const s = draft.notifications.smtp;
+  const [testing, setTesting] = useState(false);
+  const field = (key: keyof Config['notifications']['smtp']) => `notifications.smtp.${key}`;
+  const test = async () => {
+    setTesting(true);
+    try {
+      await post('/api/settings/test-smtp');
+      toast.success('The mail server accepted the connection');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setTesting(false);
+    }
+  };
+  return (
+    <Card
+      title="E-mail"
+      icon={<Mail className="size-4" />}
+      description="Workflows can send e-mails (action “Send an e-mail”). Recipients only hear about documents they may read."
+      actions={
+        <Button size="sm" loading={testing} disabled={dirty || !s.host} onClick={() => void test()} title={dirty ? 'Save first' : undefined}>
+          Test connection
+        </Button>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Mail server (SMTP)" locked={locked[field('host')]}>
+          <Input value={s.host} placeholder="smtp.example.com" disabled={Boolean(locked[field('host')])} onChange={(e) => set(field('host'), e.target.value)} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Port" locked={locked[field('port')]}>
+            <NumberInput value={s.port} min={1} max={65535} disabled={Boolean(locked[field('port')])} onChange={(v) => set(field('port'), v)} />
+          </Field>
+          <Field label="Security" locked={locked[field('security')]}>
+            <Select value={s.security} disabled={Boolean(locked[field('security')])} onChange={(e) => set(field('security'), e.target.value)}>
+              <option value="starttls">STARTTLS</option>
+              <option value="tls">TLS</option>
+              <option value="none">none (local relay)</option>
+            </Select>
+          </Field>
+        </div>
+        <Field label="User name" locked={locked[field('username')]}>
+          <Input value={s.username} autoComplete="off" disabled={Boolean(locked[field('username')])} onChange={(e) => set(field('username'), e.target.value)} />
+        </Field>
+        <Field label="Password" locked={locked[field('password')]}>
+          <Input type="password" autoComplete="new-password" value={s.password} disabled={Boolean(locked[field('password')])} onChange={(e) => set(field('password'), e.target.value)} />
+        </Field>
+        <Field label="Sender" hint="e.g. Paperless-AI <archive@example.com>" className="sm:col-span-2" locked={locked[field('from')]}>
+          <Input value={s.from} disabled={Boolean(locked[field('from')])} onChange={(e) => set(field('from'), e.target.value)} />
+        </Field>
+      </div>
+    </Card>
   );
 }

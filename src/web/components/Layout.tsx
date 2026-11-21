@@ -6,6 +6,7 @@ import {
   Bookmark,
   Trash2,
   Library,
+  Workflow as WorkflowIcon,
   FileSearch,
   Files,
   Inbox,
@@ -288,6 +289,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { href: '/calendar', label: 'Calendar', icon: <CalendarDays />, hidden: !session?.features.calendar, keywords: 'dates deadlines appointments due ical' },
     { href: '/metadata', label: 'Tags & metadata', icon: <Tags />, hidden: !session?.archive, keywords: 'tags correspondents document types custom fields merge rename' },
     { href: '/trash', label: 'Trash', icon: <Trash2 />, hidden: session?.archive?.capabilities.trash !== 'native', keywords: 'deleted restore recycle bin' },
+    { href: '/workflows', label: 'Workflows', icon: <WorkflowIcon />, hidden: !session?.archive, keywords: 'automation rules triggers actions prompt rules' },
     { href: '/libraries', label: 'Libraries', icon: <Library />, hidden: !session?.archive?.capabilities.libraries, keywords: 'members roles share family collections watch folder' },
   ];
   const secondary: NavItem[] = [

@@ -169,6 +169,20 @@ export async function documentActivity(ctx: AppContext, documentId: number, libr
   }
   const changeLog = ctx.archive().changeLog;
   if (changeLog) items.push(...(await changeLog(documentId, libraryId)));
+  // Workflow runs that did something (or failed); runs whose conditions did not match stay in the run log.
+  for (const run of ctx.repos.workflows.runs({ documentId, limit: 100 })) {
+    if (run.status === 'not_matched' || run.status === 'queued' || run.status === 'running') continue;
+    const status = run.status === 'succeeded' ? 'ran' : run.status === 'failed' ? `failed: ${run.error ?? ''}` : `skipped: ${run.error ?? ''}`;
+    items.push({
+      at: run.finishedAt ?? run.queuedAt,
+      kind: 'workflow',
+      title: `Workflow “${run.workflowName}” ${status}`.trim(),
+      actor: `Workflow #${run.workflowId}`,
+      details: (ctx.repos.workflows.steps(run.id) ?? [])
+        .filter((st) => st.kind === 'action')
+        .map((st) => ({ field: st.name, before: null, after: st.status })),
+    });
+  }
   return items.sort((a, b) => b.at - a.at);
 }
 

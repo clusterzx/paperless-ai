@@ -149,6 +149,20 @@ export class PaperlessBackend implements DocumentBackend {
     return this.client.getDocument(id);
   }
 
+  /** Paperless-ngx ≥ 1.13 answers the next free ASN; older versions: the highest one plus one. */
+  async nextAsn(): Promise<number> {
+    try {
+      const n = await this.client.req<number>('/documents/next_asn/');
+      if (typeof n === 'number' && Number.isFinite(n)) return n;
+    } catch {
+      /* fall back below */
+    }
+    const res = await this.client.req<Paginated<{ archive_serial_number: number | null }>>('/documents/', {
+      query: { ordering: '-archive_serial_number', page_size: 1, fields: 'archive_serial_number', archive_serial_number__isnull: 0 },
+    });
+    return (res.results[0]?.archive_serial_number ?? 0) + 1;
+  }
+
   updateDocument(_scope: AccessScope, id: number, patch: DocumentPatch, _origin: ChangeOrigin): Promise<ArchiveDocument> {
     const { library_id: _library, ...rest } = patch;
     return this.client.updateDocument(id, rest);

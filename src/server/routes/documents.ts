@@ -15,14 +15,14 @@ import type {
   UploadResult,
 } from '../../shared/api.js';
 import { documentFilterParams, documentSort, parseDocumentFilter, toRow } from '../http/documentQuery.js';
-import { roleIn, userIdOf, type AccessScope } from '../access/scope.js';
+import { hasScope, roleIn, userIdOf, type AccessScope } from '../access/scope.js';
 import { badRequest } from '../http/helpers.js';
 import { bulkEdit, documentActivity, receiveUploads, sendFile } from './documentOps.js';
 import type { Principal } from '../auth.js';
 import type { Services } from '../http/app.js';
 import { sendEventStream } from '../http/helpers.js';
 import { analyzeContent } from '../processing/analyzer.js';
-import { describeMatch, matchPromptRule } from '../processing/promptRules.js';
+import { describePlan, planAnalysis } from '../workflows/analysis.js';
 import { configSchema, type AppConfig, type DeepPartial } from '../config/schema.js';
 import { deepMerge } from '../config/store.js';
 import { applyPlannedUpdate, planManualUpdate } from '../processing/applier.js';
@@ -227,6 +227,19 @@ export const documentRoutes =
       async (req): Promise<{ results: UploadResult[] }> => ({ results: await receiveUploads(ctx, req, 'upload') }),
     );
 
+    // Share target of the installed app (PWA): files shared from other apps land here.
+    app.post('/share-target', { config: { auth: 'public' }, schema: { hide: true, consumes: ['multipart/form-data'] } }, async (req, reply) => {
+      // A browser navigation: without a session go to the sign-in page instead of an error.
+      if (!req.access || !hasScope(req.access, 'upload')) return reply.redirect('/login', 303);
+      try {
+        const results = await receiveUploads(ctx, req, 'share');
+        const ok = results.filter((r) => r.status === 'stored' || r.status === 'forwarded' || r.status === 'duplicate').length;
+        return reply.redirect(`/inbox?shared=${ok}&of=${results.length}`, 303);
+      } catch (err) {
+        return reply.redirect(`/inbox?shareError=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`, 303);
+      }
+    });
+
     app.post(
       '/api/documents/:id/analyze',
       {
@@ -248,17 +261,17 @@ export const documentRoutes =
           ? configSchema.parse(deepMerge(structuredClone(ctx.cfg), { processing: req.body.processing } as DeepPartial<AppConfig>)).processing
           : undefined;
         // The manual review analyses like the automatic processing: with the prompt rule that applies.
-        const rule = req.body?.prompt || processing ? null : await matchPromptRule(ctx, doc);
+        const plan = req.body?.prompt || processing ? null : await planAnalysis(ctx, doc, { record: false });
         const result = await analyzeContent(ctx, ocr.storedText(doc) ?? doc.content ?? '', {
           feature: req.body?.prompt || processing ? 'playground' : 'manual',
           documentId: doc.id,
-          customPrompt: req.body?.prompt ?? rule?.prompt.prompt,
+          customPrompt: req.body?.prompt ?? plan?.prompt?.prompt,
           filename: doc.original_file_name,
-          processing: processing ?? rule?.processing,
-          model: rule?.model,
+          processing: processing ?? plan?.processing,
+          model: plan?.model ?? undefined,
           libraryId: doc.library_id ?? null,
         });
-        return { ...result, rule: rule ? describeMatch(rule) : null };
+        return { ...result, rule: describePlan(plan) };
       },
     );
 

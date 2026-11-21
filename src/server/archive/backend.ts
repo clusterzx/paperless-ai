@@ -45,6 +45,7 @@ import { PLACEHOLDER_THUMB, renderThumbnail } from './files.js';
 import { IngestService } from './ingest.js';
 import { ArchiveMaintenance } from './maintenance.js';
 import { FolderWatcher } from './folder.js';
+import { MailWatcher } from './mail.js';
 import { ReadPool } from '../db/readers.js';
 import { logger } from '../logger.js';
 
@@ -111,6 +112,7 @@ export class LocalBackend implements DocumentBackend {
   readonly ingestService: IngestService;
   readonly maintenance: ArchiveMaintenance;
   readonly folders: FolderWatcher;
+  readonly mail: MailWatcher;
   /** Heavy reads (lists, full text, counts, facets) in worker threads. */
   readonly reader: ReadPool;
   /** Above this many full text matches only the newest are ranked by bm25 (see queryDocuments). */
@@ -125,7 +127,9 @@ export class LocalBackend implements DocumentBackend {
     this.ingestService = new IngestService(this);
     this.maintenance = new ArchiveMaintenance(this);
     this.folders = new FolderWatcher(this);
+    this.mail = new MailWatcher(this);
     if (ctx.cfg.archive.builtin.consumeDir || ctx.db.prepare('SELECT 1 FROM intake_folders WHERE enabled = 1 LIMIT 1').get()) this.startIntake();
+    if (ctx.db.prepare('SELECT 1 FROM intake_mail_accounts WHERE enabled = 1 LIMIT 1').get()) this.mail.start();
     // A watch folder set later in the settings starts right away.
     ctx.config.on('change', this.onConfig);
     if (ctx.repos.kv.get('archive.fts_rebuild')) void this.rebuildFts();
@@ -177,6 +181,7 @@ export class LocalBackend implements DocumentBackend {
     this.closed = true;
     this.ctx.config.off('change', this.onConfig);
     this.folders.stop();
+    this.mail.stop();
     await this.ingestService.stop();
     this.maintenance.stop();
     await this.reader.close();
@@ -773,6 +778,11 @@ export class LocalBackend implements DocumentBackend {
       this.db.prepare('UPDATE lib_documents SET deleted_at = ?, deleted_by = ? WHERE id = ?').run(Date.now(), origin.actorId ?? null, id);
       this.logEvent(row, 'deleted', origin);
     })();
+  }
+
+  async nextAsn(libraryId: number | null): Promise<number> {
+    const lib = libraryId ?? this.ensureDefaultLibrary();
+    return ((this.db.prepare('SELECT MAX(archive_serial_number) AS m FROM lib_documents WHERE library_id = ?').get(lib) as { m: number | null }).m ?? 0) + 1;
   }
 
   async restoreDocument(scope: AccessScope, id: number, origin: ChangeOrigin): Promise<void> {

@@ -11,6 +11,7 @@ import {
   Link2,
   ListChecks,
   LogIn,
+  Mail,
   MessageSquareQuote,
   ScanText,
   RefreshCw,
@@ -24,7 +25,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import { ApiKeysCard, AuditLogCard, UsersTab } from '../components/accessAdmin';
-import { ArchiveSection } from '../components/archiveSettings';
+import { ArchiveSection, NotificationsSection } from '../components/archiveSettings';
 import { Page } from '../components/Layout';
 import { TwoFactorCard } from '../components/twoFactor';
 import { SingleSignOnCard } from '../components/singleSignOn';
@@ -70,7 +71,7 @@ interface SettingsResponse {
   ocr: { available: boolean; cudaAvailable: boolean };
 }
 
-const TAB_IDS = ['archive', 'connection', 'ai', 'processing', 'prompt', 'fields', 'ocr', 'external', 'rag', 'signin', 'integrations', 'users', 'audit', 'keys', 'account'] as const;
+const TAB_IDS = ['archive', 'connection', 'ai', 'processing', 'prompt', 'fields', 'ocr', 'external', 'rag', 'signin', 'notifications', 'integrations', 'users', 'audit', 'keys', 'account'] as const;
 /** Tabs members see (everything else is administration). */
 const MEMBER_TABS = ['account', 'keys'] as const;
 type TabId = (typeof TAB_IDS)[number];
@@ -413,6 +414,7 @@ function AdminSettings() {
     { id: 'external', label: 'External data', icon: <Braces className="size-4" /> },
     { id: 'rag', label: 'Ask your archive', icon: <Sparkles className="size-4" /> },
     { id: 'signin', label: 'Sign-in', icon: <LogIn className="size-4" /> },
+    { id: 'notifications', label: 'Notifications', icon: <Mail className="size-4" /> },
     { id: 'integrations', label: 'API & webhooks', icon: <Webhook className="size-4" /> },
     { id: 'users', label: 'Users & groups', icon: <Users className="size-4" /> },
     { id: 'audit', label: 'Audit log', icon: <ScrollText className="size-4" /> },
@@ -442,6 +444,7 @@ function AdminSettings() {
             </Alert>
           )}
           {tab === 'archive' && <ArchiveSection draft={draft} set={set} locked={locked} />}
+          {tab === 'notifications' && <NotificationsSection draft={draft} set={set} locked={locked} dirty={dirty} />}
           {tab === 'connection' && (
             <Card
               title="Paperless-ngx connection"

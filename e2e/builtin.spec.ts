@@ -126,3 +126,38 @@ test('creates a library and adds a member with a role', async ({ page }) => {
   await expect(page.getByText('Members saved')).toBeVisible();
   await expect(page.getByLabel('Role of kim')).toHaveValue('editor');
 });
+
+test('builds a workflow, tests it and runs it on a document', async ({ page }) => {
+  await login(page);
+  await page.goto('/workflows/new');
+  await page.getByLabel('Name', { exact: true }).fill('Strom markieren');
+  await page.getByLabel('Trigger', { exact: true }).selectOption('manual');
+  await page.getByLabel('Condition to add').selectOption('text');
+  await page.getByRole('button', { name: 'Add condition' }).click();
+  await page.getByLabel('Text contains').fill('Stadtwerke');
+  await page.getByLabel('Action to add').selectOption('add_tags');
+  await page.getByRole('button', { name: 'Add action' }).click();
+  await page.getByRole('region', { name: 'Then' }).getByRole('combobox', { name: 'Add…' }).fill('Energie');
+  await page.getByRole('region', { name: 'Then' }).getByRole('combobox', { name: 'Add…' }).press('Enter');
+
+  // Dry run: nothing is written, the planned change is shown.
+  await page.getByRole('button', { name: 'Test with a document' }).click();
+  await page.getByRole('dialog').getByText(/SR-2024-0315|stromrechnung/i).first().click();
+  await expect(page.getByText('The workflow applies')).toBeVisible();
+  await expect(page.getByRole('dialog').getByText('Add tags Energie')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+
+  await page.getByRole('button', { name: 'Save workflow' }).click();
+  await expect(page.getByText('Workflow saved')).toBeVisible();
+  await page.goto('/workflows');
+  await expect(page.getByRole('link', { name: /Strom markieren/ })).toBeVisible();
+
+  // Run it from the document page.
+  await page.goto('/documents');
+  await page.getByRole('link').filter({ hasText: /SR-2024-0315|stromrechnung/i }).first().click();
+  await page.getByRole('button', { name: 'Workflow', exact: true }).click();
+  await page.getByRole('dialog').getByRole('listitem').filter({ hasText: 'Strom markieren' }).getByRole('button', { name: 'Run' }).click();
+  await expect(page.getByText(/started for 1 document/)).toBeVisible();
+  await page.getByRole('tab', { name: 'Activity' }).click();
+  await expect(page.getByText('Workflow “Strom markieren” ran')).toBeVisible({ timeout: 15_000 });
+});

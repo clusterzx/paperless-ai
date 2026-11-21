@@ -10,6 +10,7 @@ import swaggerUi from '@fastify/swagger-ui';
 import { ZodError } from 'zod';
 import { jsonSchemaTransform, serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { AppContext } from '../context.js';
+import type { WorkflowEngine } from '../workflows/engine.js';
 import { NotConfiguredError } from '../context.js';
 import type { ProcessingEngine } from '../processing/engine.js';
 import type { RagService } from '../rag/service.js';
@@ -33,6 +34,8 @@ import { promptRoutes } from '../routes/prompts.js';
 import { promptRuleRoutes } from '../routes/promptRules.js';
 import { twoFactorRoutes } from '../routes/twoFactor.js';
 import { archiveRoutes } from '../routes/archive.js';
+import { workflowRoutes } from '../routes/workflows.js';
+import { DAV_METHODS, davRoutes } from '../routes/dav.js';
 import { metadataRoutes } from '../routes/metadata.js';
 import { accessRoutes } from '../routes/access.js';
 import { calendarRoutes } from '../routes/calendar.js';
@@ -42,6 +45,8 @@ export interface Services {
   engine: ProcessingEngine;
   rag: RagService;
   ocr: OcrService;
+  /** The workflow engine (optional for tools that build the app without it). */
+  workflows?: WorkflowEngine;
 }
 
 /** Who may call a route. */
@@ -106,6 +111,8 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     bodyLimit: 10 * 1024 * 1024,
     routerOptions: { ignoreTrailingSlash: true },
   });
+  // Methods of the WebDAV inbox (routes/dav.ts).
+  for (const m of DAV_METHODS) app.addHttpMethod(m, { hasBody: true });
   app.decorate('registeredRoutes', [] as FastifyInstance['registeredRoutes']);
   app.addHook('onRoute', (r) => {
     for (const method of [r.method].flat()) app.registeredRoutes.push({ method: String(method), url: r.url, auth: r.config?.auth });
@@ -148,7 +155,11 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, Access-Control-Allow-Private-Network');
     reply.header('Access-Control-Allow-Private-Network', 'true');
-    if (req.method === 'OPTIONS') return reply.code(204).send();
+    if (req.method === 'OPTIONS') {
+      // WebDAV clients ask what the inbox can do.
+      if (req.url.startsWith('/dav/')) reply.header('DAV', '1, 2').header('MS-Author-Via', 'DAV').header('Allow', `OPTIONS, GET, HEAD, PUT, DELETE, ${DAV_METHODS.join(', ')}`);
+      return reply.code(204).send();
+    }
   });
 
   app.decorateRequest('principal', null);
@@ -170,7 +181,11 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
       if (ctx.needsSetup() && ctx.repos.users.count() === 0) return;
       level = 'session';
     }
-    if (!req.principal || !req.access) return reply.code(401).send({ error: 'Authentication required' });
+    if (!req.principal || !req.access) {
+      // WebDAV clients (scanners, file managers) ask for the credentials on this header.
+      if (url.startsWith('/dav/')) reply.header('WWW-Authenticate', 'Basic realm="Paperless-AI inbox", charset="UTF-8"');
+      return reply.code(401).send({ error: 'Authentication required' });
+    }
     if (level === 'session' && !(req.principal.kind === 'user' && req.principal.via === 'session')) {
       return reply.code(403).send({ error: 'This action requires a logged-in user (API keys are not allowed)' });
     }
@@ -216,6 +231,8 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(accessRoutes(services));
   await app.register(metadataRoutes(services));
   await app.register(archiveRoutes(services));
+  await app.register(workflowRoutes(services));
+  await app.register(davRoutes(services));
 
   // Web UI (single page app)
   const staticDir = opts.staticDir;

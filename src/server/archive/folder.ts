@@ -172,7 +172,12 @@ export class FolderWatcher {
     const st = await fsp.stat(file);
     const rel = path.relative(folder.path, file);
     const parts = rel.split(path.sep).slice(0, -1);
-    const hints: IngestHints = { ...folder.hints, channelRef: `${path.resolve(file)}|${st.size}|${Math.round(st.mtimeMs)}` };
+    const hints: IngestHints = {
+      ...folder.hints,
+      channelRef: `${path.resolve(file)}|${st.size}|${Math.round(st.mtimeMs)}`,
+      // For workflow conditions ("folder contains …").
+      context: { ...folder.hints.context, folder: path.dirname(path.resolve(file)) },
+    };
     if (folder.libraryId) hints.libraryId = folder.libraryId;
     if (parts.length && folder.subfolders === 'tags') hints.tags = [...(hints.tags ?? []), ...parts];
     if (parts.length && folder.subfolders === 'library') {

@@ -186,6 +186,21 @@ Behaviour:
   to the AI as context (external data, like `externalApi` today).
 * OAuth2 for Gmail / Microsoft 365 is a later addition (app passwords work for the first version).
 
+**Implemented (M6)** – `archive/mail.ts`, Libraries → E-mail:
+
+* Polling every `archive.builtin.mailPollMinutes` (default 5) or "Check now"; IDLE is not used yet.
+  Per folder the state keeps UIDVALIDITY and the last UID, so only new messages are read. The
+  idempotency reference of an attachment is `account:folder:uidvalidity:uid:part` (more robust than
+  the Message-ID, which is missing or reused by some senders); a rebuilt folder is read again
+  without duplicates.
+* Rules: sender / subject contains → tags, "store only" (no analysis) or ignore. Library mapping
+  per rule and the mail date as fallback document date are not there yet.
+* Sender and subject go into the intake context (workflow conditions `mail_from` / `mail_subject`).
+* A message whose processing fails is read again on the next check (the state stops before it).
+* Accounts are set up by administrators (connections to hosts on the network); owners of the
+  library see them, start a check and remove them. Passwords: AES-256-GCM (`util/secretBox.ts`),
+  key derived from `security.jwtSecret` – a new instance secret means entering them again.
+
 ## 7. WebDAV inbox
 
 For scanners and phone apps that can save to WebDAV:
@@ -201,6 +216,14 @@ For scanners and phone apps that can save to WebDAV:
 * Implemented as a small Fastify plugin (the method set is tiny), so no extra WebDAV server is
   needed.
 
+**Implemented (M6)** – `routes/dav.ts`: works in both modes (in companion mode the files are
+forwarded to Paperless-ngx like uploads). `/dav/inbox/<library>/<a>/<b>/file.pdf` stores into that
+library with the tags `a` and `b`; an unknown first folder is a tag as well. Empty first `PUT`s
+(Windows), AppleDouble / `.DS_Store` / Office lock files, `LOCK`/`UNLOCK` (Finder, Windows) and
+renames after the upload are accepted. A file put there in the last ten minutes answers `PROPFIND`,
+everything else looks empty. Basic authentication takes an API key as the password; `401` carries
+`WWW-Authenticate`. Settings → Archive → "WebDAV inbox" switches it off.
+
 ## 8. Mobile
 
 * **PWA:** manifest + service worker (app shell only, no offline documents). The upload page uses
@@ -208,6 +231,9 @@ For scanners and phone apps that can save to WebDAV:
   directly.
 * **Share target** (Web Share Target API, Android Chrome / installed PWA): "Share → Paperless-AI"
   posts to `/share-target`, which shows the upload form with the file filled in.
+* **Implemented (M6):** `manifest.webmanifest` (icons, `share_target` with `file`), a service worker
+  that caches nothing (installability), `POST /share-target` → stored like an upload, then the
+  inbox shows how many files arrived; without a session it goes to the sign-in page.
 * **iOS:** a documented shortcut ("Get file → POST to /api/documents/upload with API key").
 * Edge detection and perspective correction stay with scanner apps (Genius Scan, ScanSnap, …).
   They deliver PDFs through the REST upload, the `post_document` endpoint or WebDAV.

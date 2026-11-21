@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
-import { ArrowLeft, Download, ExternalLink, FileText, History, MessageSquareText, Save, ScanText, Sparkles, Trash2, Undo2 } from 'lucide-react';
+import { ArrowLeft, Download, ExternalLink, FileText, History, MessageSquareText, Play, Save, ScanText, Sparkles, Trash2, Undo2 } from 'lucide-react';
 import type { ActivityItem, DocumentDetail } from '@shared/api';
 import { Page } from '../components/Layout';
 import { Alert, Badge, Button, Card, EmptyState, Field, Input, LinkButton, Skeleton, Tabs, TagInput, tabPanelProps, Textarea, useConfirm, useToast } from '../components/ui';
 import { ChatScroll, Composer, MessageView, useChatStream } from '../components/chat';
 import { StatusIcon, useArchive } from '../components/documents';
 import { VersionsPanel } from '../components/versions';
+import { RunWorkflowModal } from '../components/workflowEditor';
 import { ApiError, del, errorMessage, get, patch, post } from '../lib/api';
 import { useAsync, useUnsavedChanges } from '../lib/hooks';
 import { cn, formatDate, timeAgo } from '../lib/format';
@@ -217,7 +218,7 @@ function ActivityList({ docId, version, onChanged }: { docId: number; version: s
     <ol className="relative space-y-4 border-l border-border pl-5">
       {activity.data.map((a, i) => (
         <li key={i} className="relative">
-          <span className={cn('absolute top-1.5 -left-[25px] size-2.5 rounded-full ring-4 ring-surface', a.kind === 'ai' ? 'bg-accent' : a.kind === 'ocr' ? 'bg-info' : 'bg-muted')} />
+          <span className={cn('absolute top-1.5 -left-[25px] size-2.5 rounded-full ring-4 ring-surface', a.kind === 'ai' ? 'bg-accent' : a.kind === 'ocr' ? 'bg-info' : a.kind === 'workflow' ? 'bg-success' : 'bg-muted')} />
           <div className="flex flex-wrap items-baseline gap-x-2">
             <span className={cn('font-medium', a.reverted && 'line-through opacity-60')}>{a.title}</span>
             {a.reverted && <Badge tone="warn">undone</Badge>}
@@ -282,6 +283,7 @@ export default function DocumentPage() {
   const { session } = useSession();
   const [, navigate] = useLocation();
   const [tab, setTab] = useState<TabId>('details');
+  const [runWorkflow, setRunWorkflow] = useState(false);
   const doc = useAsync((signal) => get<DocumentDetail>(`/api/documents/${id}`, signal), [id]);
   useLiveEvents((e) => {
     if ('id' in e && e.id === id && e.type !== 'document.deleted') void doc.reload();
@@ -361,6 +363,11 @@ export default function DocumentPage() {
               </Button>
             )}
             {canEdit && (
+              <Button variant="ghost" icon={<Play className="size-4" />} onClick={() => setRunWorkflow(true)}>
+                Workflow
+              </Button>
+            )}
+            {canEdit && (
               <Button variant="ghost" icon={<Trash2 className="size-4" />} onClick={remove}>
                 Delete
               </Button>
@@ -409,6 +416,7 @@ export default function DocumentPage() {
           </div>
         </Card>
       </div>
+      {runWorkflow && <RunWorkflowModal documentIds={[id]} onClose={() => setRunWorkflow(false)} />}
     </Page>
   );
 }

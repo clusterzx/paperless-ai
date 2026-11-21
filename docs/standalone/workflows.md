@@ -258,3 +258,37 @@ Migration in M6 (once, when the schema is created):
 * Integration (mock LLM, mock Paperless and built-in): trigger → run → change log, `analysis.before`
   shaping the prompt, AI condition caching, crash recovery of `running` runs, webhook retries,
   the prompt rules migration giving identical results.
+
+## 12. Implementation notes (M6)
+
+Code: `src/shared/workflows.ts` (types), `src/server/workflows/` (`schema.ts`, `storage.ts`,
+`evaluate.ts`, `actions.ts`, `notify.ts`, `analysis.ts`, `promptRules.ts`, `engine.ts`),
+`src/server/routes/workflows.ts`, `src/web/pages/Workflows.tsx`, `src/web/components/workflowEditor.tsx`.
+Tests: `test/integration/workflows.test.ts`, `test/integration/promptRules.test.ts` (unchanged,
+now running on workflows), E2E "builds a workflow, tests it and runs it".
+
+Decisions made while building it:
+
+* **Prompt rules:** rules in `config.json` (older versions, or anything that writes them there) are
+  moved into workflows when the app starts or the configuration changes, then removed from the
+  configuration. `/api/prompt-rules` is a view on the global `analysis.before` workflows that have
+  the rule shape; others are counted (`otherWorkflows`) and edited on the Workflows page. Rules from
+  `PROMPT_RULES` stay virtual and read-only (negative ids).
+* **Runs of `analysis.before`** are recorded only when they matched (they would otherwise create a
+  row per workflow for every analysis). Runs that did not match are kept 7 days, successful ones 90,
+  failed ones 365 (`workflows.*RetentionDays`).
+* **Order:** runs of one document are taken one after the other (the queue never runs two runs of a
+  document at the same time); "stop after a match" skips the queued runs of the same event.
+* **Manual runs** work for every workflow, whatever its trigger (button on the document, bulk
+  action "Workflow…", `POST /api/workflows/:id/run`).
+* **Undo of a run:** built-in archive – its change log entries (`ref = run:<id>`) are undone
+  together; companion mode – the change is in the History (source `workflow`) and undone there.
+* **Rights:** global workflows – administrators; library workflows – owners. Webhooks only by
+  administrators (requests to the network of the server). Notifications reach only people who may
+  read the document. A workflow whose creator is no longer an owner is suspended at its next run.
+* **AI:** questions and extraction send the title, correspondent, type, date and up to ~6,000
+  tokens of the text; the answers are cached per document version and question. Tested against
+  the OpenAI API (gpt-5-mini): open invoices above 50 € recognised, a paid café receipt and a
+  termination letter rejected with reasons, the amount extracted into a monetary field.
+* Not in this version: drag and drop in the list (up/down buttons instead), a library list per
+  mail rule, IMAP IDLE.

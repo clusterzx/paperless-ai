@@ -286,6 +286,8 @@ export interface DocumentBackend {
 
   /** Built-in archive: take a document back out of the trash. */
   restoreDocument?(scope: AccessScope, id: number, origin: ChangeOrigin): Promise<void>;
+  /** Next free archive serial number (in the library of the built-in archive). */
+  nextAsn?(libraryId: number | null): Promise<number>;
   /** Built-in archive: the change log of a document as activity items. */
   changeLog?: (documentId: number, libraryId: number | null) => Promise<ActivityItem[]>;
 

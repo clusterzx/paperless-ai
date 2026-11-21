@@ -4,8 +4,8 @@
  * folders (paths on the server).
  */
 import { useState } from 'react';
-import { FolderInput, Library, Plus, Trash2, UserPlus, Users } from 'lucide-react';
-import type { LibraryCandidates, LibraryInfo, LibraryMember, LibraryRole, LibrarySettings, WatchFolder } from '@shared/api';
+import { FolderInput, Library, Mail, Plus, Trash2, UserPlus, Users } from 'lucide-react';
+import type { LibraryCandidates, LibraryInfo, LibraryMember, LibraryRole, LibrarySettings, MailAccountInfo, MailRuleInfo, WatchFolder } from '@shared/api';
 import { Page } from '../components/Layout';
 import {
   Alert,
@@ -181,7 +181,7 @@ function NewLibraryModal({
   );
 }
 
-type PanelTab = 'settings' | 'members' | 'folders';
+type PanelTab = 'settings' | 'members' | 'folders' | 'mail';
 
 function LibraryPanel({
   library,
@@ -199,7 +199,7 @@ function LibraryPanel({
   const tabs: { id: PanelTab; label: string }[] = [
     { id: 'settings', label: 'Settings' },
     { id: 'members', label: 'Members' },
-    ...(manage ? [{ id: 'folders' as const, label: 'Watch folders' }] : []),
+    ...(manage ? [{ id: 'folders' as const, label: 'Watch folders' }, { id: 'mail' as const, label: 'E-mail' }] : []),
   ];
   return (
     <SlideOver open onClose={onClose} title={library.name} description={`${formatNumber(library.documents)} documents`}>
@@ -209,8 +209,10 @@ function LibraryPanel({
           <SettingsTab library={library} manage={manage} onChanged={onChanged} onDeleted={onClose} />
         ) : tab === 'members' ? (
           <MembersTab library={library} manage={manage} />
-        ) : (
+        ) : tab === 'folders' ? (
           <FoldersTab library={library} admin={admin} />
+        ) : (
+          <MailTab library={library} admin={admin} />
         )}
       </div>
     </SlideOver>
@@ -571,6 +573,205 @@ function FoldersTab({ library, admin }: { library: LibraryInfo; admin: boolean }
         </div>
       ) : (
         <p className="text-xs text-muted">Only administrators can add folders – they are paths on the server.</p>
+      )}
+    </div>
+  );
+}
+
+const EMPTY_ACCOUNT = { name: '', host: '', port: 993, security: 'tls' as MailAccountInfo['security'], username: '', password: '', folders: ['INBOX'], rules: [] as MailRuleInfo[], after: 'seen' as MailAccountInfo['after'], afterFolder: null as string | null, enabled: true };
+
+function MailTab({ library, admin }: { library: LibraryInfo; admin: boolean }) {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const accounts = useAsync((signal) => get<MailAccountInfo[]>(`/api/libraries/${library.id}/intake/mail`, signal), [library.id]);
+  const [editing, setEditing] = useState<(typeof EMPTY_ACCOUNT & { id?: number }) | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [folders, setFolders] = useState<string[] | null>(null);
+
+  const check = async (a: MailAccountInfo) => {
+    setBusy(true);
+    try {
+      const r = await post<{ messages: number; stored: number; errors: string[] }>(`/api/intake/mail/${a.id}/check`);
+      if (r.errors.length) toast.error(r.errors[0]);
+      else toast.success(`${r.messages} new message(s), ${r.stored} document(s) stored`);
+      await accounts.reload();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async (a: MailAccountInfo) => {
+    if (!(await confirm({ title: `Remove the account “${a.name}”?`, message: 'Messages already stored stay in the archive.', confirmLabel: 'Remove', danger: true }))) return;
+    try {
+      await del(`/api/intake/mail/${a.id}`);
+      await accounts.reload();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  const test = async () => {
+    if (!editing) return;
+    setBusy(true);
+    try {
+      const r = await post<{ folders: string[] }>('/api/intake/mail/test', { ...editing, accountId: editing.id });
+      setFolders(r.folders);
+      toast.success('Connected');
+    } catch (err) {
+      setFolders(null);
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = async () => {
+    if (!editing) return;
+    setBusy(true);
+    try {
+      const { id: accountId, ...body } = editing;
+      if (accountId) await put(`/api/intake/mail/${accountId}`, body);
+      else await post(`/api/libraries/${library.id}/intake/mail`, body);
+      toast.success('E-mail account saved');
+      setEditing(null);
+      await accounts.reload();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const setRule = (i: number, patch: Partial<MailRuleInfo>) => editing && setEditing({ ...editing, rules: editing.rules.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
+
+  if (accounts.error) return <Alert tone="danger">{accounts.error}</Alert>;
+  if (!accounts.data) return <Skeleton className="h-32" />;
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-muted">Attachments (PDF, images) of new messages in these mailboxes are stored in this library, checked every few minutes.</p>
+      {accounts.data.length === 0 ? (
+        <EmptyState icon={<Mail className="size-6" />} title="No e-mail account" />
+      ) : (
+        <ul className="divide-y divide-border rounded-xl border border-border">
+          {accounts.data.map((a) => (
+            <li key={a.id} className="flex flex-wrap items-start gap-3 px-3 py-2.5">
+              <Mail className="mt-0.5 size-4 shrink-0 text-muted" />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-fg">{a.name}</div>
+                <div className="text-xs text-muted">
+                  {a.username} @ {a.host} · {a.folders.join(', ')} · then {a.after === 'seen' ? 'mark as read' : a.after === 'move' ? `move to ${a.afterFolder}` : 'delete'}
+                  {a.lastCheckedAt ? ` · checked ${formatDate(a.lastCheckedAt, true)}` : ''}
+                  {!a.enabled ? ' · paused' : ''}
+                </div>
+                {a.lastError && <div className="text-xs text-danger">{a.lastError}</div>}
+              </div>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void check(a)}>
+                Check now
+              </Button>
+              {admin && (
+                <Button size="sm" variant="ghost" onClick={() => setEditing({ ...EMPTY_ACCOUNT, ...a, password: '' })}>
+                  Edit
+                </Button>
+              )}
+              <IconButton label={`Remove ${a.name}`} onClick={() => void remove(a)}>
+                <Trash2 className="size-4" />
+              </IconButton>
+            </li>
+          ))}
+        </ul>
+      )}
+      {admin ? (
+        editing ? (
+          <div className="space-y-3 rounded-xl border border-dashed border-border p-4">
+            <div className="text-sm font-medium text-fg">{editing.id ? 'Edit the account' : 'Add an e-mail account'}</div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Name">
+                <Input value={editing.name} placeholder="e.g. Scans" onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+              </Field>
+              <Field label="IMAP server">
+                <Input value={editing.host} placeholder="imap.example.com" onChange={(e) => setEditing({ ...editing, host: e.target.value })} />
+              </Field>
+              <Field label="Port">
+                <NumberInput min={1} max={65535} value={editing.port} onChange={(port) => setEditing({ ...editing, port })} />
+              </Field>
+              <Field label="Security">
+                <Select value={editing.security} onChange={(e) => setEditing({ ...editing, security: e.target.value as MailAccountInfo['security'] })}>
+                  <option value="tls">TLS (993)</option>
+                  <option value="starttls">STARTTLS (143)</option>
+                  <option value="none">none</option>
+                </Select>
+              </Field>
+              <Field label="User name">
+                <Input value={editing.username} autoComplete="off" onChange={(e) => setEditing({ ...editing, username: e.target.value })} />
+              </Field>
+              <Field label="Password" hint={editing.id ? 'Empty: keep the stored one.' : 'Stored encrypted.'}>
+                <Input type="password" autoComplete="new-password" value={editing.password} onChange={(e) => setEditing({ ...editing, password: e.target.value })} />
+              </Field>
+              <Field label="Folders">
+                <TagInput value={editing.folders} onChange={(v) => setEditing({ ...editing, folders: v })} suggestions={folders ?? []} />
+              </Field>
+              <Field label="Afterwards">
+                <Select value={editing.after} onChange={(e) => setEditing({ ...editing, after: e.target.value as MailAccountInfo['after'] })}>
+                  <option value="seen">Mark as read</option>
+                  <option value="move">Move to a folder</option>
+                  <option value="delete">Delete</option>
+                </Select>
+              </Field>
+              {editing.after === 'move' && (
+                <Field label="Folder for processed messages">
+                  <Input list="mail-folders" value={editing.afterFolder ?? ''} onChange={(e) => setEditing({ ...editing, afterFolder: e.target.value || null })} />
+                  <datalist id="mail-folders">
+                    {(folders ?? []).map((f) => (
+                      <option key={f} value={f} />
+                    ))}
+                  </datalist>
+                </Field>
+              )}
+            </div>
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-fg">Rules</div>
+              <p className="text-xs text-muted">The first rule whose sender and subject match applies.</p>
+              {editing.rules.map((r, i) => (
+                <div key={i} className="grid gap-2 rounded-lg bg-surface-2 p-2 ring-1 ring-border sm:grid-cols-[1fr_1fr_1fr_auto]">
+                  <Input aria-label="Sender contains" placeholder="Sender contains" value={r.from ?? ''} onChange={(e) => setRule(i, { from: e.target.value || undefined })} />
+                  <Input aria-label="Subject contains" placeholder="Subject contains" value={r.subject ?? ''} onChange={(e) => setRule(i, { subject: e.target.value || undefined })} />
+                  <Select aria-label="Then" value={r.ignore ? 'ignore' : r.skipAnalysis ? 'store' : 'tags'} onChange={(e) => setRule(i, { ignore: e.target.value === 'ignore', skipAnalysis: e.target.value === 'store' })}>
+                    <option value="tags">store and analyse</option>
+                    <option value="store">store only</option>
+                    <option value="ignore">ignore</option>
+                  </Select>
+                  <IconButton label="Remove rule" onClick={() => setEditing({ ...editing, rules: editing.rules.filter((_, j) => j !== i) })}>
+                    <Trash2 className="size-4" />
+                  </IconButton>
+                  {!r.ignore && (
+                    <div className="sm:col-span-4">
+                      <TagInput value={r.tags ?? []} onChange={(tags) => setRule(i, { tags })} placeholder="Tags for these documents" />
+                    </div>
+                  )}
+                </div>
+              ))}
+              <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => setEditing({ ...editing, rules: [...editing.rules, {}] })}>
+                Add rule
+              </Button>
+            </div>
+            <Switch checked={editing.enabled} onChange={(enabled) => setEditing({ ...editing, enabled })} label="Check this account" />
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="ghost" onClick={() => setEditing(null)}>
+                Cancel
+              </Button>
+              <Button disabled={busy || !editing.host || !editing.username} onClick={() => void test()}>
+                Test connection
+              </Button>
+              <Button variant="primary" disabled={busy || !editing.name.trim() || !editing.host || (!editing.id && !editing.password)} onClick={() => void save()}>
+                Save
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button icon={<Plus className="size-4" />} onClick={() => setEditing({ ...EMPTY_ACCOUNT })}>
+            Add an e-mail account
+          </Button>
+        )
+      ) : (
+        <p className="text-xs text-muted">Only administrators can add e-mail accounts.</p>
       )}
     </div>
   );

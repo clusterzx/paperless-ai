@@ -201,7 +201,7 @@ export class IngestService {
 
     log.info(`Stored "${file.filename}" as document ${id} (${mime}, ${info.pages ?? '?'} page(s), ${info.text ? `${info.text.length} characters of text` : 'no text layer'})`);
     if (replaces) this.ctx.events.emit({ type: 'document.version_added', id, version: this.backend.row(id)!.current_version, libraryId });
-    else this.ctx.events.emit({ type: 'document.added', id, source: channel, libraryId, skipAnalysis: hints.skipAnalysis, prompt: hints.prompt, context: hints.context });
+    else this.ctx.events.emit({ type: 'document.added', id, source: channel, libraryId, skipAnalysis: hints.skipAnalysis, prompt: hints.prompt, context: { ...hints.context, filename: file.filename } });
     // The thumbnail is made right away (the list shows it), but never delays or fails the intake.
     void renderThumbnail(bytes, mime)
       .then((thumb) => {
