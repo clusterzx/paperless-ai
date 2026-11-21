@@ -35,6 +35,10 @@ Works with **Paperless-ngx 2.x and 3.x**, OpenAI, Anthropic (Claude), **Ollama (
 
 **Tools** – document chat, manual review, prompt playground, prompt wizard and a prompt library with ratings per model, history with undo, dashboard, live logs and diagnostics; light/dark theme, ⌘K / Ctrl+K command menu, works on mobile.
 
+**Built-in archive** (new, optional) – run Paperless-AI **without Paperless-ngx**: the setup lets you choose. Upload, watch folders, e-mail (IMAP), a WebDAV inbox for scanners and sharing from your phone; full-text search built for 200,000+ documents; **file versions** with text comparison, a change log with undo for every change, a trash; **libraries** with members and roles (owner / editor / viewer) for families and teams. Coming from Paperless-ngx? The **migration assistant** copies your archive with the same document ids, so the AI history, OCR, calendar and “Ask your archive” stay as they are – and you can export everything back (Paperless-ngx format or plain folders) at any time. → [docs/standalone](docs/standalone/README.md)
+
+**Workflows** – when something happens (a document arrives, the AI analysed it, a date is reached, on a schedule), if the document matches (tags, text, sender, … or a question to the AI), then do something (tags, title, custom fields, values extracted by the AI, calendar dates, e-mail, webhooks, ntfy/Gotify). Every run is logged, a test run shows what would change, and changes can be undone. Prompt rules are workflows that run before the analysis.
+
 **Sign-in** – two-factor authentication and [single sign-on](#single-sign-on-openid-connect) with any OpenID Connect provider (Authentik, Keycloak, Authelia …); API keys for webhooks and scripts.
 
 | Ask your archive | Manual review |
@@ -203,6 +207,23 @@ For Docker deployments the rules can be set with `PROMPT_RULES` – prompts are 
   { "name": "Household", "prompt": "Household", "match": {} }
 ]
 ```
+
+### Built-in archive
+
+Choose *Built-in archive* in the setup (or set `PAPERLESS_AI_ARCHIVE=builtin`). Files are stored content-addressed in `data/library` – or on another disk with `PAPERLESS_AI_STORAGE_DIR`; the database stays in `data/`.
+
+| Variable | Meaning |
+| --- | --- |
+| `PAPERLESS_AI_ARCHIVE` | `builtin` or `paperless` |
+| `PAPERLESS_AI_STORAGE_DIR` | where the files go (default `data/library`) |
+| `PAPERLESS_AI_CONSUME_DIR` | watch folder (subfolders become tags) |
+| `PAPERLESS_AI_SMTP_HOST`, `_PORT`, `_SECURITY`, `_USER`, `_PASSWORD`, `_FROM` | e-mail for workflow notifications |
+| `PAPERLESS_AI_URL` | public address, used in links of e-mails and webhooks |
+
+- **Scanners / WebDAV:** `http(s)://<host>/dav/inbox/` with any user name and an API key with the *upload* permission as the password; `/dav/inbox/<library>/<tag>/` stores into that library with that tag.
+- **Phone:** install the web app (“Add to home screen”) and share PDFs or photos to *Paperless-AI*.
+- **Moving from Paperless-ngx:** *Move to built-in archive* (admins) – analyse, choose how permissions become libraries, import (repeatable), switch. Paperless-ngx is only read.
+- **Export:** *Settings → Archive → Export* or `npm run cli -- export --format plain|ngx --out <dir>`.
 
 ### Calendar
 

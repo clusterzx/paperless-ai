@@ -1,0 +1,41 @@
+name: Round trip to Paperless-ngx
+
+# Built-in archive → export in the format of document_exporter → document_importer of the official
+# Paperless-ngx image (docs/standalone/migration.md §5). Runs nightly and on demand.
+on:
+  schedule:
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  roundtrip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ONNXRUNTIME_NODE_INSTALL: skip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Export a small built-in archive
+        run: npx tsx e2e/roundtrip/export.ts "$RUNNER_TEMP/export"
+      - name: Import it with document_importer and check the result
+        run: |
+          chmod -R a+rwX "$RUNNER_TEMP/export"
+          docker run --rm \
+            -v "$RUNNER_TEMP/export:/export" \
+            -v "$PWD/e2e/roundtrip/check.py:/check.py:ro" \
+            -e PAPERLESS_DATA_DIR=/tmp/data -e PAPERLESS_MEDIA_ROOT=/tmp/media -e PAPERLESS_CONSUMPTION_DIR=/tmp/consume \
+            --entrypoint /bin/bash ghcr.io/paperless-ngx/paperless-ngx:latest -c '
+              set -e
+              mkdir -p /tmp/data /tmp/media /tmp/consume
+              cd /usr/src/paperless/src
+              python3 manage.py migrate --no-input > /dev/null
+              python3 manage.py document_importer /export
+              python3 manage.py shell < /check.py'

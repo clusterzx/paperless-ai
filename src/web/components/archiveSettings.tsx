@@ -2,9 +2,10 @@
  * Settings → Archive (built-in archive): storage, intake limits, trash, and the health of the store.
  */
 import { useState } from 'react';
-import { Archive, HardDrive, Mail, ShieldCheck, Wrench } from 'lucide-react';
+import { Archive, Download, HardDrive, Mail, ShieldCheck, Wrench } from 'lucide-react';
 import { Alert, Badge, Button, Card, Field, Input, NumberInput, Select, Skeleton, Switch, useToast } from './ui';
 import type { Config, Locked } from './settingsForms';
+import type { ExportResult } from '@shared/migration';
 import { errorMessage, get, post } from '../lib/api';
 import { useAsync } from '../lib/hooks';
 import { formatDate, formatNumber } from '../lib/format';
@@ -88,6 +89,8 @@ export function ArchiveSection({ draft, set, locked }: { draft: Config; set: (pa
           <Switch checked={b.webdav} onChange={(v) => set('archive.builtin.webdav', v)} label="WebDAV inbox" description="Scanners and apps can save to /dav/inbox/ (user name + an API key with the upload permission)." />
         </div>
       </Card>
+
+      <ExportCard />
 
       <Card
         title="Health"
@@ -192,6 +195,56 @@ export function NotificationsSection({ draft, set, locked, dirty }: { draft: Con
         <Field label="Sender" hint="e.g. Paperless-AI <archive@example.com>" className="sm:col-span-2" locked={locked[field('from')]}>
           <Input value={s.from} disabled={Boolean(locked[field('from')])} onChange={(e) => set(field('from'), e.target.value)} />
         </Field>
+      </div>
+    </Card>
+  );
+}
+
+function ExportCard() {
+  const toast = useToast();
+  const [format, setFormat] = useState<'ngx' | 'plain'>('plain');
+  const [directory, setDirectory] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ExportResult | null>(null);
+  const run = async () => {
+    setBusy(true);
+    try {
+      const r = await post<ExportResult>('/api/archive/export', { format, directory: directory.trim() || undefined });
+      setResult(r);
+      toast.success(`${r.documents} document(s) exported`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card title="Export" icon={<Download className="size-4" />} description="Your documents are never locked in: export them as plain folders or for Paperless-ngx (document_importer).">
+      <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Format">
+            <Select value={format} onChange={(e) => setFormat(e.target.value as 'ngx' | 'plain')}>
+              <option value="plain">Folders library/correspondent/year + metadata.json/.csv</option>
+              <option value="ngx">Paperless-ngx (document_importer)</option>
+            </Select>
+          </Field>
+          <Field label="Directory on the server" hint="Empty: data/exports/<format>-<time>. Must be empty.">
+            <Input value={directory} placeholder="/exports/archive" onChange={(e) => setDirectory(e.target.value)} />
+          </Field>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button loading={busy} onClick={() => void run()}>
+            Export now
+          </Button>
+          <a className="text-sm text-accent hover:underline" href="/migration">
+            Migration from Paperless-ngx
+          </a>
+        </div>
+        {result && (
+          <Alert tone="success">
+            {result.documents} document(s), {result.files} file(s), {bytes(result.bytes)} in <code>{result.directory}</code>
+          </Alert>
+        )}
       </div>
     </Card>
   );

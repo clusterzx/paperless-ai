@@ -1,6 +1,7 @@
 import { ARCHIVE_SCHEMA, LIB_FTS } from '../archive/schema.js';
 import { COUNTER_TRIGGERS, rebuildCounters, SORT_INDEXES } from '../archive/counters.js';
 import { WORKFLOW_SCHEMA } from '../workflows/storage.js';
+import { MIGRATION_SCHEMA } from '../migration/schema.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
@@ -428,6 +429,11 @@ const MIGRATIONS: Migration[] = [
     version: 14,
     name: 'workflows',
     up: (db) => db.exec(WORKFLOW_SCHEMA),
+  },
+  {
+    version: 15,
+    name: 'migration from Paperless-ngx',
+    up: (db) => db.exec(MIGRATION_SCHEMA),
   },
 ];
 

@@ -6,6 +6,7 @@ import {
   Bookmark,
   Trash2,
   Library,
+  ArrowRightLeft,
   Workflow as WorkflowIcon,
   FileSearch,
   Files,
@@ -295,6 +296,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const secondary: NavItem[] = [
     { href: '/settings', label: 'Settings', icon: <Settings />, keywords: 'configuration preferences' },
     { href: '/logs', label: 'Logs & diagnostics', icon: <ScrollText />, hidden: !admin, keywords: 'debug' },
+    { href: '/migration', label: 'Move to built-in archive', icon: <ArrowRightLeft />, hidden: !admin || session?.archive?.mode !== 'paperless', keywords: 'migration import paperless-ngx standalone switch' },
   ];
 
   const isActive = (href: string) => (href === '/' ? location === '/' : location === href || location.startsWith(`${href}/`));

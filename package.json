@@ -3,6 +3,9 @@
   "version": "4.4.0",
   "description": "AI-powered document classification, tagging and RAG chat for Paperless-ngx",
   "type": "module",
+  "bin": {
+    "paperless-ai": "dist/server/cli.js"
+  },
   "private": true,
   "license": "MIT",
   "author": "Clusterzx",
@@ -28,6 +31,7 @@
     "fixture:archive": "tsx e2e/perf/fixture.ts",
     "perf": "tsx e2e/perf/run.ts",
     "start": "node dist/server/index.js",
+    "cli": "node dist/server/cli.js",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
     "lint": "eslint .",
     "format": "prettier --write .",
