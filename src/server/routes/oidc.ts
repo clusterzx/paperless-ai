@@ -125,6 +125,12 @@ export const oidcRoutes =
       return { ok: true };
     });
 
+    // The redirect URIs exactly as the sign-in will use them (the settings page shows them).
+    app.get('/api/settings/oidc-urls', { config: { auth: 'session' } }, async (req) => ({
+      callbackUrl: oidc.redirectUri(req),
+      postLogoutUrl: new URL('/login', `${oidc.baseUrl(req)}/`).href,
+    }));
+
     app.post(
       '/api/settings/test-oidc',
       {

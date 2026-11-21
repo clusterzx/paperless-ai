@@ -94,9 +94,21 @@ export class OidcService {
     return this.cached.config;
   }
 
-  /** Address of Paperless-AI as the browser sees it (configured, or the one of the request). */
-  private baseUrl(req: FastifyRequest): string {
-    return this.ctx.cfg.auth.publicUrl || `${req.protocol}://${req.host}`;
+  /**
+   * Address of Paperless-AI as the browser sees it: the configured one, else the one of the request.
+   * Behind a reverse proxy the request itself is plain http (and may carry an internal host name):
+   * the proxy tells in X-Forwarded-Proto / X-Forwarded-Host how the browser came in – used here even
+   * without TRUST_PROXY. Safe for this purpose: the address only builds the redirect URIs, and the
+   * provider accepts nothing but the ones registered there.
+   */
+  baseUrl(req: FastifyRequest): string {
+    if (this.ctx.cfg.auth.publicUrl) return this.ctx.cfg.auth.publicUrl;
+    const first = (name: string) => String(req.headers[name] ?? '').split(',')[0].trim();
+    const fwdProto = first('x-forwarded-proto').toLowerCase();
+    const fwdHost = first('x-forwarded-host');
+    const proto = fwdProto === 'https' || fwdProto === 'http' ? fwdProto : req.protocol;
+    const host = /^[a-z0-9.-]+(:\d{1,5})?$|^\[[0-9a-f:.]+\](:\d{1,5})?$/i.test(fwdHost) ? fwdHost : req.host;
+    return `${proto}://${host}`;
   }
 
   /**

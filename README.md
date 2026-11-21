@@ -166,7 +166,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `API_KEY`, `JWT_SECRET` | secrets (generated automatically when unset; use at least 32 random characters for `JWT_SECRET`) |
 | `LOG_LEVEL`, `LOG_FORMAT=json` | operations |
 | `TRUST_PROXY` | behind a reverse proxy: number of proxy hops (usually `1`) or the proxy addresses – needed for correct client IPs (login rate limit) and secure cookies; off by default |
-| `PAPERLESS_AI_URL` | address of Paperless-AI as the browser opens it (e.g. `https://paperless-ai.example.com`) – used for the single sign-on redirect URI; default: the address of the request |
+| `PAPERLESS_AI_URL` | address of Paperless-AI as the browser opens it (e.g. `https://paperless-ai.example.com`) – used for the single sign-on redirect URI; default: the address of the request (behind a proxy from its `X-Forwarded-Proto`/`-Host`) |
 | `OIDC_ENABLED`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | [single sign-on](#single-sign-on-openid-connect) with an OpenID Connect provider (the secret stays empty for a public client) |
 | `OIDC_ALLOWED_GROUPS`, `OIDC_GROUPS_CLAIM`, `OIDC_SCOPES` | only members of these groups may sign in (comma-separated, empty = everyone the provider lets through); claim with the groups (default `groups`); scopes (default `openid profile email`) |
 | `OIDC_AUTO_CREATE`, `OIDC_USERNAME_CLAIM`, `OIDC_BUTTON_LABEL`, `OIDC_PROVIDER_LOGOUT` | create accounts on the first sign-in (default on), claim for their names (default `preferred_username`), label of the login button, sign out at the provider too (default on) |
@@ -238,7 +238,7 @@ Choose *Built-in archive* in the setup (or set `PAPERLESS_AI_ARCHIVE=builtin`). 
 
 - **Redirect URI:** `https://paperless-ai.example.com/api/auth/oidc/callback` – shown in the settings, together with the **post-logout redirect URI** `https://paperless-ai.example.com/login`
 - **Issuer URL:** the address in front of `/.well-known/openid-configuration` – *Test provider* checks it
-- **Behind a reverse proxy** set `PAPERLESS_AI_URL` (or *Public address* in the settings) to the address your browser uses, so the redirect URI has the right scheme and host
+- **Behind a reverse proxy** the address comes from the proxy's `X-Forwarded-Proto` / `X-Forwarded-Host` headers (Traefik, Caddy and most others send them). If the settings warn that Paperless-AI sees another address than your browser, set `PAPERLESS_AI_URL` (or *Public address* in the settings) to the address your browser uses
 
 Who may sign in: everyone the provider lets through for this application, or – with *Allowed groups* – only members of these groups. All Paperless-AI accounts have the same rights (settings included), so restrict access at the provider or name the groups. New accounts are created on the first sign-in; with *Create accounts automatically* off, an existing user signs in with the password once and links the account in *Settings → Account*. Once your account is linked you can switch off the password login – on a fresh installation (`PASSWORD_LOGIN=false`) the first single sign-on creates the first account.
 

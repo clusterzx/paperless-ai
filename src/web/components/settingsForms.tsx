@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Bot, Cloud, Cpu, Plug, Plus, Server, Sparkle, Trash2, Wand2 } from 'lucide-react';
 import type { AppConfig } from '../../server/config/schema';
 import type { ConnectionTestResult } from '@shared/api';
@@ -1061,8 +1061,20 @@ export function SignInSection({ draft, set, locked, linked }: SectionProps & { l
   const o = a.oidc;
   const [test, setTest] = useState<(ConnectionTestResult & { callbackUrl?: string }) | null>(null);
   const [testing, setTesting] = useState(false);
-  const base = a.publicUrl.replace(/\/+$/, '') || window.location.origin;
-  const callbackUrl = `${base}/api/auth/oidc/callback`;
+  // Without a public address the server derives it from the request (behind a proxy from its
+  // X-Forwarded-* headers): show exactly what the sign-in will use, not what the browser sees.
+  const [server, setServer] = useState<{ callbackUrl: string; postLogoutUrl: string } | null>(null);
+  useEffect(() => {
+    if (!o.enabled) return;
+    get<{ callbackUrl: string; postLogoutUrl: string }>('/api/settings/oidc-urls')
+      .then(setServer)
+      .catch(() => setServer(null));
+  }, [o.enabled]);
+  const configured = a.publicUrl.replace(/\/+$/, '');
+  const callbackUrl = configured ? `${configured}/api/auth/oidc/callback` : (server?.callbackUrl ?? `${window.location.origin}/api/auth/oidc/callback`);
+  const logoutUrl = configured ? `${configured}/login` : (server?.postLogoutUrl ?? `${window.location.origin}/login`);
+  // The server sees another address than the browser (a proxy without X-Forwarded-Proto/-Host).
+  const mismatch = !configured && server && new URL(server.callbackUrl).origin !== window.location.origin ? new URL(server.callbackUrl).origin : null;
   const lockedOidc = (key: keyof typeof o) => locked[`auth.oidc.${key}`];
   const runTest = async () => {
     setTesting(true);
@@ -1102,12 +1114,19 @@ export function SignInSection({ draft, set, locked, linked }: SectionProps & { l
           <div className="rounded-xl border border-border bg-surface-2 p-3 text-sm">
             <div className="text-xs text-muted">Redirect URI to register at the provider</div>
             <code className="mt-1 block font-mono text-[13px] break-all" aria-label="Redirect URI">
-              {test?.callbackUrl && !a.publicUrl ? test.callbackUrl : callbackUrl}
+              {callbackUrl}
             </code>
             <div className="mt-2 text-xs text-muted">
-              Post-logout redirect URI (if the provider asks for one): <code className="font-mono">{base}/login</code>
+              Post-logout redirect URI (if the provider asks for one): <code className="font-mono">{logoutUrl}</code>
             </div>
           </div>
+          {mismatch && (
+            <Alert tone="warn">
+              Paperless-AI sees itself as <code className="font-mono">{mismatch}</code>, your browser opens <code className="font-mono">{window.location.origin}</code> – the sign-in would
+              come back to the wrong address. Enter the public address above (or <code className="font-mono">PAPERLESS_AI_URL</code>), or let the reverse proxy send
+              X-Forwarded-Proto and X-Forwarded-Host.
+            </Alert>
+          )}
           <div>
             <Button size="sm" icon={<Plug className="size-3.5" />} loading={testing} disabled={!o.issuer} onClick={runTest}>
               Test provider

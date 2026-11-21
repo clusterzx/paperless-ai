@@ -200,6 +200,35 @@ describe('single sign-on (OIDC)', () => {
     expect((await put({ passwordLogin: false, oidc: { enabled: false } })).statusCode).toBe(400);
   });
 
+  it('comes back to the address the browser used behind a reverse proxy (X-Forwarded-*), also without TRUST_PROXY', async () => {
+    const { hh, provider } = await setup();
+    const proxied = { 'x-forwarded-proto': 'https', 'x-forwarded-host': 'paperless-ai.example.com' };
+    const start = await hh.inject({ method: 'GET', url: '/api/auth/oidc/login', headers: proxied });
+    expect(new URL(location(start)).searchParams.get('redirect_uri')).toBe('https://paperless-ai.example.com/api/auth/oidc/callback');
+    // The sign-in completes with that redirect URI (the token request repeats it).
+    const flow = cookieOf(start, OIDC_FLOW_COOKIE)!;
+    const atProvider = await fetch(location(start), { redirect: 'manual' });
+    const back = new URL(atProvider.headers.get('location')!);
+    expect(back.origin).toBe('https://paperless-ai.example.com');
+    const done = await hh.inject({ method: 'GET', url: back.pathname + back.search, headers: { cookie: flow, ...proxied } });
+    expect(done.statusCode).toBe(302);
+    expect(cookieOf(done, SESSION_COOKIE)).toBeTruthy();
+    expect(provider.tokenRequests[0].params.get('redirect_uri')).toBe('https://paperless-ai.example.com/api/auth/oidc/callback');
+
+    // The settings page shows exactly that address.
+    const cookie = await hh.login();
+    expect((await hh.inject({ method: 'GET', url: '/api/settings/oidc-urls', headers: { cookie, ...proxied } })).json()).toEqual({
+      callbackUrl: 'https://paperless-ai.example.com/api/auth/oidc/callback',
+      postLogoutUrl: 'https://paperless-ai.example.com/login',
+    });
+    // Nonsense in the headers is ignored; a configured public address wins.
+    const odd = await hh.inject({ method: 'GET', url: '/api/auth/oidc/login', headers: { 'x-forwarded-proto': 'gopher', 'x-forwarded-host': 'evil.example/x' } });
+    expect(new URL(location(odd)).searchParams.get('redirect_uri')).toBe('http://localhost/api/auth/oidc/callback');
+    hh.ctx.config.update({ auth: { publicUrl: 'https://docs.example.org' } });
+    const configured = await hh.inject({ method: 'GET', url: '/api/auth/oidc/login', headers: proxied });
+    expect(new URL(location(configured)).searchParams.get('redirect_uri')).toBe('https://docs.example.org/api/auth/oidc/callback');
+  });
+
   it('checks the provider before saving, and the test button finds it', async () => {
     const { hh, provider } = await setup();
     const cookie = await hh.login();
