@@ -15,6 +15,7 @@ import type { RagService } from '../rag/service.js';
 import type { OcrService } from '../ocr/service.js';
 import { authenticate } from '../auth.js';
 import { PaperlessError } from '../paperless/client.js';
+import { ArchiveError } from '../backend/types.js';
 import { AiError } from '../ai/types.js';
 import { logger } from '../logger.js';
 import { endEventStreams, HttpProblem } from './helpers.js';
@@ -164,6 +165,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
       // Paperless "not found" is a 404 for our client too; everything else is an upstream problem.
       return reply.code(err.status === 404 ? 404 : 502).send({ error: err.message, code: 'paperless_error' });
     }
+    if (err instanceof ArchiveError) return reply.code(err.status).send({ error: err.message, code: err.code });
     if (err instanceof AiError) return reply.code(502).send({ error: err.message, code: 'ai_error' });
     if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ error: err.message });
     logger.error({ err, module: 'http', url: req.url }, 'Unhandled error');

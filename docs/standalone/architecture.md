@@ -105,6 +105,9 @@ Notes:
 
 * `AccessScope` comes from the `AccessContext` of the request or of the system principal (see
   [access-control.md](access-control.md)). The Paperless backend ignores it in v1 (one shared view).
+* Callers do not pass the scope to every call: `ctx.backend(scope)` returns a `BackendView`
+  (`backend/view.ts`) bound to one scope, `ctx.backend()` one bound to the system scope. The binding
+  is still explicit – there is no implicit "current user".
 * `ChangeOrigin` = `{ actor: 'user' | 'ai' | 'workflow' | 'system', actorId, reason?, runId? }`.
   The built-in backend writes it into the change log. The Paperless backend passes it to the
   Paperless-AI history only (as today).

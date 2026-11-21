@@ -119,7 +119,7 @@ export const ocrRoutes =
       '/api/ocr/documents/:id',
       { schema: { params: z.object({ id: z.coerce.number().int().positive() }) } },
       async (req): Promise<OcrDocumentText> => {
-        const doc = await ctx.paperless().getDocument(req.params.id);
+        const doc = await ctx.backend().getDocument(req.params.id);
         const result = ctx.repos.ocr.result(doc.id);
         const ocrText = result?.status === 'done' ? result.text : null;
         // Saved in Paperless: the text before the OCR is the one kept for undo.

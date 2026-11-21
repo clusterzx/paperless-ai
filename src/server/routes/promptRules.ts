@@ -72,7 +72,7 @@ export const promptRuleRoutes =
         },
       },
       async (req): Promise<{ rule: MatchedPromptRule | null }> => {
-        const doc = await ctx.paperless().getDocument(req.params.documentId);
+        const doc = await ctx.backend().getDocument(req.params.documentId);
         const rule = await matchPromptRule(ctx, doc);
         return { rule: rule ? describeMatch(rule) : null };
       },

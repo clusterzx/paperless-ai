@@ -22,10 +22,16 @@ export interface AnalyzeOptions {
   processing?: AppConfig['processing'];
   /** Another model of the configured provider (prompt rules). */
   model?: string | null;
+  /** Library of the document (built-in archive): its tags, correspondents and types are offered to the AI. */
+  libraryId?: number | null;
 }
 
-export async function buildPromptContext(ctx: AppContext, processing: AppConfig['processing'] = ctx.cfg.processing): Promise<PromptContext> {
-  const meta = await ctx.metadata().snapshot();
+export async function buildPromptContext(
+  ctx: AppContext,
+  processing: AppConfig['processing'] = ctx.cfg.processing,
+  libraryId: number | null = null,
+): Promise<PromptContext> {
+  const meta = await ctx.metadata(libraryId).snapshot();
   const byUsage = <T extends { name: string; document_count?: number }>(items: T[]) =>
     [...items].sort((a, b) => (b.document_count ?? 0) - (a.document_count ?? 0) || a.name.localeCompare(b.name)).map((i) => i.name);
   const processedTag = ctx.cfg.processing.processedTagName.toLowerCase();
@@ -51,7 +57,7 @@ export async function analyzeContent(ctx: AppContext, rawContent: string, opts: 
   if (content.length < 10) throw new UserError('The document has no (or almost no) text content. Is OCR finished?');
   const cfg = opts.processing ? { ...ctx.cfg, processing: opts.processing } : ctx.cfg;
   const llm = ctx.llm(opts.model);
-  const promptCtx = await buildPromptContext(ctx, cfg.processing);
+  const promptCtx = await buildPromptContext(ctx, cfg.processing, opts.libraryId ?? null);
   const promptOpts = { customPrompt: opts.customPrompt, filename: opts.filename };
   let built = buildAnalysisPrompt(cfg, content, promptCtx, promptOpts);
   let maxTokens = cfg.ai.responseTokens;

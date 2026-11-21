@@ -146,6 +146,31 @@ export const configSchema = z.object({
       publicUrl: str().transform(normalizePaperlessUrl),
     })
     .prefault({}),
+  /** Where documents live: Paperless-ngx (companion mode) or the built-in archive. */
+  archive: z
+    .object({
+      /** 'paperless' = companion mode, 'builtin' = built-in archive. Set by the setup, changed by the migration assistant. */
+      mode: z.enum(['paperless', 'builtin']).default('paperless'),
+      builtin: z
+        .object({
+          /** Blob store (files, thumbnails); empty = <data directory>/library. */
+          storageDir: str(),
+          /** Watch folder; empty = off. */
+          consumeDir: str(),
+          consumePollSeconds: z.coerce.number().int().min(2).max(3600).default(10),
+          /** After intake: delete the file from the watch folder or move it to <consumeDir>/.done */
+          consumeAfter: z.enum(['delete', 'move']).default('delete'),
+          maxUploadMb: z.coerce.number().int().min(1).max(4096).default(200),
+          /** Members (not only admins) may create libraries. */
+          membersCreateLibraries: bool(true),
+          /** Days deleted documents stay in the trash (default for new libraries). */
+          trashDays: z.coerce.number().int().min(1).max(3650).default(30),
+          /** WebDAV inbox at /dav/inbox/ (upload with an API key). */
+          webdav: bool(true),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
   ai: z
     .object({
       provider: z.enum(AI_PROVIDERS).default('openai'),

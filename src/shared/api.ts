@@ -163,18 +163,29 @@ export interface ProcessingStatus {
   counts: { processed: number; failed: number; skipped: number };
 }
 
+export interface ArchiveStatus {
+  /** 'paperless' = companion mode (Paperless-ngx), 'builtin' = built-in archive. */
+  mode: ArchiveMode;
+  /** Name of the archive in the UI ("Paperless-ngx", "Archive"). */
+  label: string;
+  connected: boolean;
+  error?: string;
+  version?: string | null;
+  apiVersion?: number | null;
+  documents: number;
+  tags: number;
+  correspondents: number;
+  documentTypes: number;
+  /** Built-in archive: bytes of stored files. */
+  storageBytes?: number;
+  libraries?: number;
+}
+
 export interface DashboardData {
   version: string;
-  paperless: {
-    connected: boolean;
-    error?: string;
-    version?: string | null;
-    apiVersion?: number | null;
-    documents: number;
-    tags: number;
-    correspondents: number;
-    documentTypes: number;
-  };
+  archive: ArchiveStatus;
+  /** @deprecated alias of `archive` (API clients of ≤ 4.4) */
+  paperless: ArchiveStatus;
   processing: ProcessingStatus;
   usage: UsageStats;
   timeline: { date: string; count: number }[];
@@ -226,6 +237,26 @@ export type ChatStreamEvent =
   | { type: 'done'; usage?: { promptTokens: number; completionTokens: number; totalTokens: number }; model?: string }
   | { type: 'error'; message: string };
 
+export type ArchiveMode = 'paperless' | 'builtin';
+
+/** What the archive backend can do – the UI shows features by these flags. */
+export interface BackendCapabilities {
+  upload: 'native' | 'forward';
+  intakeChannels: ('folder' | 'mail' | 'webdav')[];
+  fileVersions: boolean;
+  libraries: boolean;
+  fullChangeLog: boolean;
+  trash: 'native' | 'external';
+  externalLink: boolean;
+  manageMetadata: boolean;
+}
+
+export interface ArchiveInfo {
+  mode: ArchiveMode;
+  label: string;
+  capabilities: BackendCapabilities;
+}
+
 export interface SessionInfo {
   authenticated: boolean;
   setupRequired: boolean;
@@ -234,6 +265,8 @@ export interface SessionInfo {
   user?: { id: number; username: string };
   version: string;
   features: { rag: boolean; calendar: boolean };
+  /** The archive backend (null while it is not configured). */
+  archive: ArchiveInfo | null;
   /** How to sign in: with a password, and/or with single sign-on (its button label). */
   login: { password: boolean; sso: string | null };
 }

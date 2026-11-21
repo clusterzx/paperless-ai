@@ -6,8 +6,8 @@
 import type { AppContext } from '../context.js';
 import type { AppConfig, PromptRule } from '../config/schema.js';
 import type { PromptRow } from '../db/promptsRepo.js';
-import { normalizeName, type PaperlessMetadata } from '../paperless/metadata.js';
-import type { PaperlessDocument } from '../paperless/types.js';
+import { normalizeName, type MetadataCache } from '../backend/metadata.js';
+import type { ArchiveDocument } from '../backend/types.js';
 import { ruleLabel, type MatchedPromptRule, type PromptRuleConditions, type PromptRuleConfig } from '../../shared/promptRules.js';
 import { logger } from '../logger.js';
 
@@ -85,7 +85,7 @@ export function ruleProcessing(base: Processing, rule: PromptRule, promptText: s
   return p;
 }
 
-async function documentFacts(meta: PaperlessMetadata, doc: PaperlessDocument, withExtras: boolean): Promise<DocumentFacts> {
+async function documentFacts(meta: MetadataCache, doc: ArchiveDocument, withExtras: boolean): Promise<DocumentFacts> {
   await meta.snapshot();
   const extras = withExtras ? await meta.extras() : null;
   const name = (n: string | null | undefined) => (n ? normalizeName(n) : null);
@@ -114,11 +114,11 @@ async function documentFacts(meta: PaperlessMetadata, doc: PaperlessDocument, wi
 }
 
 /** The first rule that applies to the document, with its prompt and processing settings. */
-export async function matchPromptRule(ctx: AppContext, doc: PaperlessDocument): Promise<AppliedPromptRule | null> {
+export async function matchPromptRule(ctx: AppContext, doc: ArchiveDocument): Promise<AppliedPromptRule | null> {
   const rules = ctx.cfg.processing.promptRules;
   if (!rules.some((r) => r.enabled)) return null;
   const withExtras = rules.some((r) => r.enabled && (r.match.storagePaths.length > 0 || r.match.owners.length > 0));
-  const facts = await documentFacts(ctx.metadata(), doc, withExtras);
+  const facts = await documentFacts(ctx.metadata(doc.library_id ?? null), doc, withExtras);
   for (const [index, rule] of rules.entries()) {
     if (!rule.enabled || !matchesConditions(rule.match, facts)) continue;
     const prompt = rulePrompt(ctx, rule);

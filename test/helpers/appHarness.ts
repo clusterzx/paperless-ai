@@ -13,6 +13,7 @@ import { RagService } from '../../src/server/rag/service.js';
 import { OcrService } from '../../src/server/ocr/service.js';
 import { FakeOcrEngine } from './fakeOcr.js';
 import { buildApp } from '../../src/server/http/app.js';
+import { wireDocumentEvents } from '../../src/server/wiring.js';
 import { hashPassword, SESSION_COOKIE } from '../../src/server/auth.js';
 import type { AppConfig, DeepPartial } from '../../src/server/config/schema.js';
 import { deepMerge } from '../../src/server/config/store.js';
@@ -102,7 +103,7 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
   const ocr = new OcrService(ctx, () => ocrEngine);
   const engine = new ProcessingEngine(ctx, ocr);
   const rag = new RagService(ctx);
-  ocr.onTextChanged = (id) => rag.invalidate(id);
+  wireDocumentEvents(ctx, { rag, ocr });
   const app = await buildApp({ ctx, engine, rag, ocr });
   await app.ready();
 

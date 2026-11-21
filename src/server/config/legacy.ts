@@ -113,6 +113,12 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'PAPERLESS_USERNAME', path: 'paperless.username', parse: s },
   { env: 'PAPERLESS_PUBLIC_URL', path: 'paperless.publicUrl', parse: (v) => normalizePaperlessUrl(v) },
 
+  { env: 'PAPERLESS_AI_ARCHIVE', path: 'archive.mode', parse: (v) => (/^(builtin|built-in|standalone)$/i.test(v.trim()) ? 'builtin' : v.trim().toLowerCase()) },
+  { env: 'PAPERLESS_AI_STORAGE_DIR', path: 'archive.builtin.storageDir', parse: s },
+  { env: 'PAPERLESS_AI_CONSUME_DIR', path: 'archive.builtin.consumeDir', parse: s },
+  { env: 'PAPERLESS_AI_CONSUME_POLL', path: 'archive.builtin.consumePollSeconds', parse: i },
+  { env: 'PAPERLESS_AI_MAX_UPLOAD_MB', path: 'archive.builtin.maxUploadMb', parse: i },
+
   { env: 'AI_PROVIDER', path: 'ai.provider', parse: (v) => v.trim().toLowerCase() },
   { env: 'OPENAI_API_KEY', path: 'ai.openai.apiKey', parse: s },
   { env: 'OPENAI_MODEL', path: 'ai.openai.model', parse: s },

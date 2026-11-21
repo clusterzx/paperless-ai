@@ -110,17 +110,20 @@ export const settingsRoutes =
         log.info('Settings saved');
 
         // Create configured custom fields in Paperless right away so problems show up immediately.
-        if (ctx.cfg.processing.functions.customFields && ctx.cfg.processing.customFields.length && ctx.paperlessConfigured()) {
+        if (ctx.cfg.processing.functions.customFields && ctx.cfg.processing.customFields.length && ctx.archiveConfigured()) {
+          const where = ctx.archiveMode() === 'builtin' ? 'the archive' : 'Paperless';
           try {
-            const meta = ctx.metadata();
-            await meta.snapshot(true);
-            for (const f of ctx.cfg.processing.customFields) {
-              // Select fields need options, which are maintained in Paperless.
-              const res = await meta.resolveCustomField(f.name, f.type !== 'select', f.type, f.currency);
-              if (res.id == null) warnings.push(`Select field "${f.name}" does not exist in Paperless – create it there with its options.`);
+            for (const lib of await ctx.backend().metadataScopes()) {
+              const meta = ctx.metadata(lib);
+              await meta.snapshot(true);
+              for (const f of ctx.cfg.processing.customFields) {
+                // Select fields need options, which are maintained where the archive is.
+                const res = await meta.resolveCustomField(f.name, f.type !== 'select', f.type, f.currency);
+                if (res.id == null) warnings.push(`Select field "${f.name}" does not exist in ${where} – create it there with its options.`);
+              }
             }
           } catch (err) {
-            warnings.push(`Custom fields could not be created in Paperless: ${describeError(err)}`);
+            warnings.push(`Custom fields could not be created in ${where}: ${describeError(err)}`);
           }
         }
         return { config: ctx.config.redacted(), locked: ctx.config.lockedPaths, warnings };

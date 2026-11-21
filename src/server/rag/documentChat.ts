@@ -3,6 +3,7 @@
  * long documents the most relevant passages are selected so the prompt always
  * fits into the model's context window.
  */
+import type { AccessScope } from '../access/scope.js';
 import type { ChatStreamEvent, ChatTurn } from '../../shared/api.js';
 import type { AppContext } from '../context.js';
 import { contextBudget } from '../ai/factory.js';
@@ -40,11 +41,13 @@ export async function* documentChat(
   question: string,
   history: ChatTurn[],
   signal?: AbortSignal,
+  scope?: AccessScope,
 ): AsyncGenerator<ChatStreamEvent> {
   const cfg = ctx.cfg;
   const llm = ctx.llm();
-  const meta = ctx.metadata();
-  const [doc] = await Promise.all([ctx.paperless().getDocument(documentId), meta.snapshot()]);
+  const doc = await ctx.backend(scope).getDocument(documentId);
+  const meta = ctx.metadata(doc.library_id ?? null);
+  await meta.snapshot();
   const content = normalizeContent(doc.content ?? '');
   const contextWindow = contextBudget(cfg.ai);
   const maxAnswer = Math.min(Math.max(cfg.ai.responseTokens, 1500), Math.floor(contextWindow / 4));
@@ -67,7 +70,7 @@ export async function* documentChat(
   ]
     .filter(Boolean)
     .join('\n');
-  const systemBase = `You are a helpful assistant for questions about one document from the user's Paperless-ngx archive.
+  const systemBase = `You are a helpful assistant for questions about one document from the user's document archive.
 Answer based on the document content below. If something is not in the document, say so honestly.
 Answer in the language of the user's question and use Markdown where helpful.
 

@@ -27,7 +27,7 @@ import type { ChatMessage, EmbeddingClient, Usage } from '../ai/types.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
 import { datePart } from '../processing/dates.js';
-import { normalizeName } from '../paperless/metadata.js';
+import { normalizeName } from '../backend/metadata.js';
 import { chunkText } from './chunker.js';
 import { archiveFacts } from './facts.js';
 import { LocalEmbedder, localEmbeddingsAvailable } from './localEmbedder.js';
@@ -362,13 +362,21 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     const started = Date.now();
     this.lastError = null;
     await this.ensureVectors();
-    const client = this.ctx.paperless();
-    const metadata = this.ctx.metadata();
+    const client = this.ctx.backend();
 
     this.setProgress('listing', 0, 0);
+    // Ids are unique across metadata namespaces (libraries), so the name maps can be merged.
+    const loadNames = async () => {
+      const snaps = await Promise.all((await client.metadataScopes()).map((lib) => this.ctx.metadata(lib).snapshot(true)));
+      return {
+        tags: snaps.flatMap((m) => m.tags),
+        correspondents: snaps.flatMap((m) => m.correspondents),
+        documentTypes: snaps.flatMap((m) => m.documentTypes),
+      };
+    };
     const [docs, meta] = await Promise.all([
       client.listDocuments({ fields: ['id', 'title', 'modified', 'created', 'correspondent', 'document_type', 'tags'], ordering: '-added', pageSize: 1000 }),
-      metadata.snapshot(true),
+      loadNames(),
     ]);
     const tagNames = new Map(meta.tags.map((t) => [t.id, t.name]));
     const corrNames = new Map(meta.correspondents.map((c) => [c.id, c.name]));
