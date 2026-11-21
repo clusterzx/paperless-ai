@@ -250,6 +250,18 @@ describe('e-mail intake', () => {
     expect(docs.map((d) => d.original_filename)).toEqual(['IMG_1234.jpg']);
   });
 
+  it('checks on the interval from the settings, and a changed interval applies at once', async () => {
+    h.ctx.config.update({ archive: { builtin: { mailPollMinutes: 60 } } });
+    const mail = local().mail;
+    await mail.checkAll();
+    const start = Date.now();
+    expect(mail.due(start + 30 * 60_000)).toBe(false);
+    expect(mail.due(start + 60 * 60_000)).toBe(true);
+    h.ctx.config.update({ archive: { builtin: { mailPollMinutes: 5 } } });
+    expect(mail.due(start + 4 * 60_000)).toBe(false);
+    expect(mail.due(start + 5 * 60_000)).toBe(true);
+  });
+
   it('tests the connection, keeps the password on updates and reports errors on the account', async () => {
     const lib = local().ensureDefaultLibrary();
     const bad = await h.inject({ method: 'POST', url: '/api/intake/mail/test', headers: { cookie }, payload: { host: 'imap.example.com', username: 'x', password: 'wrong' } });

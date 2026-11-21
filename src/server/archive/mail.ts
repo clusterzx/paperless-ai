@@ -118,6 +118,7 @@ export interface MailCheckResult {
 export class MailWatcher {
   private timer: NodeJS.Timeout | null = null;
   private running: Promise<unknown> | null = null;
+  private lastRunAt = 0;
   /** Replaced by tests. */
   clientFactory: MailClientFactory = imapClient;
 
@@ -129,10 +130,18 @@ export class MailWatcher {
 
   start(): void {
     if (this.timer || process.env.PAPERLESS_AI_NO_WATCHERS === '1') return;
-    const every = this.ctx.cfg.archive.builtin.mailPollMinutes * 60_000;
-    this.timer = setInterval(() => void this.checkAll(), every);
+    // A tick every minute checks once the interval (Settings → Archive) has passed, so a changed
+    // interval applies right away instead of after the old one.
+    this.timer = setInterval(() => {
+      if (this.due()) void this.checkAll();
+    }, 60_000);
     this.timer.unref();
     setTimeout(() => void this.checkAll(), 15_000).unref();
+  }
+
+  /** Whether the next automatic check is due (a few seconds early, so timer drift skips no tick). */
+  due(now = Date.now()): boolean {
+    return now - this.lastRunAt >= this.ctx.cfg.archive.builtin.mailPollMinutes * 60_000 - 5_000;
   }
 
   stop(): void {
@@ -157,6 +166,7 @@ export class MailWatcher {
   /** Check all enabled accounts (one run at a time). */
   async checkAll(): Promise<void> {
     if (this.running) return;
+    this.lastRunAt = Date.now();
     const run = (async () => {
       for (const a of this.accounts()) await this.check(a.id).catch(() => undefined);
     })();

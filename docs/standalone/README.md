@@ -179,7 +179,7 @@ modes working.
 * Intake: web upload, REST upload, watch folder; text layer extraction; thumbnails.
 * Document full text index, metadata management, a single default library, trash.
 * Developer importer (CLI) from Paperless-ngx with the same IDs, to test with real archives.
-* Setup: built-in archive selectable behind `PAPERLESS_AI_EXPERIMENTAL_ARCHIVE=true`.
+* Setup: built-in archive selectable (decided: no experimental flag).
 * **Accept:** contract suite green for both backends; 200k-document fixture meets the targets in
   [search-and-scale.md](search-and-scale.md#6-targets); crash safety tests (kill during intake).
 

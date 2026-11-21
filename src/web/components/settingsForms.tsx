@@ -402,13 +402,17 @@ export function ProcessingSection({ draft, set, locked, tagSuggestions = [] }: S
     <div className="space-y-6">
       <Switch
         label="Process new documents automatically"
-        description="Scan Paperless on a schedule and analyze documents that have not been processed yet. You can also trigger processing from Paperless workflows via the webhook."
+        description={
+          draft.archive.mode === 'builtin'
+            ? 'New documents are analysed as soon as they arrive (upload, e-mail, watch folder, WebDAV). The scan on this schedule picks up what is left: failed analyses to retry and documents not analysed yet (e.g. while processing was paused). Also once after every start.'
+            : 'Scan Paperless on a schedule and analyze documents that have not been processed yet. You can also trigger processing from Paperless workflows via the webhook. Also once after every start.'
+        }
         checked={p.automatic}
         locked={locked['processing.automatic']}
         onChange={(v) => set('processing.automatic', v)}
       />
       <FormGrid>
-        <Field label="Scan interval (cron)" locked={locked['processing.scanInterval']} hint="Five-field cron expression, e.g. */30 * * * * = every 30 minutes.">
+        <Field label="Scan interval (cron)" locked={locked['processing.scanInterval']} hint="Five-field cron expression in server time, e.g. */30 * * * * = every 30 minutes, 0 * * * * = at every full hour.">
           <div className="flex gap-2">
             <Input className="font-mono" {...bind(draft, set, locked, 'processing.scanInterval')} />
             <Select

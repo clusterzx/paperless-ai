@@ -188,7 +188,7 @@ Behaviour:
 
 **Implemented (M6)** – `archive/mail.ts`, Libraries → E-mail:
 
-* Polling every `archive.builtin.mailPollMinutes` (default 5) or "Check now"; IDLE is not used yet.
+* Polling every `archive.builtin.mailPollMinutes` (default 5, Settings → Archive, `PAPERLESS_AI_MAIL_POLL`; a change applies at once) or "Check now"; IDLE is not used yet.
   Per folder the state keeps UIDVALIDITY and the last UID, so only new messages are read. The
   idempotency reference of an attachment is `account:folder:uidvalidity:uid:part` (more robust than
   the Message-ID, which is missing or reused by some senders); a rebuilt folder is read again

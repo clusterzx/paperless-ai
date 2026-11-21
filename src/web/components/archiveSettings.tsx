@@ -87,6 +87,14 @@ export function ArchiveSection({ draft, set, locked }: { draft: Config; set: (pa
             </Field>
           </div>
           <Switch checked={b.webdav} onChange={(v) => set('archive.builtin.webdav', v)} label="WebDAV inbox" description="Scanners and apps can save to /dav/inbox/ (user name + an API key with the upload permission)." />
+          <Field
+            label="Check e-mail accounts every (minutes)"
+            hint="The accounts are set up per library (Libraries → E-mail). New documents are analysed as soon as they arrive."
+            locked={locked['archive.builtin.mailPollMinutes']}
+            className="sm:max-w-xs"
+          >
+            <NumberInput value={b.mailPollMinutes} min={1} max={1440} disabled={Boolean(locked['archive.builtin.mailPollMinutes'])} onChange={(v) => set('archive.builtin.mailPollMinutes', v)} />
+          </Field>
         </div>
       </Card>
 
