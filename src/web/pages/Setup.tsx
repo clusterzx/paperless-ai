@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, Bot, Check, Plug, Rocket, Sparkles, Workflow } from 'lucide-react';
+import { Archive, ArrowLeft, ArrowRight, Bot, Check, Plug, Rocket, Sparkles, Workflow } from 'lucide-react';
 import type { ConnectionTestResult, SessionInfo } from '@shared/api';
 import { AuthShell, OrDivider } from './Login';
 import { SsoButton } from '../components/singleSignOn';
@@ -16,6 +16,30 @@ interface Defaults {
   defaults: { systemPrompt: string };
   localEmbeddings: boolean;
   needsUser: boolean;
+  archive?: { defaultStorageDir: string; networkWarning: string | null };
+}
+
+function ModeCard({ active, onClick, icon, title, children, disabled }: { active: boolean; onClick: () => void; icon: React.ReactNode; title: string; children: React.ReactNode; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'flex h-full flex-col gap-3 rounded-2xl border p-5 text-left transition disabled:opacity-60',
+        active ? 'border-accent bg-accent-soft/40 ring-4 ring-accent/15' : 'border-border bg-surface hover:border-border-strong',
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <IconChip tone={active ? 'accent' : 'neutral'}>{icon}</IconChip>
+        <span className="font-semibold text-fg">{title}</span>
+        {active && <Check className="ml-auto size-4 text-accent" />}
+      </div>
+      <div className="text-sm text-muted">{children}</div>
+    </button>
+  );
 }
 
 function passwordScore(pw: string): { score: number; label: string } {
@@ -56,20 +80,23 @@ export default function SetupPage() {
   return <Wizard defaults={defaults} login={session?.login ?? { password: true, sso: null }} onDone={refresh} />;
 }
 
-type StepId = 'account' | 'paperless' | 'ai' | 'processing' | 'finish';
+type StepId = 'account' | 'archive' | 'paperless' | 'ai' | 'processing' | 'finish';
 
 function Wizard({ defaults, login, onDone }: { defaults: Defaults; login: SessionInfo['login']; onDone: () => Promise<unknown> }) {
   const [draft, set] = useDraft<Config>(defaults.config);
   const locked = defaults.locked;
+  const builtin = draft.archive.mode === 'builtin';
+  const [libraryName, setLibraryName] = useState('Archive');
   const steps = useMemo<{ id: StepId; label: string }[]>(
     () => [
       ...(defaults.needsUser ? [{ id: 'account' as const, label: 'Account' }] : []),
-      { id: 'paperless', label: 'Paperless-ngx' },
+      { id: 'archive', label: 'Archive' },
+      ...(builtin ? [] : [{ id: 'paperless' as const, label: 'Paperless-ngx' }]),
       { id: 'ai', label: 'AI provider' },
       { id: 'processing', label: 'Processing' },
       { id: 'finish', label: 'Finish' },
     ],
-    [defaults.needsUser],
+    [defaults.needsUser, builtin],
   );
   const [index, setIndex] = useState(0);
   const step = steps[index].id;
@@ -112,7 +139,13 @@ function Wizard({ defaults, login, onDone }: { defaults: Defaults; login: Sessio
       await post('/api/setup', {
         username: defaults.needsUser ? username.trim() : undefined,
         password: defaults.needsUser ? password : undefined,
-        config: { paperless: draft.paperless, ai: draft.ai, processing: draft.processing, rag: draft.rag },
+        config: {
+          archive: draft.archive,
+          ...(builtin ? { libraryName, ocr: locked['ocr.enabled'] ? {} : { enabled: true, mode: draft.ocr.mode } } : { paperless: draft.paperless }),
+          ai: draft.ai,
+          processing: draft.processing,
+          rag: draft.rag,
+        },
         force,
       });
       await onDone();
@@ -126,6 +159,7 @@ function Wizard({ defaults, login, onDone }: { defaults: Defaults; login: Sessio
 
   const titles: Record<StepId, string> = {
     account: 'Create your account',
+    archive: 'Where do your documents live?',
     paperless: 'Connect Paperless-ngx',
     ai: 'Choose your AI provider',
     processing: 'Processing',
@@ -133,6 +167,7 @@ function Wizard({ defaults, login, onDone }: { defaults: Defaults; login: Sessio
   };
   const descriptions: Record<StepId, string> = {
     account: 'Protects the web interface',
+    archive: 'Paperless-ngx or the built-in archive',
     paperless: 'URL and API token',
     ai: 'Cloud, compatible API or local',
     processing: 'What the AI may change',
@@ -202,6 +237,33 @@ function Wizard({ defaults, login, onDone }: { defaults: Defaults; login: Sessio
             </Field>
           </div>
         )}
+        {step === 'archive' && (
+          <div className="space-y-6">
+            <div role="radiogroup" aria-label="Archive" className="grid gap-4 sm:grid-cols-2">
+              <ModeCard active={!builtin} onClick={() => set('archive.mode', 'paperless')} icon={<Plug />} title="With Paperless-ngx" disabled={Boolean(locked['archive.mode'])}>
+                Paperless-AI runs next to your Paperless-ngx: it analyses, enriches and searches the documents there. Nothing changes in how you use Paperless-ngx.
+              </ModeCard>
+              <ModeCard active={builtin} onClick={() => set('archive.mode', 'builtin')} icon={<Archive />} title="Built-in archive" disabled={Boolean(locked['archive.mode'])}>
+                Paperless-AI is the archive: upload, watch folder, e-mail and WebDAV, versions, libraries for several users, workflows. No Paperless-ngx, Redis or Postgres needed.
+              </ModeCard>
+            </div>
+            {builtin && (
+              <div className="space-y-4">
+                {defaults.archive?.networkWarning && <Alert tone="warn">{defaults.archive.networkWarning}</Alert>}
+                <Field label="Name of the first library" hint="More libraries (e.g. per family member) can be added later.">
+                  <Input value={libraryName} onChange={(e) => setLibraryName(e.target.value)} />
+                </Field>
+                <Field label="File storage" hint={`Where the files are kept. Empty: ${defaults.archive?.defaultStorageDir ?? 'data/library'}`} locked={locked['archive.builtin.storageDir']}>
+                  <Input value={draft.archive.builtin.storageDir} onChange={(e) => set('archive.builtin.storageDir', e.target.value)} placeholder={defaults.archive?.defaultStorageDir} disabled={Boolean(locked['archive.builtin.storageDir'])} />
+                </Field>
+                <Field label="Watch folder (optional)" hint="Files dropped here (e.g. by a scanner) are imported and removed from the folder." locked={locked['archive.builtin.consumeDir']}>
+                  <Input value={draft.archive.builtin.consumeDir} onChange={(e) => set('archive.builtin.consumeDir', e.target.value)} placeholder="/consume" disabled={Boolean(locked['archive.builtin.consumeDir'])} />
+                </Field>
+                <p className="text-xs text-muted">OCR is switched on for the built-in archive: scans are read with PaddleOCR, digital PDFs keep their own text.</p>
+              </div>
+            )}
+          </div>
+        )}
         {step === 'paperless' && (
           <div className="space-y-4">
             <div>
@@ -234,7 +296,9 @@ function Wizard({ defaults, login, onDone }: { defaults: Defaults; login: Sessio
           <div className="space-y-5">
             <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface shadow-card">
               {[
-                { icon: <Plug />, label: 'Paperless-ngx', value: draft.paperless.url },
+                builtin
+                  ? { icon: <Archive />, label: 'Archive', value: `Built-in · library “${libraryName}”${draft.archive.builtin.consumeDir ? ` · watch folder ${draft.archive.builtin.consumeDir}` : ''}` }
+                  : { icon: <Plug />, label: 'Paperless-ngx', value: draft.paperless.url },
                 {
                   icon: <Bot />,
                   label: 'AI provider',

@@ -54,6 +54,11 @@ test('setup wizard configures Paperless-AI', async ({ page, request }) => {
   await page.getByLabel('Confirm password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Continue' }).click();
 
+  // Companion mode (the default): Paperless-ngx stays the archive.
+  await expect(page.getByRole('heading', { name: 'Where do your documents live?' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: /With Paperless-ngx/ })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('button', { name: 'Continue' }).click();
+
   // Wrong token → error, then fix it.
   await page.getByPlaceholder('http://paperless-ngx:8000').fill(`${info.paperlessUrl}/api/`);
   await page.getByPlaceholder('Token of the Paperless user').fill('wrong-token');

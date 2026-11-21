@@ -33,7 +33,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm test",
-    "demo": "tsx e2e/demo-server.ts"
+    "demo": "tsx e2e/demo-server.ts",
+    "test:e2e:builtin": "playwright test -c playwright.builtin.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

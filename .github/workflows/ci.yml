@@ -33,8 +33,10 @@ jobs:
             qemu-x86_64 -cpu Nehalem /usr/local/bin/node node_modules/vite/bin/vite.js build --configLoader runner --outDir /tmp/web'
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
-      - name: End-to-end tests
+      - name: End-to-end tests (companion mode)
         run: npm run test:e2e
+      - name: End-to-end tests (built-in archive)
+        run: npm run test:e2e:builtin
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

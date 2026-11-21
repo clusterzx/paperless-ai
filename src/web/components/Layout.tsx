@@ -4,6 +4,7 @@ import {
   Check,
   ChevronsUpDown,
   Bookmark,
+  Trash2,
   FileSearch,
   Files,
   Inbox,
@@ -285,6 +286,7 @@ export function Layout({ children }: { children: ReactNode }) {
     { href: '/ocr', label: 'OCR', icon: <ScanText />, hidden: !admin, keywords: 'text recognition scan paddleocr quality' },
     { href: '/calendar', label: 'Calendar', icon: <CalendarDays />, hidden: !session?.features.calendar, keywords: 'dates deadlines appointments due ical' },
     { href: '/metadata', label: 'Tags & metadata', icon: <Tags />, hidden: !session?.archive, keywords: 'tags correspondents document types custom fields merge rename' },
+    { href: '/trash', label: 'Trash', icon: <Trash2 />, hidden: session?.archive?.capabilities.trash !== 'native', keywords: 'deleted restore recycle bin' },
   ];
   const secondary: NavItem[] = [
     { href: '/settings', label: 'Settings', icon: <Settings />, keywords: 'configuration preferences' },

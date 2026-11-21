@@ -207,7 +207,8 @@ export class OcrService {
 
       let current = doc;
       let writtenBack = false;
-      if (this.cfg.writeBack && better) {
+      // The built-in archive keeps the text itself: OCR text always replaces a worse one (with undo).
+      if ((this.cfg.writeBack || this.ctx.archiveMode() === 'builtin') && better) {
         current = await this.ctx.backend().updateDocument(doc.id, { content: text }, OCR_ORIGIN);
         this.ctx.events.emit({ type: 'document.updated', id: doc.id, fields: ['content'], origin: OCR_ORIGIN, libraryId: doc.library_id ?? null });
         repo.markWrittenBack(doc.id, doc.content ?? '', current.modified ?? null);
