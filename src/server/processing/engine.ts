@@ -52,6 +52,8 @@ export const NO_TEXT_REASON = 'No text content (OCR not finished or failed)';
 const NO_TEXT_AFTER_OCR = 'No text found, not even with OCR';
 /** Intake option: stored and read, but not analysed (until someone asks for it). */
 export const ANALYSIS_SKIPPED_REASON = 'Not analysed (intake option)';
+/** Imported from Paperless-ngx with its metadata (new ids, no AI analysis chosen). */
+export const IMPORTED_REASON = 'Imported from Paperless-ngx – not analysed';
 
 interface Job extends EnqueueOptions {
   documentId: number;
@@ -307,7 +309,7 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       case 'skipped':
         // Without text before automatic OCR was enabled: now it can be read.
         if (state.reason === NO_TEXT_REASON && this.ocrAutomatic()) return true;
-        return state.reason !== 'reverted' && state.reason !== ANALYSIS_SKIPPED_REASON && changed;
+        return state.reason !== 'reverted' && state.reason !== ANALYSIS_SKIPPED_REASON && state.reason !== IMPORTED_REASON && changed;
       default:
         return true;
     }

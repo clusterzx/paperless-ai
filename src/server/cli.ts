@@ -3,7 +3,7 @@
  * Command line of Paperless-AI for long-running archive work (docs/standalone/migration.md):
  *
  *   paperless-ai migrate analyse
- *   paperless-ai migrate plan    --strategy single:<library> | owner:<shared library> [--archived] [--no-create-users]
+ *   paperless-ai migrate plan    --strategy single:<library> | owner:<shared library> [--archived] [--no-create-users] [--analyze]
  *   paperless-ai migrate start   (same options) – imports and waits until it is done
  *   paperless-ai migrate sync | status | discard
  *   paperless-ai migrate cutover – stop the server first (it switches the archive mode)
@@ -38,13 +38,13 @@ function strategyOf(a: string[]): MigrationStrategy {
 }
 
 function optionsOf(a: string[]): MigrationOptions {
-  return { archived: a.includes('--archived'), createUsers: !a.includes('--no-create-users'), concurrency: Number(arg(a, 'concurrency') ?? 4) };
+  return { archived: a.includes('--archived'), createUsers: !a.includes('--no-create-users'), concurrency: Number(arg(a, 'concurrency') ?? 4), analyze: a.includes('--analyze') };
 }
 
 const print = (v: unknown) => process.stdout.write(`${JSON.stringify(v, (_, x) => (x instanceof Map ? undefined : x), 2)}\n`);
 
 const USAGE = `Usage:
-  paperless-ai migrate analyse|plan|start|sync|status|cutover|discard [--strategy single:<name>|owner:<shared>] [--archived] [--no-create-users] [--concurrency n]
+  paperless-ai migrate analyse|plan|start|sync|status|cutover|discard [--strategy single:<name>|owner:<shared>] [--archived] [--no-create-users] [--concurrency n] [--analyze]
   paperless-ai export --format ngx|plain --out <directory> [--library <id> …]
 Options: --data <directory> (default: PAPERLESS_AI_DATA_DIR or ./data)`;
 

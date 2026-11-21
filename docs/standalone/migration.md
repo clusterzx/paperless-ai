@@ -83,12 +83,24 @@ CREATE TABLE migration_items (
 -- kv 'migration.paperless': strategy, mapping, started/finished timestamps, last sync, cutover time
 ```
 
-**Only into an archive without documents of its own.** Because the ids are kept, the import cannot
-run next to documents that were added in the built-in archive itself (an installation that started
-with the built-in archive): the start is refused while there are any (`MigrationStatus.ownDocuments`),
-and a single document whose id is taken by such a document is never replaced – it fails with a
-reason (e.g. a document added after the cutover and a new ngx document in a later sync). Rolling back
-is only possible after a cutover by the assistant.
+**Next to documents of its own: new ids.** In a built-in archive that is in use and has documents of
+its own (an installation that started with it), the ids cannot be kept. The assistant decides at the
+first start (`MigrationStatus.ids`): `keep` – the Paperless-ngx ids (moving a companion
+installation); `new` – new ids, the mapping in `migration_items.local_id` (migration 16). With new ids:
+
+* the documents keep title, date, tags, correspondent, type, custom fields and text from
+  Paperless-ngx; libraries and names that exist are used (merged by name), not created twice;
+* an archive serial number that a document of the library has already is left empty;
+* they are not analysed (processing state `skipped`, "Imported from Paperless-ngx – not analysed",
+  also not by later scans) unless "Analyse with the AI" is chosen – then the next scan does it;
+* OCR results kept by this installation are not used (they belong to other documents with that id);
+* sync and discard only touch imported documents, by their local id; discard also works in the
+  archive in use and removes the processing state of the imported documents; there is no cutover.
+
+With Paperless-ngx connected the import keeps its ids, so it is refused next to documents of the
+built-in archive (e.g. added after a cutover and a switch back). A single document whose id is taken
+by such a document is never replaced – it fails with a reason. Rolling back is only possible after a
+cutover by the assistant.
 
 **Why the same id and the same `modified`:** the processing state (`documents`), the AI history,
 the OCR results, the calendar and the RAG index reference document ids and compare `modified`.

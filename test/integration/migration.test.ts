@@ -12,6 +12,7 @@ import { makePdf } from '../helpers/pdf.js';
 import type { MigrationPlan, MigrationReport, MigrationStatus } from '../../src/shared/migration.js';
 import type { LocalBackend } from '../../src/server/archive/backend.js';
 import { SYSTEM_SCOPE } from '../../src/server/access/scope.js';
+import { IMPORTED_REASON } from '../../src/server/processing/engine.js';
 
 let h: Harness;
 let cookie: string;
@@ -212,6 +213,7 @@ describe('migration from Paperless-ngx', () => {
     const refused = await start();
     expect(refused.statusCode).toBe(409);
     expect(refused.json().error).toContain('1 document(s) of its own');
+    expect((await status()).ids).toBe('keep');
     expect(title(102)).toBe('Mein eigenes Dokument');
 
     // Without them it runs; a document added here later with the id of a new ngx document is kept.
@@ -250,6 +252,81 @@ describe('migration from Paperless-ngx', () => {
     // Paperless-ngx is untouched (only read).
     expect(h.paperless.calls('PATCH', /\/api\/documents\//)).toHaveLength(patchesBefore);
     void SYSTEM_SCOPE;
+  });
+});
+
+describe('import into a built-in archive with documents of its own', () => {
+  it('imports with new ids next to them, keeps the metadata, analyses nothing and discards only the import', async () => {
+    h = await createHarness({ archive: 'builtin' });
+    cookie = await h.login();
+    const db = h.ctx.db;
+    const local = h.ctx.archive() as LocalBackend;
+    const lib = local.ensureDefaultLibrary();
+    const ingest = async (name: string, line: string, tags?: string[]) => (await local.ingest(SYSTEM_SCOPE, { data: makePdf([[line]]), filename: name }, 'upload', { tags, skipAnalysis: true })).documentId!;
+    const ownA = await ingest('telekom.pdf', 'Eigene Rechnung der Telekom', ['Rechnung']);
+    const ownB = await ingest('finanzamt.pdf', 'Eigener Brief vom Finanzamt');
+    await h.engine.drain();
+    db.prepare('UPDATE lib_documents SET archive_serial_number = 17 WHERE id = ?').run(ownA);
+
+    // Paperless-ngx documents with the same ids (and the same archive serial number).
+    const p = h.paperless;
+    p.addTag('Rechnung', 10);
+    p.addCorrespondent('Stadtwerke', 20);
+    p.addDocument({ id: ownA, title: 'Stromrechnung März', content: 'Stromrechnung März Stadtwerke 84,20 EUR', owner: null, tags: [10], correspondent: 20, created: '2024-03-31', archive_serial_number: 17, file: { data: pdfA, contentType: 'application/pdf' } });
+    p.addDocument({ id: ownB, title: 'Mietvertrag', content: 'Mietvertrag Leopoldstraße 12', owner: null, created: '2023-05-01', file: { data: pdfB, contentType: 'application/pdf' } });
+
+    const status = async () => (await h.inject({ method: 'GET', url: '/api/migration/status', headers: { cookie } })).json() as MigrationStatus;
+    expect(await status()).toMatchObject({ ids: 'new', ownDocuments: 2 });
+    h.llm.clearRequests();
+    const libName = h.ctx.repos.libraries.get(lib)!.name;
+    const started = await post('/api/migration/start', { strategy: { kind: 'single', libraryName: libName }, options: { createUsers: false } });
+    expect(started.statusCode, started.body).toBe(200);
+    await waitFor(async () => (await status()).state === 'imported');
+
+    type Row = { id: number; title: string; library_id: number; archive_serial_number: number | null; source: string };
+    const rows = () => db.prepare('SELECT id, title, library_id, archive_serial_number, source FROM lib_documents WHERE deleted_at IS NULL ORDER BY id').all() as Row[];
+    // The own documents are untouched, the imported ones have new ids in the chosen library.
+    expect(rows().filter((r) => r.source !== 'import').map((r) => [r.id, r.title])).toEqual([
+      [ownA, 'telekom'],
+      [ownB, 'finanzamt'],
+    ]);
+    const imported = rows().filter((r) => r.source === 'import');
+    expect(imported.map((r) => r.title).sort()).toEqual(['Mietvertrag', 'Stromrechnung März']);
+    for (const r of imported) {
+      expect([ownA, ownB]).not.toContain(r.id);
+      expect(r.library_id).toBe(lib);
+    }
+    const strom = imported.find((r) => r.title === 'Stromrechnung März')!;
+    expect(strom.archive_serial_number).toBeNull(); // 17 belongs to the own document
+    expect((db.prepare('SELECT local_id FROM migration_items WHERE ngx_id = ?').get(ownA) as { local_id: number }).local_id).toBe(strom.id);
+    // Names are merged: one tag "Rechnung" in the library, on both documents.
+    expect((db.prepare("SELECT COUNT(*) AS c FROM lib_tags WHERE library_id = ? AND name_norm = 'rechnung'").get(lib) as { c: number }).c).toBe(1);
+    const meta = h.ctx.metadata(lib);
+    await meta.snapshot(true);
+    expect((await local.getDocument(SYSTEM_SCOPE, strom.id)).tags.map((t) => meta.tagName(t))).toEqual(['Rechnung']);
+    expect((await status()).ownDocuments).toBe(2);
+
+    // Not analysed – neither now nor by a later scan; the text comes from Paperless-ngx.
+    expect(h.ctx.repos.documents.get(strom.id)).toMatchObject({ status: 'skipped', reason: IMPORTED_REASON });
+    await h.engine.scan();
+    await h.engine.drain();
+    expect(h.llm.chatRequests()).toHaveLength(0);
+    expect((await local.getDocument(SYSTEM_SCOPE, strom.id)).content).toContain('84,20 EUR');
+
+    // Sync: gone in Paperless-ngx → the imported copy goes to the trash, the own document with that id stays.
+    p.deleteDocument(ownB);
+    await post('/api/migration/sync');
+    const mietId = imported.find((r) => r.title === 'Mietvertrag')!.id;
+    expect(local.row(mietId, true)?.deleted_at).not.toBeNull();
+    expect(local.row(ownB)?.title).toBe('finanzamt');
+
+    // Discard: only the imported documents (and their state) go.
+    const res = await post('/api/migration/discard');
+    expect(res.statusCode, res.body).toBe(200);
+    expect((db.prepare('SELECT id FROM lib_documents ORDER BY id').all() as { id: number }[]).map((r) => r.id)).toEqual([ownA, ownB]);
+    expect(h.ctx.repos.documents.get(strom.id)).toBeUndefined();
+    expect(h.ctx.repos.documents.get(ownA)?.status).toBe('skipped');
+    expect(h.ctx.repos.libraries.get(lib)).toBeDefined();
   });
 });
 

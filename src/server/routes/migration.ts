@@ -27,14 +27,23 @@ const strategy = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('owner'), sharedName: z.string().trim().min(1).max(100) }),
   z.object({ kind: z.literal('rules'), rules: z.array(rule).max(100), defaultLibrary: z.string().trim().min(1).max(100) }),
 ]);
-const options = z.object({ archived: z.boolean().default(false), createUsers: z.boolean().default(true), concurrency: z.number().int().min(1).max(16).default(4) }).prefault({});
+const options = z
+  .object({ archived: z.boolean().default(false), createUsers: z.boolean().default(true), concurrency: z.number().int().min(1).max(16).default(4), analyze: z.boolean().default(false) })
+  .prefault({});
 const exportBody = z.object({ format: z.enum(['ngx', 'plain']), directory: z.string().trim().max(1000).optional(), libraryIds: z.array(z.number().int().positive()).max(1000).optional() });
 
 export const migrationRoutes =
-  ({ ctx, engine }: Services): FastifyPluginAsync =>
+  ({ ctx, engine, rag }: Services): FastifyPluginAsync =>
   async (fastify) => {
     const app = fastify.withTypeProvider<ZodTypeProvider>();
     const migration = new MigrationService(ctx);
+    // Imported (or removed) documents of the archive in use: into (out of) "Ask your archive".
+    migration.onFinished = () => {
+      if (ctx.archiveMode() !== 'builtin') return;
+      rag.requestSync();
+      // Imported with new ids and "analyse with the AI" chosen: no waiting for the scheduled scan.
+      if (migration.status().options?.analyze) void engine.scan().catch(() => undefined);
+    };
     fastify.addHook('onClose', async () => migration.close());
     const guard = async <T>(fn: () => Promise<T>): Promise<T> => {
       try {

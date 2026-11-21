@@ -37,6 +37,18 @@ export default function MigrationPage() {
   useEffect(() => {
     void load();
   }, []);
+  // Libraries of the built-in archive: an import into an archive in use goes into one of them.
+  const [libraries, setLibraries] = useState<string[]>([]);
+  useEffect(() => {
+    get<{ name: string }[]>('/api/libraries')
+      .then((l) => setLibraries(l.map((x) => x.name)))
+      .catch(() => setLibraries([]));
+  }, []);
+  useEffect(() => {
+    if (status?.ids === 'new' && libraries.length && !libraries.some((l) => l.toLowerCase() === single.toLowerCase())) setSingle(libraries[0]);
+    // Only once the libraries are known (not on every edit of the field).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.ids, libraries]);
   // While the import runs, the progress is polled.
   useEffect(() => {
     if (!status?.running) return;
@@ -65,15 +77,21 @@ export default function MigrationPage() {
   const switched = s?.state === 'cutover' || s?.mode === 'builtin';
   /** Switched by this assistant (not an installation that started with the built-in archive). */
   const cutover = s?.state === 'cutover';
-  // Documents added in the built-in archive itself: the import (same ids as Paperless-ngx) cannot run next to them.
-  const blocked = Boolean(s && s.ownDocuments > 0);
+  // The built-in archive has documents of its own: the imported documents get new ids.
+  const newIds = s?.ids === 'new';
+  // …unless Paperless-ngx is connected: then the import (same ids) cannot run next to them.
+  const blocked = Boolean(s && !newIds && s.mode !== 'builtin' && s.ownDocuments > 0);
   const progress = s && s.counts.total ? Math.round(((s.counts.imported + s.counts.failed + s.counts.skipped + s.counts.deleted) / s.counts.total) * 100) : 0;
 
   return (
     <Page>
       <PageHeader
-        title="Move to the built-in archive"
-        description="Paperless-AI copies your documents from Paperless-ngx into its own archive – with the same ids, so the AI history, OCR results, the calendar and “Ask your archive” stay as they are. Paperless-ngx is only read until you switch."
+        title={newIds ? 'Import from Paperless-ngx' : 'Move to the built-in archive'}
+        description={
+          newIds
+            ? 'Paperless-AI copies your documents from Paperless-ngx into this archive, next to the documents that are here already. Paperless-ngx is only read.'
+            : 'Paperless-AI copies your documents from Paperless-ngx into its own archive – with the same ids, so the AI history, OCR results, the calendar and “Ask your archive” stay as they are. Paperless-ngx is only read until you switch.'
+        }
       />
       {!s ? (
         <Skeleton className="h-64 rounded-2xl" />
@@ -81,8 +99,15 @@ export default function MigrationPage() {
         <div className="space-y-5">
           {blocked && (
             <Alert tone="warn" title={`The built-in archive has ${formatNumber(s.ownDocuments)} document(s) of its own`}>
-              The import keeps the document ids of Paperless-ngx, so the AI history, OCR results and “Ask your archive” stay valid – next to documents added here it would
-              collide with their ids. Run it from companion mode (Paperless-AI connected to Paperless-ngx) in a new installation, or empty the built-in archive first.
+              With Paperless-ngx connected the import keeps the document ids, so it cannot run next to them. Import from the built-in archive instead – there the documents get new
+              ids.
+            </Alert>
+          )}
+          {newIds && (
+            <Alert tone="info" title={`Import into this archive (${formatNumber(s.ownDocuments)} document(s) are here already)`}>
+              The imported documents get new ids next to them and keep title, date, tags, correspondent, type, custom fields and their text from Paperless-ngx. Libraries,
+              tags, correspondents and types with the same name are used, not created twice. An AI history of another Paperless-AI installation is not carried over. Address and token
+              of Paperless-ngx: Settings → Paperless-ngx (import).
             </Alert>
           )}
           {cutover && (
@@ -156,8 +181,13 @@ export default function MigrationPage() {
                 ]}
               />
               {kind === 'single' && (
-                <Field label="Library" hint="Everyone gets access – admins as owners, the others as editors.">
-                  <Input value={single} onChange={(e) => setSingle(e.target.value)} />
+                <Field label="Library" hint={newIds ? 'An existing library or a new one. Everyone gets access – admins as owners, the others as editors.' : 'Everyone gets access – admins as owners, the others as editors.'}>
+                  <Input list="migration-libraries" value={single} onChange={(e) => setSingle(e.target.value)} />
+                  <datalist id="migration-libraries">
+                    {libraries.map((l) => (
+                      <option key={l} value={l} />
+                    ))}
+                  </datalist>
                 </Field>
               )}
               {kind === 'owner' && (
@@ -192,6 +222,14 @@ export default function MigrationPage() {
                 <Field label="Documents at the same time">
                   <NumberInput min={1} max={16} value={options.concurrency} onChange={(concurrency) => setOptions({ ...options, concurrency })} />
                 </Field>
+                {newIds && (
+                  <Switch
+                    checked={Boolean(options.analyze)}
+                    onChange={(analyze) => setOptions({ ...options, analyze })}
+                    label="Analyse with the AI"
+                    description="Off: the documents keep the metadata from Paperless-ngx (no AI costs). On: every imported document is analysed again."
+                  />
+                )}
               </div>
               <Button loading={busy === 'plan'} disabled={started && !switched && s.state !== 'idle'} onClick={() => void run('plan', () => post<MigrationPlan>('/api/migration/plan', { strategy, options }), (p) => (setPlan(p), null))}>
                 Show who will see what
@@ -269,12 +307,15 @@ export default function MigrationPage() {
                     Sync changes from Paperless-ngx
                   </Button>
                 )}
-                {started && !switched && !s.running && (
+                {started && (!switched || newIds) && !s.running && (
                   <Button
                     variant="ghost"
                     icon={<Trash2 className="size-4" />}
                     onClick={async () => {
-                      if (!(await confirm({ title: 'Discard the import?', message: 'All imported documents and files are removed from the built-in archive. Paperless-ngx is not affected.', confirmLabel: 'Discard', danger: true }))) return;
+                      const message = newIds
+                        ? 'The imported documents and their files are removed from this archive; the documents that were here before stay. Paperless-ngx is not affected.'
+                        : 'All imported documents and files are removed from the built-in archive. Paperless-ngx is not affected.';
+                      if (!(await confirm({ title: 'Discard the import?', message, confirmLabel: 'Discard', danger: true }))) return;
                       await run('discard', () => post('/api/migration/discard'), () => 'Import discarded');
                       setPlan(null);
                     }}
@@ -286,6 +327,7 @@ export default function MigrationPage() {
             </div>
           </Card>
 
+          {!(newIds && s.mode === 'builtin') && (
           <Card title="4. Switch" icon={<ArrowRightLeft className="size-4" />} description="Processing pauses, a last sync runs, then Paperless-AI uses the built-in archive.">
             {switched ? (
               <div className="flex flex-wrap items-center gap-3">
@@ -320,6 +362,7 @@ export default function MigrationPage() {
               </Button>
             )}
           </Card>
+          )}
         </div>
       )}
     </Page>

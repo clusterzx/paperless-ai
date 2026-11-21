@@ -435,6 +435,13 @@ const MIGRATIONS: Migration[] = [
     name: 'migration from Paperless-ngx',
     up: (db) => db.exec(MIGRATION_SCHEMA),
   },
+  {
+    version: 16,
+    name: 'import from Paperless-ngx with new ids',
+    // The id of the imported document in the built-in archive when it differs from the ngx id
+    // (an import into an archive with documents of its own); NULL = the same id.
+    up: (db) => db.exec('ALTER TABLE migration_items ADD COLUMN local_id INTEGER; CREATE UNIQUE INDEX migration_items_local ON migration_items(local_id) WHERE local_id IS NOT NULL;'),
+  },
 ];
 
 export function openDatabase(file: string): Db {

@@ -22,6 +22,11 @@ export interface MigrationOptions {
   createUsers: boolean;
   /** Documents downloaded at the same time. */
   concurrency: number;
+  /**
+   * Import with new ids (into an archive with documents of its own): analyse the imported documents
+   * with the AI (next scan). Off: they keep the metadata from Paperless-ngx and are not analysed.
+   */
+  analyze?: boolean;
 }
 
 export interface MigrationReport {
@@ -64,6 +69,11 @@ export interface MigrationStatus {
    * archive itself). The migration keeps the ids of Paperless-ngx, so it cannot start next to them.
    */
   ownDocuments: number;
+  /**
+   * keep: the documents keep their Paperless-ngx ids (moving a companion installation, the AI
+   * history stays valid). new: they get new ids (import into an archive with documents of its own).
+   */
+  ids: 'keep' | 'new';
 }
 
 export interface ExportResult {

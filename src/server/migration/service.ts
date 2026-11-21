@@ -5,6 +5,10 @@
  * processing state, the AI history, OCR results, the calendar and the RAG index stay valid – no
  * re-analysis, no new OCR, no re-embedding. Progress is stored per document (`migration_items`):
  * pause, resume, restart and repeated syncs are possible at any time.
+ *
+ * Into a built-in archive with documents of its own (an installation that started with it) the ids
+ * cannot be kept: the documents get new ids (`migration_items.local_id`), keep the metadata from
+ * Paperless-ngx and are not analysed unless chosen. There is no AI history of them to keep anyway.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,6 +19,7 @@ import { toColumns } from '../archive/fields.js';
 import { sniffType } from '../archive/files.js';
 import { normalizeName } from '../backend/metadata.js';
 import { datePart } from '../processing/dates.js';
+import { IMPORTED_REASON } from '../processing/engine.js';
 import type { PaperlessClient } from '../paperless/client.js';
 import type { PaperlessDocument } from '../paperless/types.js';
 import type { LibraryRole } from '../access/scope.js';
@@ -39,6 +44,16 @@ interface StoredState {
   libraries: number[];
   /** ngx user id → Paperless-AI user id. */
   users: Record<string, number>;
+  /** Decided at the first start: keep the ngx ids, or new ids (archive with documents of its own). */
+  ids: 'keep' | 'new' | null;
+}
+
+interface ItemRow {
+  ngx_id: number;
+  status: string;
+  imported_modified: string | null;
+  checksum: string | null;
+  local_id: number | null;
 }
 
 interface NgxUser {
@@ -89,6 +104,8 @@ export class MigrationService {
   private loop: Promise<void> | null = null;
   private pauseRequested = false;
   private local: LocalBackend | null = null;
+  /** Called when an import or sync has finished (the routes start a sync of the search index). */
+  onFinished: (() => void) | null = null;
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -117,6 +134,7 @@ export class MigrationService {
       cutoverAt: null,
       libraries: [],
       users: {},
+      ids: null,
       ...this.ctx.repos.kv.get<Partial<StoredState>>(STATE_KEY),
     };
   }
@@ -131,9 +149,26 @@ export class MigrationService {
   ownDocuments(): number {
     return (
       this.ctx.db
-        .prepare('SELECT COUNT(*) AS c FROM lib_documents d WHERE NOT EXISTS (SELECT 1 FROM migration_items m WHERE m.ngx_id = d.id AND m.imported_modified IS NOT NULL)')
+        .prepare(
+          `SELECT COUNT(*) AS c FROM lib_documents d
+           WHERE NOT EXISTS (SELECT 1 FROM migration_items m WHERE m.local_id = d.id AND m.imported_modified IS NOT NULL)
+             AND NOT EXISTS (SELECT 1 FROM migration_items m WHERE m.ngx_id = d.id AND m.local_id IS NULL AND m.imported_modified IS NOT NULL)`,
+        )
         .get() as { c: number }
     ).c;
+  }
+
+  /**
+   * The id mode of this migration: decided at the first start, before by the archive – new ids into
+   * a built-in archive in use with documents of its own, else the Paperless-ngx ids.
+   */
+  idMode(): 'keep' | 'new' {
+    return this.stored().ids ?? (this.ctx.archiveMode() === 'builtin' && this.ownDocuments() ? 'new' : 'keep');
+  }
+
+  /** The id of an imported document in the built-in archive. */
+  private localId(item: Pick<ItemRow, 'ngx_id' | 'local_id'>): number {
+    return item.local_id ?? item.ngx_id;
   }
 
   status(): MigrationStatus {
@@ -158,6 +193,7 @@ export class MigrationService {
       lastSyncAt: s.lastSyncAt,
       cutoverAt: s.cutoverAt,
       ownDocuments: this.ownDocuments(),
+      ids: this.idMode(),
       libraries: s.libraries,
     };
   }
@@ -364,13 +400,16 @@ export class MigrationService {
   async start(strategy: MigrationStrategy, options: MigrationOptions): Promise<MigrationStatus> {
     if (this.loop) throw new Error('The migration is running already');
     if (this.ctx.archiveMode() === 'builtin' && this.stored().state === 'cutover') throw new Error('The archive was switched already – use the sync');
-    // The documents keep their Paperless-ngx ids: next to documents added in the built-in archive
-    // itself they would collide (and must never replace them).
-    const own = this.ownDocuments();
+    // Next to documents added in the built-in archive itself the Paperless-ngx ids would collide:
+    // then the documents get new ids. Decided once, later starts and syncs keep the mode.
+    const ids = this.idMode();
+    // With Paperless-ngx connected the processing state belongs to its ids: no import with new ids
+    // next to documents of the built-in archive (e.g. added after a switch and a switch back).
+    const own = ids === 'keep' && this.ctx.archiveMode() !== 'builtin' ? this.ownDocuments() : 0;
     if (own) {
       throw new Error(
-        `The built-in archive has ${own} document(s) of its own. The migration keeps the document ids of Paperless-ngx and needs an archive without them: ` +
-          'run it from companion mode (Paperless-ngx connected) into a new installation, or empty the built-in archive first.',
+        `The built-in archive has ${own} document(s) of its own. With Paperless-ngx connected the import keeps its ids and cannot run next to them – ` +
+          'import from the built-in archive instead (with new ids).',
       );
     }
     const snap = await this.load();
@@ -409,7 +448,8 @@ export class MigrationService {
     this.ctx.db.transaction(() => {
       for (const d of snap.docs) ins.run(d.id, now);
     })();
-    this.save({ state: 'importing', strategy, options, startedAt: stored.startedAt ?? now, finishedAt: null, libraries: [...libraries], users });
+    this.save({ state: 'importing', strategy, options, startedAt: stored.startedAt ?? now, finishedAt: null, libraries: [...libraries], users, ids });
+    if (ids === 'new') log.info('Import with new ids: the built-in archive has documents of its own');
     this.assignments = new Map([...plan.assignments].map(([id, name]) => [id, libIds.get(name)!]));
     this.run();
     return this.status();
@@ -491,6 +531,7 @@ export class MigrationService {
     if (notes.length) this.writeNotes(notes);
     this.save({ state: this.stored().state === 'cutover' ? 'cutover' : 'imported', finishedAt: Date.now(), lastSyncAt: Date.now() });
     log.info('Migration: all documents handled');
+    this.onFinished?.();
   }
 
   /** Notes are not in the model yet: kept in data/migration/notes.json. */
@@ -516,6 +557,12 @@ export class MigrationService {
     return Number(db.prepare(`INSERT INTO ${table} (library_id, name, name_norm, created_at) VALUES (?, ?, ?, ?)`).run(lib, item.name, norm, Date.now()).lastInsertRowid);
   }
 
+  /** The ngx archive serial number, unless a document of the library has it already (import with new ids). */
+  private freeAsn(lib: number, asn: number | null | undefined): number | null {
+    if (asn == null) return null;
+    return this.ctx.db.prepare('SELECT 1 FROM lib_documents WHERE library_id = ? AND archive_serial_number = ?').get(lib, asn) ? null : asn;
+  }
+
   private fieldId(lib: number, def: NgxCustomField): number {
     const db = this.ctx.db;
     const norm = normalizeName(def.name);
@@ -533,8 +580,11 @@ export class MigrationService {
     const local = this.archive();
     const db = this.ctx.db;
     const d = (await c.req<NgxDoc>(`/documents/${id}/`, { query: { full_perms: true } })) as NgxDoc;
-    const item = db.prepare('SELECT * FROM migration_items WHERE ngx_id = ?').get(id) as { status: string; imported_modified: string | null; checksum: string | null } | undefined;
-    const existing = local.row(id, true);
+    const item = db.prepare('SELECT * FROM migration_items WHERE ngx_id = ?').get(id) as ItemRow | undefined;
+    const keep = this.idMode() === 'keep';
+    // The document in the built-in archive: the same id, or the new id it got at its first import.
+    const prevId = item?.local_id ?? (keep ? id : null);
+    const existing = prevId != null ? local.row(prevId, true) : undefined;
     // Never overwrite a document that this migration did not import (same id, added in the built-in archive).
     if (existing && !item?.imported_modified) throw new Error(`The built-in archive has its own document ${id} – it is not replaced`);
     if (existing && item?.status === 'imported' && item.imported_modified === d.modified) {
@@ -564,13 +614,15 @@ export class MigrationService {
     }
     const lib = existing ? existing.library_id : this.libraryFor(d);
     const users = this.stored().users;
-    // A better OCR text Paperless-AI kept for itself (not written back) wins over the Paperless text.
-    const ocr = this.ctx.repos.ocr.result(id);
+    // A better OCR text Paperless-AI kept for itself (not written back) wins over the Paperless text –
+    // only with the same ids: with new ids, OCR results under this id belong to another document.
+    const ocr = keep ? this.ctx.repos.ocr.result(id) : null;
     const ocrText = ocr && ocr.status === 'done' && !ocr.written_back && !ocr.kept_original && !ocr.reverted_at ? ocr.text : null;
     const text = ocrText ?? d.content ?? '';
     const created = datePart(d.created_date ?? d.created) ?? null;
     const now = Date.now();
 
+    let docId = prevId ?? 0;
     db.transaction(() => {
       const tagIds = d.tags.map((t) => snap.tags.get(t)).filter((t): t is NgxNamed => Boolean(t)).map((t) => this.named('lib_tags', lib, t));
       const corr = d.correspondent != null && snap.correspondents.get(d.correspondent) ? this.named('lib_correspondents', lib, snap.correspondents.get(d.correspondent)!) : null;
@@ -579,25 +631,28 @@ export class MigrationService {
       const owner = d.owner != null ? (users[d.owner] ?? null) : null;
       let version = existing?.current_version ?? 1;
       if (!existing) {
-        db.prepare(
-          `INSERT INTO lib_documents (id, library_id, title, created, added, modified, correspondent_id, document_type_id, storage_path_id, archive_serial_number, owner_id,
-             current_version, original_filename, mime_type, page_count, source)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 'import')`,
-        ).run(id, lib, d.title, created, d.added ?? new Date(now).toISOString(), d.modified ?? new Date(now).toISOString(), corr, type, sp, d.archive_serial_number ?? null, owner, original!.filename, original!.mime, d.page_count ?? null);
+        const res = db
+          .prepare(
+            `INSERT INTO lib_documents (id, library_id, title, created, added, modified, correspondent_id, document_type_id, storage_path_id, archive_serial_number, owner_id,
+               current_version, original_filename, mime_type, page_count, source)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 'import')`,
+          )
+          .run(keep ? id : null, lib, d.title, created, d.added ?? new Date(now).toISOString(), d.modified ?? new Date(now).toISOString(), corr, type, sp, keep ? (d.archive_serial_number ?? null) : this.freeAsn(lib, d.archive_serial_number), owner, original!.filename, original!.mime, d.page_count ?? null);
+        docId = Number(res.lastInsertRowid);
       } else {
-        if (original) version = ((db.prepare('SELECT MAX(version) AS v FROM lib_document_files WHERE document_id = ?').get(id) as { v: number }).v ?? 0) + 1;
+        if (original) version = ((db.prepare('SELECT MAX(version) AS v FROM lib_document_files WHERE document_id = ?').get(docId) as { v: number }).v ?? 0) + 1;
         db.prepare(
           `UPDATE lib_documents SET title = ?, created = ?, modified = ?, correspondent_id = ?, document_type_id = ?, storage_path_id = ?, archive_serial_number = ?, owner_id = ?,
              current_version = ?, page_count = COALESCE(?, page_count), deleted_at = NULL WHERE id = ?`,
-        ).run(d.title, created, d.modified ?? existing.modified, corr, type, sp, d.archive_serial_number ?? null, owner, version, d.page_count ?? null, id);
+        ).run(d.title, created, d.modified ?? existing.modified, corr, type, sp, keep ? (d.archive_serial_number ?? null) : existing.archive_serial_number, owner, version, d.page_count ?? null, docId);
       }
       if (original) {
         db.prepare(
           "INSERT INTO lib_document_files (document_id, version, kind, blob_sha256, original_filename, mime_type, size, page_count, comment, created_at) VALUES (?, ?, 'original', ?, ?, ?, ?, ?, ?, ?)",
-        ).run(id, version, original.sha256, original.filename, original.mime, original.size, d.page_count ?? null, existing ? 'Changed in Paperless-ngx' : '', now);
+        ).run(docId, version, original.sha256, original.filename, original.mime, original.size, d.page_count ?? null, existing ? 'Changed in Paperless-ngx' : '', now);
         if (archived) {
           db.prepare("INSERT INTO lib_document_files (document_id, version, kind, blob_sha256, original_filename, mime_type, size, created_at) VALUES (?, ?, 'archive', ?, ?, 'application/pdf', ?, ?)").run(
-            id,
+            docId,
             version,
             archived.sha256,
             `${path.parse(original.filename).name}.pdf`,
@@ -606,10 +661,10 @@ export class MigrationService {
           );
         }
       }
-      local.setText(id, version, text, ocrText ? 'ocr' : 'import');
-      local.setTags(id, lib, created, tagIds);
+      local.setText(docId, version, text, ocrText ? 'ocr' : 'import');
+      local.setTags(docId, lib, created, tagIds);
       // Custom fields: values that do not fit their type are kept as text.
-      db.prepare('DELETE FROM lib_custom_field_values WHERE document_id = ?').run(id);
+      db.prepare('DELETE FROM lib_custom_field_values WHERE document_id = ?').run(docId);
       const insField = db.prepare('INSERT INTO lib_custom_field_values (document_id, field_id, value_text, value_num, value_date, value_json) VALUES (?, ?, ?, ?, ?, ?)');
       for (const f of d.custom_fields ?? []) {
         const def = snap.customFields.get(f.field);
@@ -621,18 +676,17 @@ export class MigrationService {
         } catch {
           cols = { value_text: String(f.value), value_num: null, value_date: null, value_json: null };
         }
-        insField.run(id, fid, cols?.value_text ?? null, cols?.value_num ?? null, cols?.value_date ?? null, cols?.value_json ?? null);
+        insField.run(docId, fid, cols?.value_text ?? null, cols?.value_num ?? null, cols?.value_date ?? null, cols?.value_json ?? null);
       }
-      local.refreshFts(id);
-      local.logEvent({ id, library_id: lib }, existing ? (original ? 'version_added' : 'updated') : 'created', { actor: 'import', ref: `ngx:${id}` });
-      db.prepare("UPDATE migration_items SET status = 'imported', imported_modified = ?, checksum = COALESCE(?, checksum), error = NULL, attempts = attempts + 1, updated_at = ? WHERE ngx_id = ?").run(
-        d.modified ?? null,
-        meta.original_checksum ?? null,
-        now,
-        id,
-      );
+      local.refreshFts(docId);
+      local.logEvent({ id: docId, library_id: lib }, existing ? (original ? 'version_added' : 'updated') : 'created', { actor: 'import', ref: `ngx:${id}` });
+      db.prepare(
+        "UPDATE migration_items SET status = 'imported', imported_modified = ?, checksum = COALESCE(?, checksum), local_id = ?, error = NULL, attempts = attempts + 1, updated_at = ? WHERE ngx_id = ?",
+      ).run(d.modified ?? null, meta.original_checksum ?? null, keep ? null : docId, now, id);
+      // New ids: the documents come with their metadata – analysed only when chosen (by the next scan).
+      if (!keep && !existing && !opts?.analyze) this.ctx.repos.documents.markSkipped(docId, d.title, IMPORTED_REASON, d.modified ?? null);
     })();
-    return Array.isArray(d.notes) && d.notes.length ? { documentId: id, notes: d.notes } : null;
+    return Array.isArray(d.notes) && d.notes.length ? { documentId: docId, notes: d.notes } : null;
   }
 
   // ------------------------------------------------------------ sync, cutover, rollback
@@ -643,7 +697,7 @@ export class MigrationService {
     if (!this.stored().strategy) throw new Error('Start the migration first');
     const snap = await this.load();
     const db = this.ctx.db;
-    const items = new Map((db.prepare('SELECT ngx_id, status, imported_modified FROM migration_items').all() as { ngx_id: number; status: string; imported_modified: string | null }[]).map((r) => [r.ngx_id, r]));
+    const items = new Map((db.prepare('SELECT ngx_id, status, imported_modified, checksum, local_id FROM migration_items').all() as ItemRow[]).map((r) => [r.ngx_id, r]));
     const present = new Set(snap.docs.map((d) => d.id));
     let added = 0;
     let updated = 0;
@@ -662,10 +716,13 @@ export class MigrationService {
       }
       for (const [id, it] of items) {
         if (present.has(id) || it.status === 'deleted') continue;
-        db.prepare('UPDATE lib_documents SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL').run(now, id);
         db.prepare("UPDATE migration_items SET status = 'deleted', updated_at = ? WHERE ngx_id = ?").run(now, id);
-        this.archive().logEvent({ id, library_id: (this.archive().row(id, true)?.library_id ?? 0) }, 'deleted', { actor: 'import', ref: `ngx:${id}` });
         deleted++;
+        // Only documents this migration imported (never one that merely has the same id).
+        if (!it.imported_modified) continue;
+        const lid = this.localId(it);
+        db.prepare('UPDATE lib_documents SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL').run(now, lid);
+        this.archive().logEvent({ id: lid, library_id: this.archive().row(lid, true)?.library_id ?? 0 }, 'deleted', { actor: 'import', ref: `ngx:${id}` });
       }
     })();
     this.save({ lastSyncAt: now });
@@ -699,25 +756,34 @@ export class MigrationService {
     return this.status();
   }
 
-  /** Before the cutover: remove everything the migration imported. */
+  /** Before the cutover (or after an import with new ids): remove everything the migration imported. */
   async discard(): Promise<void> {
-    if (this.ctx.archiveMode() === 'builtin') throw new Error('The built-in archive is in use – switch back to Paperless-ngx first');
+    const keep = this.idMode() === 'keep';
+    // With the same ids the built-in archive is only discarded before the cutover; imported with new
+    // ids, the documents are removed from the archive in use (its own documents stay).
+    if (this.ctx.archiveMode() === 'builtin' && keep) throw new Error('The built-in archive is in use – switch back to Paperless-ngx first');
     if (this.loop) {
       this.pause();
       await this.loop;
     }
     const db = this.ctx.db;
     const s = this.stored();
+    let removed: number[] = [];
     db.transaction(() => {
-      const ids = (db.prepare('SELECT ngx_id FROM migration_items').all() as { ngx_id: number }[]).map((r) => r.ngx_id);
+      // Only documents this migration imported – by their id in the built-in archive.
+      const ids = (db.prepare('SELECT ngx_id, local_id FROM migration_items WHERE imported_modified IS NOT NULL').all() as Pick<ItemRow, 'ngx_id' | 'local_id'>[]).map((r) => this.localId(r));
       const del = db.prepare('DELETE FROM lib_documents WHERE id = ?');
       const delEvents = db.prepare('DELETE FROM lib_document_events WHERE document_id = ?');
       const delFts = db.prepare('DELETE FROM lib_fts WHERE rowid = ?');
+      const delState = db.prepare('DELETE FROM documents WHERE id = ?');
       for (const id of ids) {
         delFts.run(id);
         delEvents.run(id);
         del.run(id);
+        // With new ids the processing state is the import's own (with the same ids it is the one of companion mode).
+        if (!keep) delState.run(id);
       }
+      removed = ids;
       for (const lib of s.libraries) {
         if ((db.prepare('SELECT COUNT(*) AS c FROM lib_documents WHERE library_id = ?').get(lib) as { c: number }).c) continue;
         db.prepare('DELETE FROM library_members WHERE library_id = ?').run(lib);
@@ -727,11 +793,14 @@ export class MigrationService {
     })();
     this.ctx.repos.libraries.invalidate();
     const archive = this.archive();
-    await archive.blobs.gc((sha) => Boolean(db.prepare('SELECT 1 FROM blobs WHERE sha256 = ?').get(sha)), 0);
+    for (const id of removed) await archive.blobs.removeThumbs(id);
+    // In the archive in use uploads may be under way: their files are not in `blobs` yet.
+    await archive.blobs.gc((sha) => Boolean(db.prepare('SELECT 1 FROM blobs WHERE sha256 = ?').get(sha)), this.ctx.archiveMode() === 'builtin' ? undefined : 0);
     this.ctx.repos.kv.delete(STATE_KEY);
     this.snapshot = null;
     this.assignments.clear();
-    log.info('Migration discarded');
+    log.info(`Migration discarded (${removed.length} imported document(s) removed)`);
+    this.onFinished?.();
   }
 
   /** After the cutover: back to Paperless-ngx (it must still exist). Changes since then are listed. */
