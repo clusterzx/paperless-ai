@@ -7,7 +7,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { analysisJson, createHarness, makeTempDir, waitFor, type Harness } from '../helpers/appHarness.js';
 import { makePdf } from '../helpers/pdf.js';
-import type { ActivityItem, DocumentDetail, DocumentListResponse, UploadResult } from '../../src/shared/api.js';
+import type { ActivityItem, DashboardData, DocumentDetail, DocumentListResponse, ProcessingStatus, UploadResult } from '../../src/shared/api.js';
 import { LocalBackend } from '../../src/server/archive/backend.js';
 import { SYSTEM_SCOPE } from '../../src/server/access/scope.js';
 
@@ -254,6 +254,33 @@ describe('versions, change log and trash', () => {
     expect(local().blobs.has(sha)).toBe(true);
     await local().maintenance.collectBlobs();
     expect(local().blobs.has(sha)).toBe(false);
+  });
+
+  it('leaves documents in the trash out of the statistics and keeps their state for a restore', async () => {
+    h.llm.reply(analysisJson({ title: 'Stromrechnung März 2024', tags: ['Rechnung'] }));
+    const [r] = await upload([{ name: 'scan.pdf', data: invoice }]);
+    const id = r.documentId!;
+    await h.engine.drain();
+    const status = async () => (await h.inject({ method: 'GET', url: '/api/processing/status', headers: { cookie } })).json() as ProcessingStatus;
+    const dashboard = async () => (await h.inject({ method: 'GET', url: '/api/dashboard', headers: { cookie } })).json() as DashboardData;
+    expect((await status()).counts.processed).toBe(1);
+
+    // In the trash: neither a document nor a processed one ("1 of 0 documents" before).
+    await h.inject({ method: 'DELETE', url: `/api/documents/${id}`, headers: { cookie } });
+    expect((await status()).counts).toEqual({ processed: 0, failed: 0, skipped: 0 });
+    expect((await status()).lastProcessed).toBeNull();
+    expect((await dashboard()).archive.documents).toBe(0);
+
+    // A scan does not forget the state, so the restored document is not analysed (and paid for) again.
+    await h.engine.scan();
+    expect(h.ctx.repos.documents.get(id)?.status).toBe('processed');
+    h.llm.clearRequests();
+    await h.inject({ method: 'POST', url: '/api/documents/bulk', headers: { cookie }, payload: { ids: [id], action: 'restore' } });
+    await h.engine.scan();
+    await h.engine.drain();
+    expect(h.llm.chatRequests()).toHaveLength(0);
+    expect((await status()).counts.processed).toBe(1);
+    expect((await dashboard()).archive.documents).toBe(1);
   });
 
   it('empties the trash after the retention of the library', async () => {

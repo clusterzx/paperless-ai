@@ -7,6 +7,13 @@ import { CalendarRepo } from './calendarRepo.js';
 import { ApiKeysRepo, AuditRepo, CalendarFeedsRepo, GroupsRepo, LibrariesRepo, NotificationsRepo, SavedViewsRepo } from './accessRepo.js';
 import type { DocumentSnapshot, HistoryItem, HistoryQuery, UsageStats } from '../../shared/api.js';
 
+/**
+ * The processing state belongs to a document in the trash of the built-in archive. Such documents
+ * do not count in the statistics and problem lists (the dashboard compares them with the documents
+ * in the archive), but their state stays for a restore. Always false in companion mode.
+ */
+const IN_TRASH = 'EXISTS (SELECT 1 FROM lib_documents t WHERE t.id = documents.id AND t.deleted_at IS NOT NULL)';
+
 // ---------------------------------------------------------------- users
 
 export interface UserRow {
@@ -270,14 +277,17 @@ export class DocumentsRepo {
     return this.db.prepare('DELETE FROM documents').run().changes;
   }
 
-  /** IDs of documents with a stored state that are missing from `existing`. */
+  /**
+   * IDs of documents with a stored state that are missing from `existing`. Documents in the trash of
+   * the built-in archive still exist: their state is kept, so a restored document is not analysed again.
+   */
   missing(existing: Set<number>): number[] {
-    return (this.db.prepare('SELECT id FROM documents').all() as { id: number }[]).map((r) => r.id).filter((id) => !existing.has(id));
+    return (this.db.prepare(`SELECT id FROM documents WHERE NOT ${IN_TRASH}`).all() as { id: number }[]).map((r) => r.id).filter((id) => !existing.has(id));
   }
 
   counts(libs?: number[] | null): Record<DocumentStatus, number> {
     const l = libsCond('id', libs);
-    const rows = this.db.prepare(`SELECT status, COUNT(*) AS c FROM documents WHERE 1${l.sql} GROUP BY status`).all(...l.params) as {
+    const rows = this.db.prepare(`SELECT status, COUNT(*) AS c FROM documents WHERE NOT ${IN_TRASH}${l.sql} GROUP BY status`).all(...l.params) as {
       status: DocumentStatus;
       c: number;
     }[];
@@ -289,14 +299,14 @@ export class DocumentsRepo {
   list(status: DocumentStatus, limit = 200, libs?: number[] | null): DocumentStateRow[] {
     const l = libsCond('id', libs);
     return this.db
-      .prepare(`SELECT * FROM documents WHERE status = ?${l.sql} ORDER BY updated_at DESC LIMIT ?`)
+      .prepare(`SELECT * FROM documents WHERE status = ? AND NOT ${IN_TRASH}${l.sql} ORDER BY updated_at DESC LIMIT ?`)
       .all(status, ...l.params, limit) as DocumentStateRow[];
   }
 
   lastProcessed(libs?: number[] | null): DocumentStateRow | undefined {
     const l = libsCond('id', libs);
     return this.db
-      .prepare(`SELECT * FROM documents WHERE status = 'processed'${l.sql} ORDER BY processed_at DESC LIMIT 1`)
+      .prepare(`SELECT * FROM documents WHERE status = 'processed' AND NOT ${IN_TRASH}${l.sql} ORDER BY processed_at DESC LIMIT 1`)
       .get(...l.params) as DocumentStateRow | undefined;
   }
 
