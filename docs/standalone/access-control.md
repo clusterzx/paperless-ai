@@ -110,6 +110,14 @@ They are never applied to results afterwards in a route.
 | SSE (live log, processing status) | document titles only for readable documents; the full log needs admin |
 | Exports, migration assistant | admin, or owner of the exported library |
 
+**Implemented (M5):** the table above holds, with these notes: history, problems, statistics,
+OCR list and processing status filter through `db/scoped.ts` (`document_id IN (documents of the
+readable libraries)`); token usage on the dashboard is admin-only (instance-wide); owners pick new
+members from `GET /api/libraries/:id/candidates` (names only) without access to the user
+administration. `test/integration/isolation.test.ts` is the data part of the permission matrix: a
+viewer of one library calls every GET route (session and API key), Ask/chat/ask and the calendar
+feed, and neither responses nor AI prompts may contain a marker of the other library.
+
 ## 5. API keys
 
 * Per user, several keys, each with a name, **scopes** and optionally a library list (table

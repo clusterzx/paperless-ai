@@ -145,24 +145,39 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
     this.pump();
   }
 
-  status(): ProcessingStatus {
-    const last = this.ctx.repos.documents.lastProcessed();
+  /**
+   * State of the queue. With `libs` (a scope restricted to libraries of the built-in archive) the
+   * documents, titles and counts are limited to those libraries; the queue state stays global.
+   */
+  status(libs?: number[] | null): ProcessingStatus {
+    const last = this.ctx.repos.documents.lastProcessed(libs);
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
+    let current = [...this.active.values()];
+    if (libs && current.length) {
+      const visible = new Set(
+        (
+          this.ctx.db
+            .prepare('SELECT id FROM lib_documents WHERE id IN (SELECT value FROM json_each(?)) AND library_id IN (SELECT value FROM json_each(?))')
+            .all(JSON.stringify(current.map((c) => c.documentId)), JSON.stringify(libs)) as { id: number }[]
+        ).map((r) => r.id),
+      );
+      current = current.filter((c) => visible.has(c.documentId));
+    }
     return {
       running: this.active.size > 0,
       paused: this.paused,
       automatic: this.ctx.cfg.processing.automatic,
       scanning: this.scanning !== null,
-      current: [...this.active.values()],
+      current,
       queued: this.queue.length,
       lastScanAt: this.lastScanAt,
       nextScanAt: this.cron?.nextRun()?.getTime() ?? null,
       lastError: this.lastError,
       rateLimitedUntil: this.cooldownUntil > Date.now() ? this.cooldownUntil : null,
       lastProcessed: last ? { documentId: last.id, title: last.title, processedAt: last.processed_at ?? last.updated_at } : null,
-      processedToday: this.ctx.repos.documents.processedSince(startOfDay.getTime()),
-      counts: this.ctx.repos.documents.counts(),
+      processedToday: this.ctx.repos.documents.processedSince(startOfDay.getTime(), libs),
+      counts: this.ctx.repos.documents.counts(libs),
     };
   }
 

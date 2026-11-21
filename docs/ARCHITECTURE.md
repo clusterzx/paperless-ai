@@ -78,6 +78,19 @@ Built-in archive at scale (`archive/backend.ts`, measured with `npm run perf` on
   `rankCandidates` (5,000) documents is ranked by bm25 among its newest matches only, unless the
   other conditions leave too few of them.
 
+Libraries and access (`access/`, `http/policy.ts`, `db/scoped.ts`):
+
+* The route policy table decides who may call a route at all (admin, API key scope); library roles
+  are checked per document by the backend. Instance-wide lists – history, problems, statistics,
+  OCR list, processing status, metadata, calendar – take the caller's readable libraries
+  (`readableLibraries(scope)`, `null` in companion mode) and filter in SQL (`inLibraries`).
+* Ask your archive stores `library_id` per indexed document (`index.db`); BM25, the vector search
+  (`allowDocs`), the boosts for mentioned names and the sample titles sent to the AI are limited to
+  the caller's libraries, so foreign passages never reach a prompt. `test/integration/isolation.test.ts`
+  checks every GET route, Ask/chat and the AI prompts for a marker from a foreign library.
+* File versions: a new version or a switch is a change log event; undo makes the previous version
+  current again, undoing a trash move restores (`UNDOABLE_KINDS` in `archive/backend.ts`).
+
 ## Paperless-ngx compatibility
 
 `PaperlessClient` negotiates the API version on the first request: it asks for version 9 (accepted by

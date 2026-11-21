@@ -24,6 +24,7 @@ const DocumentPage = lazy(() => import('./pages/Document'));
 const InboxPage = lazy(() => import('./pages/Inbox'));
 const MetadataPage = lazy(() => import('./pages/Metadata'));
 const TrashPage = lazy(() => import('./pages/Trash'));
+const LibrariesPage = lazy(() => import('./pages/Libraries'));
 
 function FullScreenSpinner() {
   return (
@@ -118,6 +119,7 @@ function Routes() {
             <Route path="/inbox" component={InboxPage} />
             <Route path="/metadata" component={MetadataPage} />
             <Route path="/trash" component={TrashPage} />
+            <Route path="/libraries" component={LibrariesPage} />
             <Route path="/ask" component={AskPage} />
             <Route path="/chat" component={ChatPage} />
             <Route path="/review" component={ReviewPage} />

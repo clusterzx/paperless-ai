@@ -77,3 +77,52 @@ test('deletes to the trash and restores', async ({ page }) => {
   await page.getByRole('button', { name: 'Restore', exact: true }).first().click();
   await expect(page.getByText('The trash is empty')).toBeVisible();
 });
+
+test('adds a version, compares the texts, switches back with undo', async ({ page }) => {
+  await login(page);
+  await page.goto('/documents');
+  await page.getByRole('link').filter({ hasText: /SR-2024-0315|stromrechnung/i }).first().click();
+  await page.getByRole('tab', { name: /^Versions/ }).click();
+  await page.getByLabel('File of the new version').setInputFiles({
+    name: 'stromrechnung-korrigiert.pdf',
+    mimeType: 'application/pdf',
+    buffer: makePdf([['Stadtwerke München GmbH', 'Stromrechnung Nr. SR-2024-0315 (Korrektur)', 'Gesamtbetrag: 79,90 EUR']]),
+  });
+  await page.getByLabel('Comment (optional)').fill('korrigierte Rechnung');
+  await page.getByRole('button', { name: 'Add version' }).click();
+  await expect(page.getByText('korrigierte Rechnung')).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Versions (2)' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Compare' }).click();
+  const diff = page.getByLabel('Text differences');
+  await expect(diff).toContainText('79,90 EUR');
+  await expect(diff).toContainText('84,20 EUR');
+
+  // The new version is undone from the activity: version 1 is current again.
+  await page.getByRole('tab', { name: 'Activity' }).click();
+  const added = page.getByRole('listitem').filter({ hasText: 'New version' });
+  await added.getByRole('button', { name: 'Undo' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Undo' }).click();
+  await expect(added.getByText('undone')).toBeVisible();
+  await page.getByRole('tab', { name: 'Text' }).click();
+  await expect(page.getByRole('textbox', { name: 'Text of the document' })).toHaveValue(/84,20 EUR/);
+});
+
+test('creates a library and adds a member with a role', async ({ page }) => {
+  await login(page);
+  // A second account to add as a member.
+  expect((await page.request.post('/api/users', { data: { username: 'kim', password: 'kim-password-123', role: 'member' } })).ok()).toBe(true);
+  await page.goto('/libraries');
+  await expect(page.getByText('Familie')).toBeVisible();
+  await page.getByRole('button', { name: 'New library' }).click();
+  await page.getByRole('dialog').getByLabel('Name').fill('Verein');
+  await page.getByRole('dialog').getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('dialog', { name: 'Verein' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Members' }).click();
+  await page.getByLabel('Add').selectOption({ label: 'kim' });
+  await page.getByLabel('Role', { exact: true }).selectOption('editor');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('button', { name: 'Save members' }).click();
+  await expect(page.getByText('Members saved')).toBeVisible();
+  await expect(page.getByLabel('Role of kim')).toHaveValue('editor');
+});

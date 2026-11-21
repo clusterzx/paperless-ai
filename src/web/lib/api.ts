@@ -62,6 +62,18 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
 }
 
 export const get = <T>(path: string, signal?: AbortSignal) => api<T>(path, { signal });
+
+/** Multipart upload (files and form fields) without progress reporting. */
+export async function postForm<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(path, { method: 'POST', body: form, credentials: 'same-origin' });
+  const data = await parse(res);
+  if (!res.ok) {
+    const body = data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
+    if (res.status === 401) unauthorizedListeners.forEach((fn) => fn());
+    throw new ApiError(describeError(data, res.status), res.status, body);
+  }
+  return data as T;
+}
 export const post = <T>(path: string, body: unknown = {}) => api<T>(path, { method: 'POST', body });
 export const put = <T>(path: string, body: unknown) => api<T>(path, { method: 'PUT', body });
 export const patch = <T>(path: string, body: unknown) => api<T>(path, { method: 'PATCH', body });

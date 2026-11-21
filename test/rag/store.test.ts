@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openDatabase, type Db } from '../../src/server/db/database.js';
+import type { Db } from '../../src/server/db/database.js';
+import { openIndexDatabase } from '../../src/server/db/indexDatabase.js';
 import { metaLine, RagStore, splitTags, type RagDocumentMeta } from '../../src/server/rag/store.js';
 import { buildFtsQuery, queryTerms } from '../../src/server/rag/text.js';
 
@@ -7,7 +8,7 @@ let db: Db;
 let store: RagStore;
 
 beforeEach(() => {
-  db = openDatabase(':memory:');
+  db = openIndexDatabase(':memory:');
   store = new RagStore(db);
 });
 afterEach(() => db.close());

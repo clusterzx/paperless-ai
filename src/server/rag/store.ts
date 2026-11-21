@@ -14,7 +14,14 @@ export interface RagDocumentMeta {
   documentType: string | null;
   tags: string[];
   created: string | null;
+  /** Library of the built-in archive (null in companion mode): searches of a scope filter by it. */
+  libraryId?: number | null;
 }
+
+/** Library restriction of a search (`null` = all documents). */
+export type LibraryFilter = number[] | null | undefined;
+
+const IN_LIBS = 'library_id IN (SELECT value FROM json_each(?))';
 
 export interface StoredChunk {
   id: number;
@@ -54,15 +61,26 @@ export class RagStore {
   }
 
   /** id → modified/hash/meta of all indexed documents (for change detection). */
-  indexedDocuments(): Map<number, { modified: string | null; meta: string; contentHash: string }> {
+  indexedDocuments(): Map<number, { modified: string | null; meta: string; contentHash: string; libraryId: number | null }> {
     const rows = this.db
-      .prepare('SELECT id, modified, content_hash, title, correspondent, document_type, tags, created FROM rag_documents')
-      .all() as { id: number; modified: string | null; content_hash: string; title: string; correspondent: string | null; document_type: string | null; tags: string; created: string | null }[];
+      .prepare('SELECT id, modified, content_hash, title, correspondent, document_type, tags, created, library_id FROM rag_documents')
+      .all() as {
+      id: number;
+      modified: string | null;
+      content_hash: string;
+      title: string;
+      correspondent: string | null;
+      document_type: string | null;
+      tags: string;
+      created: string | null;
+      library_id: number | null;
+    }[];
     return new Map(
       rows.map((r) => [
         r.id,
         {
           modified: r.modified,
+          libraryId: r.library_id,
           contentHash: r.content_hash,
           meta: metaLine({ title: r.title, correspondent: r.correspondent, documentType: r.document_type, tags: splitTags(r.tags), created: r.created }),
         },
@@ -77,10 +95,10 @@ export class RagStore {
       this.deleteDocumentRows(doc.id);
       this.db
         .prepare(
-          `INSERT INTO rag_documents (id, modified, content_hash, title, correspondent, document_type, tags, created, chunk_count, indexed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO rag_documents (id, library_id, modified, content_hash, title, correspondent, document_type, tags, created, chunk_count, indexed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(doc.id, doc.modified, doc.contentHash, doc.title, doc.correspondent, doc.documentType, doc.tags.join('\u001f'), doc.created, chunks.length, Date.now());
+        .run(doc.id, doc.libraryId ?? null, doc.modified, doc.contentHash, doc.title, doc.correspondent, doc.documentType, doc.tags.join('\u001f'), doc.created, chunks.length, Date.now());
       const insertChunk = this.db.prepare('INSERT INTO rag_chunks (document_id, idx, text) VALUES (?, ?, ?)');
       const insertFts = this.db.prepare('INSERT INTO rag_fts (rowid, meta, body) VALUES (?, ?, ?)');
       const meta = metaLine(doc);
@@ -101,6 +119,19 @@ export class RagStore {
     this.db.prepare('DELETE FROM rag_chunks WHERE document_id = ?').run(documentId);
     this.db.prepare('DELETE FROM rag_documents WHERE id = ?').run(documentId);
     return ids;
+  }
+
+  /** A document moved to another library: only the column changes, the passages stay. */
+  setLibrary(documentId: number, libraryId: number | null): void {
+    this.cache.clear();
+    this.db.prepare('UPDATE rag_documents SET library_id = ? WHERE id = ?').run(libraryId, documentId);
+  }
+
+  /** Ids of the indexed documents of some libraries (cached until the index changes). */
+  documentsInLibraries(libs: number[]): Set<number> {
+    return this.cached(`libs:${[...libs].sort((a, b) => a - b).join(',')}`, () =>
+      new Set((this.db.prepare(`SELECT id FROM rag_documents WHERE ${IN_LIBS}`).all(JSON.stringify(libs)) as { id: number }[]).map((r) => r.id)),
+    );
   }
 
   deleteDocument(documentId: number): number[] {
@@ -167,15 +198,17 @@ export class RagStore {
   }
 
   /** BM25 keyword search. Lower bm25 = better; returned score is negated (higher = better). */
-  ftsSearch(match: string, limit: number): { id: number; documentId: number; score: number }[] {
+  ftsSearch(match: string, limit: number, libs?: LibraryFilter): { id: number; documentId: number; score: number }[] {
     try {
+      // With a library restriction, only passages of those libraries compete for the top ranks.
+      const scoped = libs ? `AND c.document_id IN (SELECT id FROM rag_documents WHERE ${IN_LIBS})` : '';
       return this.db
         .prepare(
           `SELECT f.rowid AS id, c.document_id AS documentId, -bm25(rag_fts, 2.0, 1.0) AS score
            FROM rag_fts f JOIN rag_chunks c ON c.id = f.rowid
-           WHERE rag_fts MATCH ? ORDER BY bm25(rag_fts, 2.0, 1.0) LIMIT ?`,
+           WHERE rag_fts MATCH ? ${scoped} ORDER BY bm25(rag_fts, 2.0, 1.0) LIMIT ?`,
         )
-        .all(match, limit) as { id: number; documentId: number; score: number }[];
+        .all(match, ...(libs ? [JSON.stringify(libs)] : []), limit) as { id: number; documentId: number; score: number }[];
     } catch {
       return [];
     }
@@ -224,6 +257,7 @@ export class RagStore {
     months?: { year: number; month: number }[];
     from?: string;
     to?: string;
+    libraryIds?: LibraryFilter;
   }): { id: number; created: string | null }[] {
     const where: string[] = [];
     const params: unknown[] = [];
@@ -253,14 +287,20 @@ export class RagStore {
       params.push(filter.to);
     }
     if (!where.length) return [];
+    if (filter.libraryIds) {
+      where.push(IN_LIBS);
+      params.push(JSON.stringify(filter.libraryIds));
+    }
     return this.db
       .prepare(`SELECT id, created FROM rag_documents WHERE ${where.join(' AND ')} ORDER BY created DESC LIMIT 500`)
       .all(...params) as { id: number; created: string | null }[];
   }
 
   /** A few document titles (helps the AI to guess the language of the archive). */
-  sampleTitles(limit: number): string[] {
-    return (this.db.prepare('SELECT title FROM rag_documents ORDER BY created DESC LIMIT ?').all(limit) as { title: string }[]).map((r) => r.title);
+  sampleTitles(limit: number, libs?: LibraryFilter): string[] {
+    return (
+      this.db.prepare(`SELECT title FROM rag_documents ${libs ? `WHERE ${IN_LIBS}` : ''} ORDER BY created DESC LIMIT ?`).all(...(libs ? [JSON.stringify(libs)] : []), limit) as { title: string }[]
+    ).map((r) => r.title);
   }
 
   createdDates(ids: number[]): Map<number, string | null> {
@@ -269,15 +309,19 @@ export class RagStore {
   }
 
   /** Most recent documents (for "latest …" questions). */
-  recentDocuments(limit: number): { id: number; created: string | null }[] {
-    return this.db.prepare('SELECT id, created FROM rag_documents ORDER BY created DESC LIMIT ?').all(limit) as { id: number; created: string | null }[];
+  recentDocuments(limit: number, libs?: LibraryFilter): { id: number; created: string | null }[] {
+    return this.db
+      .prepare(`SELECT id, created FROM rag_documents ${libs ? `WHERE ${IN_LIBS}` : ''} ORDER BY created DESC LIMIT ?`)
+      .all(...(libs ? [JSON.stringify(libs)] : []), limit) as { id: number; created: string | null }[];
   }
 
-  distinctValues(column: 'correspondent' | 'document_type'): string[] {
-    return this.cached(`distinct:${column}`, () =>
-      (this.db.prepare(`SELECT DISTINCT ${column} AS v FROM rag_documents WHERE ${column} IS NOT NULL AND ${column} != ''`).all() as { v: string }[]).map(
-        (r) => r.v,
-      ),
+  distinctValues(column: 'correspondent' | 'document_type', libs?: LibraryFilter): string[] {
+    return this.cached(`distinct:${column}:${libs ? libs.join(',') : '*'}`, () =>
+      (
+        this.db
+          .prepare(`SELECT DISTINCT ${column} AS v FROM rag_documents WHERE ${column} IS NOT NULL AND ${column} != ''${libs ? ` AND ${IN_LIBS}` : ''}`)
+          .all(...(libs ? [JSON.stringify(libs)] : [])) as { v: string }[]
+      ).map((r) => r.v),
     );
   }
 

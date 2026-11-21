@@ -1,8 +1,8 @@
-import { canEdit, userIdOf } from '../access/scope.js';
+import { canEdit, isAdmin, readableLibraries, userIdOf, type AccessScope } from '../access/scope.js';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import type { ArchiveStatus, DashboardData, HistoryPage } from '../../shared/api.js';
+import type { ArchiveStatus, DashboardData, HistoryPage, UsageStats } from '../../shared/api.js';
 import type { Services } from '../http/app.js';
 import { badRequest, documentIdFrom } from '../http/helpers.js';
 import { revertDocument } from '../processing/applier.js';
@@ -11,13 +11,20 @@ import { logger } from '../logger.js';
 
 const log = logger.child({ module: 'processing' });
 
+function emptyUsage(): UsageStats {
+  return { calls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, analyses: 0, avgPromptTokens: 0, avgCompletionTokens: 0, avgTotalTokens: 0, avgDurationMs: 0, distribution: [], byFeature: [] };
+}
+
 export const processingRoutes =
   ({ ctx, engine, rag }: Services): FastifyPluginAsync =>
   async (fastify) => {
     const app = fastify.withTypeProvider<ZodTypeProvider>();
 
     /** Tags of all metadata namespaces the archive has (ids are unique across them). */
-    const allTags = async () => (await Promise.all((await ctx.backend().metadataScopes()).map((lib) => ctx.metadata(lib).snapshot()))).flatMap((m) => m.tags);
+    /** Tags of the libraries the caller may read (all in companion mode). */
+    const allTags = async (scope: AccessScope) => (await Promise.all((await ctx.backend(scope).metadataScopes()).map((lib) => ctx.metadata(lib).snapshot()))).flatMap((m) => m.tags);
+    /** Library restriction of instance-wide lists (null = none). */
+    const libsOf = (req: { access?: AccessScope | null }) => (req.access ? readableLibraries(req.access) : null);
 
     // ---------------------------------------------------------------- dashboard
 
@@ -35,9 +42,10 @@ export const processingRoutes =
           correspondents: 0,
           documentTypes: 0,
         };
+        const libs = libsOf(req);
         if (ctx.archiveConfigured()) {
           try {
-            const backend = ctx.backend();
+            const backend = ctx.backend(req.access!);
             const info = await backend.info();
             if (!info.connected) throw new Error(info.error ?? 'Not connected');
             const [documents, metas] = await Promise.all([
@@ -62,18 +70,19 @@ export const processingRoutes =
           version: ctx.version,
           archive,
           paperless: archive,
-          processing: engine.status(),
-          usage: ctx.repos.usage.stats(),
-          timeline: ctx.repos.documents.timeline(30, req.query.tzOffset ?? new Date().getTimezoneOffset()),
-          documentTypes: ctx.repos.history.documentTypeStats(8),
+          processing: engine.status(libs),
+          // Token usage and cost of the whole instance: admins only (members get the empty shape).
+          usage: isAdmin(req.access!) ? ctx.repos.usage.stats() : emptyUsage(),
+          timeline: ctx.repos.documents.timeline(30, req.query.tzOffset ?? new Date().getTimezoneOffset(), libs),
+          documentTypes: ctx.repos.history.documentTypeStats(8, libs),
           ai: ctx.aiInfo(),
           rag: { enabled: ctx.cfg.rag.enabled },
         };
       },
     );
 
-    app.get('/api/metadata/counts', async () => {
-      const metas = await Promise.all((await ctx.backend().metadataScopes()).map((lib) => ctx.metadata(lib).snapshot()));
+    app.get('/api/metadata/counts', async (req) => {
+      const metas = await Promise.all((await ctx.backend(req.access!).metadataScopes()).map((lib) => ctx.metadata(lib).snapshot()));
       const pick = (items: { id: number; name: string; document_count?: number }[]) =>
         items
           .map((i) => ({ id: i.id, name: i.name, document_count: i.document_count ?? 0 }))
@@ -87,7 +96,7 @@ export const processingRoutes =
 
     // ---------------------------------------------------------------- processing control
 
-    app.get('/api/processing/status', async () => engine.status());
+    app.get('/api/processing/status', async (req) => engine.status(libsOf(req)));
 
     app.post('/api/processing/scan', async () => {
       const queued = await engine.scan();
@@ -125,7 +134,7 @@ export const processingRoutes =
       '/api/processing/problems',
       { schema: { querystring: z.object({ status: z.enum(['failed', 'skipped']).default('failed') }) } },
       async (req) =>
-        ctx.repos.documents.list(req.query.status).map((d) => ({
+        ctx.repos.documents.list(req.query.status, 200, libsOf(req)).map((d) => ({
           documentId: d.id,
           title: d.title,
           status: d.status,
@@ -206,10 +215,10 @@ export const processingRoutes =
     });
 
     app.get('/api/history', { schema: { querystring: historyQuery } }, async (req): Promise<HistoryPage> => {
-      const res = ctx.repos.history.list(req.query);
+      const res = ctx.repos.history.list(req.query, libsOf(req));
       let tagName = (id: number) => `#${id}`;
       try {
-        const names = new Map((await allTags()).map((t) => [t.id, t.name]));
+        const names = new Map((await allTags(req.access!)).map((t) => [t.id, t.name]));
         tagName = (id) => names.get(id) ?? `#${id}`;
       } catch {
         /* archive unreachable: show ids */
@@ -223,14 +232,14 @@ export const processingRoutes =
       };
     });
 
-    app.get('/api/history/filters', async () => {
+    app.get('/api/history/filters', async (req) => {
       let tags: { id: number; name: string }[] = [];
       try {
-        tags = (await allTags()).map((t) => ({ id: t.id, name: t.name }));
+        tags = (await allTags(req.access!)).map((t) => ({ id: t.id, name: t.name }));
       } catch {
         /* ignore */
       }
-      return { tags, correspondents: ctx.repos.history.correspondents() };
+      return { tags, correspondents: ctx.repos.history.correspondents(libsOf(req)) };
     });
 
     app.post(
@@ -289,8 +298,8 @@ export const processingRoutes =
       return reply.type('text/plain').send('Task completed');
     });
 
-    app.get('/api/processing-status', { schema: { hide: true } }, async () => {
-      const s = engine.status();
+    app.get('/api/processing-status', { schema: { hide: true } }, async (req) => {
+      const s = engine.status(libsOf(req));
       const cur = s.current[0];
       return {
         currentlyProcessing: cur

@@ -6,14 +6,15 @@ import { Page } from '../components/Layout';
 import { Alert, Badge, Button, Card, EmptyState, Field, Input, LinkButton, Skeleton, Tabs, TagInput, tabPanelProps, Textarea, useConfirm, useToast } from '../components/ui';
 import { ChatScroll, Composer, MessageView, useChatStream } from '../components/chat';
 import { StatusIcon, useArchive } from '../components/documents';
-import { del, errorMessage, get, patch, post } from '../lib/api';
+import { VersionsPanel } from '../components/versions';
+import { ApiError, del, errorMessage, get, patch, post } from '../lib/api';
 import { useAsync, useUnsavedChanges } from '../lib/hooks';
 import { cn, formatDate, timeAgo } from '../lib/format';
 import { useMetadata, type MetadataLookup } from '../lib/metadata';
 import { useLiveEvents } from '../lib/live';
 import { useSession } from '../lib/session';
 
-type TabId = 'details' | 'text' | 'activity' | 'chat';
+type TabId = 'details' | 'text' | 'versions' | 'activity' | 'chat';
 
 interface Draft {
   title: string;
@@ -180,18 +181,31 @@ function DetailsForm({ doc, meta, onSaved }: { doc: DocumentDetail; meta: Metada
   );
 }
 
-function ActivityList({ docId, version }: { docId: number; version: string | undefined }) {
+function ActivityList({ docId, version, onChanged }: { docId: number; version: string | undefined; onChanged: () => void }) {
   const toast = useToast();
   const confirm = useConfirm();
   const activity = useAsync((signal) => get<ActivityItem[]>(`/api/documents/${docId}/activity`, signal), [docId, version]);
   const undo = async (item: ActivityItem) => {
     if (!item.undo) return;
-    if (!(await confirm({ title: 'Undo this change?', message: 'The previous values are restored.', confirmLabel: 'Undo', danger: true }))) return;
+    const message =
+      item.kind === 'version' ? 'The version that was current before becomes current again.' : item.kind === 'deleted' ? 'The document is restored from the trash.' : 'The previous values are restored.';
+    if (!(await confirm({ title: 'Undo this change?', message, confirmLabel: 'Undo', danger: true }))) return;
+    const eventUndo = (force: boolean) => post(`/api/documents/${docId}/events/${item.undo!.id}/undo`, { force });
     try {
       if (item.undo.kind === 'history') await post('/api/history/revert', { documentIds: [docId] });
-      else await post(`/api/documents/${docId}/events/${item.undo.id}/undo`, {});
+      else {
+        try {
+          await eventUndo(false);
+        } catch (err) {
+          // Changed again since then: the later change would be overwritten – ask first.
+          if (!(err instanceof ApiError && err.body?.code === 'undo_conflict')) throw err;
+          if (!(await confirm({ title: 'Undo anyway?', message: err.message, confirmLabel: 'Undo anyway', danger: true }))) return;
+          await eventUndo(true);
+        }
+      }
       toast.success('Undone');
       await activity.reload();
+      onChanged();
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -367,6 +381,7 @@ export default function DocumentPage() {
             tabs={[
               { id: 'details', label: 'Details' },
               { id: 'text', label: 'Text' },
+              ...(archive?.capabilities.fileVersions ? [{ id: 'versions' as const, label: d?.current_version && d.current_version > 1 ? `Versions (${d.current_version})` : 'Versions' }] : []),
               { id: 'activity', label: 'Activity' },
               { id: 'chat', label: 'Chat', icon: <MessageSquareText className="size-4" /> },
             ]}
@@ -384,8 +399,10 @@ export default function DocumentPage() {
                   The text is extracted when the document is read (text layer or OCR).
                 </EmptyState>
               )
+            ) : tab === 'versions' ? (
+              <VersionsPanel docId={id} canEdit={canEdit} isOwner={d.role === 'owner' || (!d.role && session?.user?.role === 'admin')} revision={d.modified} onChanged={() => void doc.reload()} />
             ) : tab === 'activity' ? (
-              <ActivityList docId={id} version={d.modified} />
+              <ActivityList docId={id} version={d.modified} onChanged={() => void doc.reload()} />
             ) : (
               <DocChat docId={id} />
             )}

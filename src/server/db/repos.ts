@@ -1,5 +1,6 @@
 import type { Db } from './database.js';
 import { OcrRepo } from './ocrRepo.js';
+import { inLibraries, libsCond } from './scoped.js';
 import { PromptsRepo } from './promptsRepo.js';
 import { CalendarRepo } from './calendarRepo.js';
 import { ApiKeysRepo, AuditRepo, CalendarFeedsRepo, GroupsRepo, LibrariesRepo, NotificationsRepo, SavedViewsRepo } from './accessRepo.js';
@@ -273,8 +274,9 @@ export class DocumentsRepo {
     return (this.db.prepare('SELECT id FROM documents').all() as { id: number }[]).map((r) => r.id).filter((id) => !existing.has(id));
   }
 
-  counts(): Record<DocumentStatus, number> {
-    const rows = this.db.prepare('SELECT status, COUNT(*) AS c FROM documents GROUP BY status').all() as {
+  counts(libs?: number[] | null): Record<DocumentStatus, number> {
+    const l = libsCond('id', libs);
+    const rows = this.db.prepare(`SELECT status, COUNT(*) AS c FROM documents WHERE 1${l.sql} GROUP BY status`).all(...l.params) as {
       status: DocumentStatus;
       c: number;
     }[];
@@ -283,35 +285,38 @@ export class DocumentsRepo {
     return out;
   }
 
-  list(status: DocumentStatus, limit = 200): DocumentStateRow[] {
+  list(status: DocumentStatus, limit = 200, libs?: number[] | null): DocumentStateRow[] {
+    const l = libsCond('id', libs);
     return this.db
-      .prepare('SELECT * FROM documents WHERE status = ? ORDER BY updated_at DESC LIMIT ?')
-      .all(status, limit) as DocumentStateRow[];
+      .prepare(`SELECT * FROM documents WHERE status = ?${l.sql} ORDER BY updated_at DESC LIMIT ?`)
+      .all(status, ...l.params, limit) as DocumentStateRow[];
   }
 
-  lastProcessed(): DocumentStateRow | undefined {
+  lastProcessed(libs?: number[] | null): DocumentStateRow | undefined {
+    const l = libsCond('id', libs);
     return this.db
-      .prepare(`SELECT * FROM documents WHERE status = 'processed' ORDER BY processed_at DESC LIMIT 1`)
-      .get() as DocumentStateRow | undefined;
+      .prepare(`SELECT * FROM documents WHERE status = 'processed'${l.sql} ORDER BY processed_at DESC LIMIT 1`)
+      .get(...l.params) as DocumentStateRow | undefined;
   }
 
-  processedSince(since: number): number {
+  processedSince(since: number, libs?: number[] | null): number {
+    const l = libsCond('id', libs);
     return (
-      this.db.prepare(`SELECT COUNT(*) AS c FROM documents WHERE status = 'processed' AND processed_at >= ?`).get(since) as {
+      this.db.prepare(`SELECT COUNT(*) AS c FROM documents WHERE status = 'processed' AND processed_at >= ?${l.sql}`).get(since, ...l.params) as {
         c: number;
       }
     ).c;
   }
 
   /** Number of processed documents per day (local time) for the last `days` days. */
-  timeline(days: number, tzOffsetMinutes: number): { date: string; count: number }[] {
+  timeline(days: number, tzOffsetMinutes: number, libs?: number[] | null): { date: string; count: number }[] {
     const since = Date.now() - days * 86_400_000;
     return this.db
       .prepare(
         `SELECT strftime('%Y-%m-%d', (processed_at / 1000) - (@tz * 60), 'unixepoch') AS date, COUNT(*) AS count
-         FROM documents WHERE status = 'processed' AND processed_at >= @since GROUP BY date ORDER BY date`,
+         FROM documents WHERE status = 'processed' AND processed_at >= @since${libs ? ` AND ${inLibraries('id', '@libs')}` : ''} GROUP BY date ORDER BY date`,
       )
-      .all({ since, tz: tzOffsetMinutes }) as { date: string; count: number }[];
+      .all({ since, tz: tzOffsetMinutes, ...(libs ? { libs: JSON.stringify(libs) } : {}) }) as { date: string; count: number }[];
   }
 }
 
@@ -456,9 +461,15 @@ export class HistoryRepo {
     this.db.prepare('UPDATE history SET reverted_at = ? WHERE document_id = ? AND reverted_at IS NULL').run(Date.now(), documentId);
   }
 
-  list(q: HistoryQuery): { items: HistoryItem[]; total: number; filtered: number } {
+  list(q: HistoryQuery, libs?: number[] | null): { items: HistoryItem[]; total: number; filtered: number } {
     const where: string[] = [];
     const params: Record<string, unknown> = {};
+    // Only entries of documents the caller may read (built-in archive).
+    const scoped = libs ? `WHERE ${inLibraries('document_id', '@libs')}` : '';
+    if (libs) {
+      where.push(inLibraries('document_id', '@libs'));
+      params.libs = JSON.stringify(libs);
+    }
     if (q.search?.trim()) {
       where.push(
         `(title LIKE @search ESCAPE '\\' OR correspondent LIKE @search ESCAPE '\\' OR document_type LIKE @search ESCAPE '\\' OR CAST(document_id AS TEXT) = @exact)`,
@@ -489,7 +500,7 @@ export class HistoryRepo {
     const pageSize = Math.min(Math.max(q.pageSize ?? 25, 1), 500);
     const page = Math.max(q.page ?? 1, 1);
 
-    const total = (this.db.prepare('SELECT COUNT(*) AS c FROM history').get() as { c: number }).c;
+    const total = (this.db.prepare(`SELECT COUNT(*) AS c FROM history ${scoped}`).get(libs ? { libs: params.libs } : {}) as { c: number }).c;
     const filtered = (this.db.prepare(`SELECT COUNT(*) AS c FROM history ${whereSql}`).get(params) as { c: number }).c;
     const rows = this.db
       .prepare(`SELECT * FROM history ${whereSql} ORDER BY ${sortCol} ${dir}, id ${dir} LIMIT @limit OFFSET @offset`)
@@ -497,11 +508,12 @@ export class HistoryRepo {
     return { items: rows.map((r) => this.toItem(r)), total, filtered };
   }
 
-  correspondents(): string[] {
+  correspondents(libs?: number[] | null): string[] {
+    const l = libsCond('document_id', libs);
     return (
       this.db
-        .prepare(`SELECT DISTINCT correspondent FROM history WHERE correspondent IS NOT NULL AND correspondent != '' ORDER BY correspondent COLLATE NOCASE`)
-        .all() as { correspondent: string }[]
+        .prepare(`SELECT DISTINCT correspondent FROM history WHERE correspondent IS NOT NULL AND correspondent != ''${l.sql} ORDER BY correspondent COLLATE NOCASE`)
+        .all(...l.params) as { correspondent: string }[]
     ).map((r) => r.correspondent);
   }
 
@@ -515,14 +527,15 @@ export class HistoryRepo {
   }
 
   /** Document types assigned by the AI (real data instead of the old "first word of title" heuristic). */
-  documentTypeStats(limit = 8): { name: string; count: number }[] {
+  documentTypeStats(limit = 8, libs?: number[] | null): { name: string; count: number }[] {
+    const l = libsCond('document_id', libs);
     return this.db
       .prepare(
         `SELECT document_type AS name, COUNT(DISTINCT document_id) AS count FROM history
-         WHERE document_type IS NOT NULL AND document_type != '' AND reverted_at IS NULL
+         WHERE document_type IS NOT NULL AND document_type != '' AND reverted_at IS NULL${l.sql}
          GROUP BY document_type ORDER BY count DESC LIMIT ?`,
       )
-      .all(limit) as { name: string; count: number }[];
+      .all(...l.params, limit) as { name: string; count: number }[];
   }
 }
 
