@@ -163,10 +163,41 @@ describe('vector helpers', () => {
     expect(normalize(zero)).toBe(zero);
   });
 
-  it('blob round trip (also from unaligned buffers)', () => {
+  it('stores embeddings as int8 and keeps their direction (also from unaligned buffers)', () => {
     const v = new Float32Array([1.5, -2.25, 3.125]);
-    expect([...fromBlob(toBlob(v))]).toEqual([1.5, -2.25, 3.125]);
+    const blob = toBlob(v);
+    expect(blob.byteLength).toBe(8 + 3); // header + scale + one byte per dimension
+    const norm = Math.hypot(1.5, -2.25, 3.125);
+    const back = fromBlob(blob);
+    [1.5, -2.25, 3.125].forEach((x, i) => expect(back[i]).toBeCloseTo(x / norm, 2));
     const unaligned = Buffer.concat([Buffer.from([0]), toBlob(v)]).subarray(1);
-    expect([...fromBlob(unaligned)]).toEqual([1.5, -2.25, 3.125]);
+    expect([...fromBlob(unaligned)]).toEqual([...back]);
+  });
+
+  it('still reads float32 embeddings of earlier versions', () => {
+    const v = new Float32Array([1.5, -2.25, 3.125, 4]);
+    const legacy = Buffer.from(v.buffer);
+    expect([...fromBlob(legacy)]).toEqual([1.5, -2.25, 3.125, 4]);
+    const unaligned = Buffer.concat([Buffer.from([0]), legacy]).subarray(1);
+    expect([...fromBlob(unaligned)]).toEqual([1.5, -2.25, 3.125, 4]);
+  });
+
+  it('finds the same neighbours with the sign-bit prefilter as with the exact scan', () => {
+    const dims = 64;
+    let seed = 7;
+    const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 0x100000000) * 2 - 1;
+    const exact = new VectorIndex(Number.POSITIVE_INFINITY);
+    const fast = new VectorIndex(100);
+    for (let i = 1; i <= 3000; i++) {
+      const v = Float32Array.from({ length: dims }, rnd);
+      exact.add(i, i % 50, v);
+      fast.add(i, i % 50, v);
+    }
+    for (let t = 0; t < 10; t++) {
+      const q = Float32Array.from({ length: dims }, rnd);
+      expect(fast.search(q, 10).map((h) => h.id)).toEqual(exact.search(q, 10).map((h) => h.id));
+      const allow = new Set([1, 2, 3]);
+      expect(fast.search(q, 5, allow).map((h) => h.id)).toEqual(exact.search(q, 5, allow).map((h) => h.id));
+    }
   });
 });

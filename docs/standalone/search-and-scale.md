@@ -90,8 +90,13 @@ Two indexes with different jobs:
 | Query | FTS5 `MATCH` with the stemmed prefix terms from `rag/text.ts` (one tokenizer and stemmer for both) | as today |
 
 * Document list search: bm25 with weights title 3, metadata 2, body 1, limited to the readable
-  libraries. Only the top 200 candidates are ranked further (snippets with `snippet()`). This
-  avoids the 73 ms case for stop-word-like terms.
+  libraries, top 1,000 joined with the other conditions. bm25 costs ~0.7 µs per match, so a term
+  that matches more than 5,000 documents is ranked among its newest 5,000 matches only (a rowid
+  bound found with one `ORDER BY rowid DESC` step); if the other conditions leave too few of them,
+  the query is repeated without the bound. Snippets are made in JavaScript from the stored text.
+* Prefix indexes for 3 **and 4** characters: terms from four letters on are searched as prefixes
+  (stemmed), and a 4-letter prefix without its own index merges the posting lists of every term
+  that starts with it (0.7 s for "post*" in the fixture, < 50 ms with the index; +46 % FTS size).
 * Companion mode: the document list search stays on the Paperless-ngx search API
   (`searchDocuments`), as today. Ask your archive uses `rag_fts`.
 * German compound words ("Krankenversicherungsbeitrag") are covered by prefix search and the
@@ -111,10 +116,12 @@ main thread (Fastify, engine, writes)          worker pool (read-only)
 * **Writer:** one connection in the main thread, as today. Write transactions are short (one
   document). Bulk work (import, re-index) is batched into transactions of ~500 documents, with a
   `setImmediate` between batches.
-* **Readers:** `src/server/db/readers.ts` starts N worker threads (default `min(4, cpus)`), each
-  with read-only connections (`readonly: true`, same pragmas, `query_only = ON`). WAL allows
-  parallel readers next to the writer. Heavy queries go through `readers.query(name, params)`. The
-  queries are named and prepared in the worker, so no SQL strings are sent around ad hoc.
+* **Readers:** `src/server/db/readers.ts` starts N worker threads (default `min(4, cpus − 1)`,
+  `PAPERLESS_AI_READERS`), each with a read-only connection (`readonly: true`, same pragmas,
+  `query_only = ON`). WAL allows parallel readers next to the writer. `LocalBackend` sends the SQL
+  it builds (never user input – values are parameters) with `reader.all/get`; the worker keeps the
+  last 300 prepared statements. The least busy worker gets the query. In tests (and with
+  `PAPERLESS_AI_READERS=0`) the queries run on the main connection.
 * What goes to the readers: FTS searches, facets, statistics / dashboard, history pages, exports,
   RAG BM25. What stays on the main thread: lookups by primary key and first pages of lists
   (sub-millisecond).
@@ -127,6 +134,7 @@ main thread (Fastify, engine, writes)          worker pool (read-only)
 ## 6. Targets
 
 Reference: the benchmark machine above, 200,000 documents / 1M passages, warm cache.
+`npm run perf` measures them against a generated fixture (`e2e/perf/`, see §6.1).
 
 | Operation | Target (p95) |
 | --- | --- |
@@ -140,6 +148,32 @@ Reference: the benchmark machine above, 200,000 documents / 1M passages, warm ca
 
 A 200k-document fixture (generated like the benchmark, plus files) runs these as a nightly
 performance test ([testing-and-operations.md](testing-and-operations.md)).
+
+### 6.1 Measured (M4)
+
+`npm run perf -- --documents 200000 --passages 250000 --dims 768` on a 4-core cloud VM (Node 22,
+3 read workers), p50 / p95 of 9 runs:
+
+| Operation | p50 | p95 | Target |
+| --- | --- | --- | --- |
+| Newest 50, all libraries / member of 2 libraries | 1.3 / 1.5 ms | 2.2 / 4.9 ms | < 50 ms |
+| Page 21 with a keyset cursor / page 600 by number (`OFFSET`) | 1.0 / 1.6 ms | 4.3 / 2.2 ms | < 50 ms |
+| Frequent tag (17k) / rare tag (512), newest 50 | 1.5 / 1.5 ms | 3.1 / 3.5 ms | < 50 ms |
+| Two tags AND + correspondent | 13 ms | 25 ms | < 50 ms |
+| Custom field "amount ≥ 1500" | 2.7 ms | 9.2 ms | < 50 ms |
+| Full text: rare / medium / very common word (130k docs) | 3.3 / 8.0 / 52 ms | 4.3 / 15 / 66 ms | < 100 ms |
+| Full text: 4-letter prefix "post*" | 40 ms | 48 ms | < 100 ms |
+| Facets without filter (counters), admin / member | 2.2 / 0.8 ms | 6.0 / 6.8 ms | < 20 ms |
+| Facets with a filter: rare tag / medium word / frequent tag (17k) | 2.6 / 12 / 64 ms | 9.3 / 16 / 72 ms | – |
+| Count without filter / frequent tag | 1.3 / 19 ms | 1.9 / 30 ms | – |
+| Longest event loop block, 40 heavy queries at once | | 18 ms | < 50 ms |
+| Vector search top 50, 250k × 768 (285 MiB) / 40 % of documents allowed | 21 / 19 ms | 27 / 25 ms | < 300 ms (retrieval) |
+
+What made the difference (first run → final): sort indexes on the exact sort expression
+(`COALESCE(created, '')`, newest 50: 34 → 1.3 ms), choosing the tag lookup by the counters (rare
+tag: 91 → 1.5 ms), ranking only the newest 5,000 matches of very common terms (148 → 52 ms), the
+4-letter prefix index (715 → 40 ms), facets in one statement over a materialized match set
+(211 → 64 ms) and counters for unfiltered facets (any size → 2 ms).
 
 ## 7. Beyond 1M documents
 

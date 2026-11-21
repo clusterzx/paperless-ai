@@ -14,7 +14,7 @@
 | Migration | importer against the mock Paperless server (fixture ~1,000 documents), resume, incremental sync, permission strategies, nothing re-queued | `test/migration/` |
 | Workflows | triggers, loop protection, `analysis.before`, migrated prompt rules give identical results | `test/workflows/` |
 | E2E (Playwright) | the demo server gets `--mode builtin` next to the mock Paperless mode. Upload → list → detail → edit → version → undo; workflow dry run; mode choice in setup. | `e2e/` |
-| Performance (nightly) | 200k-document fixture, targets from [search-and-scale.md](search-and-scale.md#6-targets), event loop delay measured with `perf_hooks.monitorEventLoopDelay` | `e2e/perf/` |
+| Performance (nightly) | 200k-document fixture, targets from [search-and-scale.md](search-and-scale.md#6-targets), event loop delay measured with `perf_hooks.monitorEventLoopDelay`; `npm run perf -- --check` fails on a missed p95 | `e2e/perf/`, `.github/workflows/perf.yml` |
 | RAG quality | the existing evaluation (`e2e/rag-eval`) before/after the 1-bit prefilter; recall@k must not drop measurably | `e2e/rag-eval` |
 
 Rules:
@@ -29,8 +29,11 @@ Rules:
 * `npm run demo` keeps starting the companion setup with the mock Paperless server.
   `npm run demo -- --mode builtin` starts the built-in archive with a temp storage directory and
   sample PDFs (generated, no real personal documents).
-* `npm run fixture:archive -- --documents 200000` creates the performance fixture (database +
-  small generated PDFs), reusing the generator of `docs/standalone/benchmarks/bench-sqlite.mjs`.
+* `npm run fixture:archive -- --documents 200000` creates the performance fixture (database with
+  the real schema, words, metadata and tags Zipf-distributed like
+  `docs/standalone/benchmarks/bench-sqlite.mjs`; one shared PDF, `--files` for one per document).
+  `npm run perf` creates it on first use and measures lists, full text, facets, counts, the event
+  loop under 40 parallel queries and the vector index (`--passages`, `--dims`).
 
 ## 3. CI
 

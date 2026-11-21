@@ -6,6 +6,7 @@
 import type { LocalBackend } from './backend.js';
 import { logger } from '../logger.js';
 import { describeError } from '../util/http.js';
+import { checkCounters, rebuildCounters } from './counters.js';
 
 const log = logger.child({ module: 'archive' });
 
@@ -22,6 +23,8 @@ export interface MaintenanceReport {
   verified: number;
   corrupt: string[];
   quickCheck: string | null;
+  /** Counter entries that differed from a recount (rebuilt then). */
+  countersRepaired: number;
 }
 
 export class ArchiveMaintenance {
@@ -59,7 +62,7 @@ export class ArchiveMaintenance {
   }
 
   private async doRun(): Promise<MaintenanceReport> {
-    const report: MaintenanceReport = { purged: 0, versionsRemoved: 0, blobsRemoved: 0, orphanFiles: 0, verified: 0, corrupt: [], quickCheck: null };
+    const report: MaintenanceReport = { purged: 0, versionsRemoved: 0, blobsRemoved: 0, orphanFiles: 0, verified: 0, corrupt: [], quickCheck: null, countersRepaired: 0 };
     try {
       report.purged = this.purgeTrash();
       report.versionsRemoved = this.applyVersionRetention();
@@ -77,6 +80,12 @@ export class ArchiveMaintenance {
         kv.set('archive.quick_check', res);
         report.quickCheck = res;
         if (res !== 'ok') log.error(`Database integrity check failed: ${res}`);
+        // The counters are kept by triggers; a recount catches anything that slipped past them.
+        report.countersRepaired = checkCounters(this.db);
+        if (report.countersRepaired) {
+          log.warn(`${report.countersRepaired} document counters differed from a recount – rebuilt`);
+          rebuildCounters(this.db);
+        }
       }
     } catch (err) {
       log.error(`Archive maintenance failed: ${describeError(err)}`);

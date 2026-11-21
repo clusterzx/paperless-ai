@@ -2,6 +2,18 @@
  * Schema of the built-in archive (docs/standalone/data-model.md). Created complete in one
  * migration: libraries, file versions and the change log are there from the start.
  */
+/**
+ * Full text of the documents. Prefix indexes for 3 and 4 characters: queries end in `*` from four
+ * letters on (rag/text.ts), and a 4-letter prefix without its own index merges the posting lists
+ * of every term starting with it (~0.7 s for 200k documents instead of < 1 ms for the bound).
+ */
+export const LIB_FTS = `CREATE VIRTUAL TABLE lib_fts USING fts5(
+  title, body, meta,
+  content = '', contentless_delete = 1,
+  tokenize = 'unicode61 remove_diacritics 2',
+  prefix = '3 4'
+)`;
+
 export const ARCHIVE_SCHEMA = `
 CREATE TABLE blobs (
   sha256 TEXT PRIMARY KEY,
@@ -115,12 +127,7 @@ CREATE TABLE lib_document_text (
   PRIMARY KEY (document_id, version)
 );
 
-CREATE VIRTUAL TABLE lib_fts USING fts5(
-  title, body, meta,
-  content = '', contentless_delete = 1,
-  tokenize = 'unicode61 remove_diacritics 2',
-  prefix = '3'
-);
+${LIB_FTS};
 
 CREATE TABLE lib_document_tags (
   tag_id INTEGER NOT NULL REFERENCES lib_tags(id) ON DELETE CASCADE,

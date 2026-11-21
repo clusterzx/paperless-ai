@@ -231,8 +231,10 @@ engine.on('idle', () => rag.requestSync());
 wireDocumentEvents(ctx, { rag, ocr, engine });
 const staticDir = path.resolve(here, '..', 'dist', 'public');
 const app = await buildApp({ ctx, engine, rag, ocr }, { staticDir });
-// DEMO_ARCHIVE=builtin: the same samples, but stored in the built-in archive instead of the mock Paperless-ngx.
-if (!fresh && process.env.DEMO_ARCHIVE === 'builtin') {
+// `--mode builtin` (or DEMO_ARCHIVE=builtin): the same samples, but stored in the built-in archive instead of the mock Paperless-ngx.
+const modeArg = process.argv.indexOf('--mode');
+const demoArchive = modeArg >= 0 ? process.argv[modeArg + 1] : process.env.DEMO_ARCHIVE;
+if (!fresh && demoArchive === 'builtin') {
   ctx.config.update({ archive: { mode: 'builtin', builtin: { storageDir: path.join(dataDir, 'library') } }, ocr: { enabled: true, mode: 'poor' } });
   const backend = ctx.backend();
   for (const doc of [...paperless.docs.values()]) {

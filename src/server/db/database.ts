@@ -1,4 +1,5 @@
-import { ARCHIVE_SCHEMA } from '../archive/schema.js';
+import { ARCHIVE_SCHEMA, LIB_FTS } from '../archive/schema.js';
+import { COUNTER_TRIGGERS, rebuildCounters, SORT_INDEXES } from '../archive/counters.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
@@ -405,6 +406,22 @@ const MIGRATIONS: Migration[] = [
     version: 12,
     name: 'built-in archive',
     up: (db) => db.exec(ARCHIVE_SCHEMA),
+  },
+  {
+    version: 13,
+    name: 'archive counters and sort indexes',
+    up: (db) => {
+      db.exec(SORT_INDEXES);
+      db.exec(COUNTER_TRIGGERS);
+      rebuildCounters(db);
+      // lib_fts of the first archive schema had only the 3-letter prefix index: recreate it, the
+      // archive refills it in the background on its next start (LocalBackend.rebuildFts).
+      const fts = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'lib_fts'").get() as { sql: string } | undefined;
+      if (fts && !fts.sql.includes("prefix = '3 4'")) {
+        db.exec(`DROP TABLE lib_fts; ${LIB_FTS};`);
+        if (db.prepare('SELECT 1 FROM lib_documents LIMIT 1').get()) db.prepare("INSERT OR REPLACE INTO kv (key, value) VALUES ('archive.fts_rebuild', 'true')").run();
+      }
+    },
   },
 ];
 

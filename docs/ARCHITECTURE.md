@@ -7,7 +7,9 @@ application and a JSON API, runs the document processing pipeline and keeps the 
 | File | Content |
 | --- | --- |
 | `config.json` (+ `.bak`) | settings (written atomically, validated with zod) |
-| `paperless-ai.db` | SQLite (WAL): users, processing state, history, token usage, RAG index |
+| `paperless-ai.db` | SQLite (WAL): users, libraries, processing state, history, token usage; in built-in mode the archive (documents, metadata, versions, change log, full text) |
+| `index.db` | SQLite (WAL): the search index of “Ask your archive” (passages, FTS5, int8 embeddings) – can be rebuilt, kept apart so the core database stays small to back up |
+| `library/` | built-in mode: the files, content addressed by SHA-256 (`archive.builtin.storageDir`) |
 | `models/` | cached local embedding model (only when local embeddings are used) |
 
 On first start a legacy `data/.env` is converted into `config.json` and a legacy `data/documents.db`
@@ -60,6 +62,21 @@ capabilities (`SessionInfo.archive.capabilities`), never the mode. Committed cha
 the document event bus (`events.ts`); `wiring.ts` connects the RAG index and the calendar to it.
 `test/backend/contract.ts` is the test suite every backend must pass. The plan for the built-in archive
 is in `docs/standalone/`.
+
+Built-in archive at scale (`archive/backend.ts`, measured with `npm run perf` on 200,000 documents):
+
+* Heavy reads – lists, full text, counts, facets – run on read-only connections in worker threads
+  (`db/readers.ts`, `db/readWorker.ts`; WAL lets them read next to the single writer). Tests and
+  `PAPERLESS_AI_READERS=0` run them on the main connection.
+* Lists use keyset cursors on indexes that match the sort expression exactly (`COALESCE(created, '')`).
+  Tag filters either walk the sort index and check each document (frequent tags) or start from the
+  tag's documents (rare tags, all counts); the counters decide (`rareTags`).
+* `lib_counters` holds document counts per library, tag, correspondent and type, maintained by SQLite
+  triggers in the writing transaction (`archive/counters.ts`); unfiltered facets and the metadata lists
+  read them, the weekly maintenance compares them with a recount.
+* Full text: `lib_fts` (FTS5, prefix indexes for 3 and 4 characters). A term that matches more than
+  `rankCandidates` (5,000) documents is ranked by bm25 among its newest matches only, unless the
+  other conditions leave too few of them.
 
 ## Paperless-ngx compatibility
 
@@ -159,8 +176,12 @@ question ─▶ query analysis with the LLM (standalone query for follow-ups + s
   higher BM25 weight and prepended for embeddings.
 * Index synchronisation is incremental (by `modified` and metadata), runs every 15 minutes and after
   processing; deleted documents are removed. Keyword search works immediately, vectors follow.
-* The vector index stores normalised vectors as int8 with a per-vector scale and is searched brute
-  force with a bounded heap – milliseconds for archives with hundreds of thousands of passages.
+* The vector index stores normalised vectors as int8 with a per-vector scale (`PQ8` blobs in
+  `index.db`, older float32 blobs are converted when the index moves out of `paperless-ai.db`). From
+  20,000 passages on a 1-bit sign code preselects the closest max(20·k, 2,000) candidates by Hamming
+  distance, which are then scored exactly with int8. It runs in a worker thread
+  (`rag/vectorWorker.ts`, `rag/vectorSearch.ts`), so searches never block the server: ~25 ms for
+  250,000 passages × 768 dimensions.
 * Query analysis (`rag.queryExpansion`) is one short JSON call (temperature 0) that also receives a
   few document titles, so the model can translate terms into the language of the archive. Any
   failure falls back to the original question. For first questions the user's wording stays the

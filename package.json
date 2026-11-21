@@ -25,6 +25,8 @@
     "build": "npm run build:web && npm run build:server",
     "build:server": "tsc -p tsconfig.server.json",
     "build:web": "vite build",
+    "fixture:archive": "tsx e2e/perf/fixture.ts",
+    "perf": "tsx e2e/perf/run.ts",
     "start": "node dist/server/index.js",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
     "lint": "eslint .",
