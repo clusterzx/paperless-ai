@@ -237,7 +237,7 @@ function ScanModal({ open, onClose, onStarted }: { open: boolean; onClose: () =>
     >
       <div className="space-y-4">
         <p className="text-sm text-muted">
-          For documents processed before the calendar was switched on. Only the dates are asked for – titles, tags and everything else in Paperless stay as they are. Each
+          For documents processed before the calendar was switched on. Only the dates are asked for – titles, tags and everything else in the archive stay as they are. Each
           document is one AI request; documents searched before are skipped.
         </p>
         <Field label="Documents created in the">

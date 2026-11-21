@@ -135,8 +135,167 @@ export interface DocumentDetail extends DocumentSummary {
   user_can_change?: boolean;
   modified?: string;
   added?: string;
+  /** Link that opens the document (the Paperless-ngx UI or the document page of the built-in archive). */
   url: string;
+  mime_type?: string | null;
+  page_count?: number | null;
+  archive_serial_number?: number | null;
+  storage_path?: number | null;
+  owner?: number | null;
+  /** Built-in archive. */
+  library_id?: number | null;
+  current_version?: number;
+  /** Processing state in Paperless-AI. */
+  status?: DocumentStatus | null;
+  /** Role of the caller in the document's library (built-in archive); null = full access (companion mode). */
+  role?: LibraryRole | null;
 }
+
+export type DocumentStatus = 'processed' | 'failed' | 'skipped';
+
+/** A row of the document list. */
+export interface DocumentRow extends DocumentSummary {
+  added: string | null;
+  modified: string | null;
+  original_file_name: string | null;
+  mime_type: string | null;
+  page_count: number | null;
+  archive_serial_number: number | null;
+  storage_path: number | null;
+  owner: number | null;
+  library_id: number | null;
+  custom_fields: CustomFieldValue[];
+  status: DocumentStatus | null;
+  /** Full text search: matching passage with <mark> highlights. */
+  snippet?: string;
+}
+
+export interface DocumentListResponse {
+  /** Total matches (null when not counted). */
+  count: number | null;
+  page?: number;
+  results: DocumentRow[];
+  /** Cursor of the next page (null on the last one). */
+  nextCursor: string | null;
+}
+
+export interface DocumentFacetsResponse {
+  tags: { id: number; count: number }[];
+  correspondents: { id: number; count: number }[];
+  documentTypes: { id: number; count: number }[];
+  libraries?: { id: number; count: number }[];
+  total: number;
+  approximate?: boolean;
+}
+
+export type DocumentSortKey = 'created' | '-created' | 'added' | '-added' | 'title' | '-title' | 'modified' | '-modified' | 'relevance';
+
+/** Query parameters of GET /api/documents and /api/documents/facets. */
+export interface DocumentFilterParams {
+  q?: string;
+  /** Comma-separated ids. */
+  tags?: string;
+  tagsAll?: string;
+  tagsNone?: string;
+  /** Id(s), comma-separated, or "none". */
+  correspondent?: string;
+  documentType?: string;
+  storagePath?: string;
+  library?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  addedFrom?: string;
+  addedTo?: string;
+  /** JSON array of custom field conditions: [{ field, op: exists|eq|gte|lte|contains, value }] */
+  cf?: string;
+}
+
+export interface DocumentUpdateInput {
+  title?: string;
+  created?: string | null;
+  correspondent?: string | null;
+  documentType?: string | null;
+  /** The complete list of tag names. */
+  tags?: string[];
+  customFields?: { field_name: string; value: string }[];
+  archiveSerialNumber?: number | null;
+  /** Built-in archive: move to another library. */
+  libraryId?: number;
+}
+
+export type BulkAction = 'edit' | 'delete' | 'analyze' | 'ocr' | 'restore';
+
+export interface BulkEditInput {
+  /** Documents by id – or all documents matching `filter`. */
+  ids?: number[];
+  filter?: DocumentFilterParams;
+  action: BulkAction;
+  edit?: {
+    addTags?: string[];
+    removeTags?: string[];
+    correspondent?: string | null;
+    documentType?: string | null;
+    customField?: { name: string; value: string };
+    libraryId?: number;
+  };
+}
+
+export interface BulkEditResult {
+  ok: number;
+  failed: { id: number; error: string }[];
+  /** Reference of the change (built-in archive: undo of the whole bulk edit). */
+  ref: string;
+}
+
+export interface UploadResult {
+  filename: string;
+  status: 'stored' | 'duplicate' | 'rejected' | 'forwarded';
+  documentId?: number;
+  taskId?: string;
+  intakeId?: number;
+  reason?: string;
+}
+
+export interface ActivityItem {
+  at: number;
+  kind: 'ai' | 'ocr' | 'change' | 'workflow' | 'version' | 'created' | 'deleted' | 'restored' | 'moved';
+  title: string;
+  actor: string | null;
+  details?: { field: string; before: unknown; after: unknown }[];
+  /** Undo is possible (built-in change log / AI history). */
+  undo?: { kind: 'event' | 'history'; id: number } | null;
+  reverted?: boolean;
+}
+
+export interface MetadataItem {
+  id: number;
+  name: string;
+  library_id?: number | null;
+  color?: string | null;
+  parent?: number | null;
+  document_count: number;
+  data_type?: string;
+  extra?: Record<string, unknown> | null;
+}
+
+export type MetadataKindParam = 'tags' | 'correspondents' | 'document-types' | 'custom-fields';
+
+export interface SavedView {
+  id: number;
+  name: string;
+  libraryId: number | null;
+  filter: DocumentFilterParams & { sort?: DocumentSortKey };
+  columns: string[];
+  inNavigation: boolean;
+  shared: boolean;
+  own: boolean;
+}
+
+/** Live events for the UI (GET /api/events). */
+export type LiveEvent =
+  | { type: 'document.added' | 'document.updated' | 'document.deleted' | 'document.restored' | 'document.processed' | 'document.version_added' | 'document.purged'; id: number }
+  | { type: 'processing'; documentId: number; outcome: string }
+  | { type: 'intake'; intakeId: number; status: string; documentId?: number | null; filename?: string | null };
 
 export interface ProcessingJob {
   documentId: number;

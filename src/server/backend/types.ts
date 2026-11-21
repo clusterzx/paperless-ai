@@ -7,6 +7,7 @@
  * changes with every write. Processing, OCR and the RAG index detect changes through `modified`.
  */
 import type { AccessScope } from '../access/scope.js';
+import type { ActivityItem } from '../../shared/api.js';
 import type {
   PaperlessCorrespondent,
   PaperlessCustomField,
@@ -282,6 +283,11 @@ export interface DocumentBackend {
   deleteMetadata(scope: AccessScope, kind: MetadataKind, id: number): Promise<void>;
   /** Library a metadata object belongs to (built-in); null for Paperless-ngx. */
   metadataLibrary(kind: MetadataKind, id: number): number | null;
+
+  /** Built-in archive: take a document back out of the trash. */
+  restoreDocument?(scope: AccessScope, id: number, origin: ChangeOrigin): Promise<void>;
+  /** Built-in archive: the change log of a document as activity items. */
+  changeLog?: (documentId: number, libraryId: number | null) => Promise<ActivityItem[]>;
 
   /** Release resources (watchers, workers). */
   close?(): Promise<void>;

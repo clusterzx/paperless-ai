@@ -342,13 +342,13 @@ export async function applyPlannedUpdate(ctx: AppContext, doc: ArchiveDocument, 
     // The archive was changed already: never process (and change) the document a second time.
     log.error({ err, documentId: doc.id }, `Document ${doc.id} was updated, but the history could not be saved`);
     try {
-      ctx.repos.documents.markProcessed(doc.id, updated.title ?? doc.title, updated.modified ?? null);
+      if (info.source !== 'edit') ctx.repos.documents.markProcessed(doc.id, updated.title ?? doc.title, updated.modified ?? null);
     } catch {
       /* database unavailable – logged above */
     }
   }
   if (hasChanges) ctx.events.emit({ type: 'document.updated', id: doc.id, fields: Object.keys(plan.patch), origin, libraryId: doc.library_id ?? null });
-  if (info.source !== 'manual') ctx.events.emit({ type: 'document.processed', id: doc.id, historyId, libraryId: doc.library_id ?? null });
+  if (!USER_SOURCES.has(info.source)) ctx.events.emit({ type: 'document.processed', id: doc.id, historyId, libraryId: doc.library_id ?? null });
   if (plan.notes.length) log.info({ documentId: doc.id, notes: plan.notes }, `Document ${doc.id}: ${plan.notes.join('; ')}`);
   return updated;
 }
@@ -397,9 +397,14 @@ function recordApplied(ctx: AppContext, doc: ArchiveDocument, updated: ArchiveDo
       prompt: info.prompt ?? null,
     });
   }
-  ctx.repos.documents.markProcessed(doc.id, updated.title ?? doc.title, updated.modified ?? null);
+  // A plain edit on the document page does not count as an AI analysis; the review does.
+  if (info.source !== 'edit') ctx.repos.documents.markProcessed(doc.id, updated.title ?? doc.title, updated.modified ?? null);
+  else ctx.repos.ocr.followVersion(doc.id, doc.modified ?? null, updated.modified ?? null);
   return historyId;
 }
+
+/** Sources of changes made by people (not by an AI analysis). */
+const USER_SOURCES = new Set(['manual', 'edit']);
 
 /**
  * Restore the values a document had before the AI changed it for the first time.

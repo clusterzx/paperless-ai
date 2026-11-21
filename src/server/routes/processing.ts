@@ -1,3 +1,4 @@
+import { canEdit, userIdOf } from '../access/scope.js';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -239,7 +240,10 @@ export const processingRoutes =
         const results: { documentId: number; ok: boolean; error?: string }[] = [];
         for (const id of req.body.documentIds) {
           try {
-            await revertDocument(ctx, id);
+            if (!ctx.repos.history.originalForDocument(id)) throw new Error(`No undo information stored for document ${id}`);
+            const doc = await ctx.backend(req.access!).getDocument(id);
+            if (!canEdit(req.access!, doc.library_id)) throw new Error('Not allowed to change this document');
+            await revertDocument(ctx, id, { actor: 'user', actorId: userIdOf(req.access!), ref: 'history:revert' }, req.access!);
             results.push({ documentId: id, ok: true });
           } catch (err) {
             results.push({ documentId: id, ok: false, error: describeError(err) });

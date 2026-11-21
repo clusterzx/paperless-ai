@@ -123,7 +123,7 @@ describe('manual review', () => {
 describe('document browsing', () => {
   it('lists and searches documents with their processing state', async () => {
     const res = await h.inject({ method: 'GET', url: '/api/documents?query=electricity', headers: auth });
-    expect(res.json()).toEqual({
+    expect(res.json()).toMatchObject({
       count: 1,
       page: 1,
       // marked as processed by the (no-op) manual apply above

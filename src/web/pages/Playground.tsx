@@ -147,7 +147,7 @@ export default function PlaygroundPage() {
     <Page wide>
       <PageHeader
         title="Prompt playground"
-        description="Try prompts on real documents. Nothing is saved to Paperless – compare the AI's suggestions with the current values."
+        description="Try prompts on real documents. Nothing is saved – compare the AI's suggestions with the current values."
         actions={
           <>
             <Button icon={<BookmarkPlus className="size-4" />} onClick={() => setSaving(true)} disabled={!prompt.trim()}>

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, type FastifyReply, type FastifyRequest, type FastifyServerOptions } from 'fastify';
+import multipart from '@fastify/multipart';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
@@ -31,6 +32,7 @@ import { oidcRoutes } from '../routes/oidc.js';
 import { promptRoutes } from '../routes/prompts.js';
 import { promptRuleRoutes } from '../routes/promptRules.js';
 import { twoFactorRoutes } from '../routes/twoFactor.js';
+import { metadataRoutes } from '../routes/metadata.js';
 import { accessRoutes } from '../routes/access.js';
 import { calendarRoutes } from '../routes/calendar.js';
 
@@ -111,6 +113,8 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   app.setSerializerCompiler(serializerCompiler);
 
   await app.register(cookie);
+  // Uploads: the size limit of the archive settings is enforced while the file is written.
+  await app.register(multipart, { limits: { fileSize: 4096 * 1024 * 1024, files: 100, fields: 50 } });
   await app.register(rateLimit, { global: false });
   await app.register(swagger, {
     openapi: {
@@ -209,6 +213,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(twoFactorRoutes(services));
   await app.register(calendarRoutes(services));
   await app.register(accessRoutes(services));
+  await app.register(metadataRoutes(services));
 
   // Web UI (single page app)
   const staticDir = opts.staticDir;

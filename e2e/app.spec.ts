@@ -151,8 +151,39 @@ test('manual review analyses and saves a document', async ({ page }) => {
   await page.getByRole('button', { name: 'Analyze with AI' }).click();
   await expect(page.getByText(/AI suggestion by mock-gpt/)).toBeVisible();
   await page.getByLabel('Title').fill('Mietvertrag Leopoldstraße (geprüft)');
-  await page.getByRole('button', { name: 'Save to Paperless' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText(/Saved: /)).toBeVisible();
+});
+
+test('documents page filters, opens and edits documents and bulk-tags a selection', async ({ page }) => {
+  await login(page);
+  await page.goto('/documents');
+  await expect(page.getByRole('heading', { level: 1, name: 'Documents' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Mietvertrag/ })).toBeVisible();
+  // full text search narrows the list
+  await page.getByLabel('Search documents').fill('Mietvertrag');
+  await expect(page).toHaveURL(/q=Mietvertrag/);
+  await expect(page.getByRole('link', { name: /Krankenversicherung/ })).toHaveCount(0);
+  await page.getByRole('link', { name: /Mietvertrag/ }).first().click();
+  await expect(page).toHaveURL(/\/documents\/3$/);
+  await page.getByLabel('Title').fill('Mietvertrag Leopoldstraße 2021');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Mietvertrag Leopoldstraße 2021' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Activity' }).click();
+  await expect(page.getByText('Changed', { exact: true })).toBeVisible();
+
+  // bulk: tag two documents
+  await page.goto('/documents');
+  await page.getByRole('button', { name: 'Select', exact: true }).nth(0).click();
+  await page.getByRole('button', { name: 'Select', exact: true }).nth(1).click();
+  await expect(page.getByText('2 selected')).toBeVisible();
+  await page.getByRole('button', { name: 'Add tags' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('combobox').fill('Geprüft');
+  await dialog.getByRole('combobox').press('Enter');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.getByText(/Changed: 2 document/)).toBeVisible();
+  await expect(page.getByText('Geprüft').first()).toBeVisible();
 });
 
 test('settings validate and save without restart', async ({ page }) => {
@@ -309,13 +340,13 @@ test('OCR page finds documents with poor text, reads them and the AI renames the
   await page.getByRole('button', { name: 'Start OCR' }).click();
   await expect(page.getByRole('tab', { name: /Needs OCR 0/ })).toBeVisible({ timeout: 20_000 });
   await page.getByRole('tab', { name: /OCR done/ }).click();
-  await expect(page.getByText('Saved in Paperless').first()).toBeVisible();
+  await expect(page.getByText('Saved', { exact: true }).first()).toBeVisible();
 
   await page.getByRole('button', { name: 'Show text' }).first().click();
   const dialog = page.getByRole('dialog');
   // Side by side: the text before the OCR and the OCR result that is in Paperless now.
   await expect(dialog.getByText('Before OCR', { exact: true })).toBeVisible();
-  await expect(dialog.getByText('PaddleOCR result – now in Paperless', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('PaddleOCR result – now saved', { exact: true })).toBeVisible();
   // Renamed by the AI pipeline from the OCR text.
   await expect(dialog.getByRole('heading', { name: /Malermeister Kopp/ })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Restore the text before OCR' })).toBeVisible();
@@ -651,7 +682,7 @@ test('prompt rules: a rule analyses matching documents with its own prompt and s
   await expect(page.getByText('Analysed with', { exact: true })).toBeVisible();
   await expect(page.getByText(/AI suggestion by mock-gpt-small/)).toBeVisible();
   await page.getByLabel('Title').fill('Stromrechnung April (Regel)');
-  await page.getByRole('button', { name: 'Save to Paperless' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText(/Saved: /)).toBeVisible();
 
   // The history shows the prompt

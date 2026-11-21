@@ -43,8 +43,8 @@ function DocumentChat({ documentId }: { documentId: number }) {
             <span className="hidden sm:inline">Review</span>
           </Button>
           {doc.data && (
-            <LinkButton href={doc.data.url} size="sm" variant="ghost" icon={<ExternalLink className="size-4" />} aria-label="Open in Paperless">
-              <span className="hidden sm:inline">Paperless</span>
+            <LinkButton href={doc.data.url} size="sm" variant="ghost" icon={<ExternalLink className="size-4" />} aria-label="Open the document">
+              <span className="hidden sm:inline">Open</span>
             </LinkButton>
           )}
         </div>
