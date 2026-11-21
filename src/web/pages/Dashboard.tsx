@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import {
   Activity,
@@ -219,7 +219,7 @@ function LiveStatus({ status, onChange }: { status: ProcessingStatus; onChange: 
                   #{j.documentId} {j.title ?? ''}
                 </div>
                 <div className="text-xs text-muted capitalize">
-                  {j.stage} · {duration(Date.now() - j.startedAt)}
+                  {j.stage} · {duration(Math.max(0, Date.now() - j.startedAt))}
                 </div>
               </div>
               <Badge tone="accent">{j.source}</Badge>
@@ -335,9 +335,19 @@ export default function DashboardPage() {
       .catch(() => undefined);
   }, 3000);
   useInterval(() => void dash.reload(), 60_000);
-
   const d = dash.data;
   const live = status ?? d?.processing;
+
+  // The tiles (documents, tokens, activity) follow the live counters: reload them as soon as a
+  // document arrives or an analysis finishes, not only every minute. The first value comes with the
+  // tiles themselves, so a change before the first poll counts as well.
+  const progress = live ? `${live.counts.processed}/${live.counts.failed}/${live.counts.skipped}/${live.queued}` : null;
+  const seenProgress = useRef<string | null>(null);
+  useEffect(() => {
+    if (progress && seenProgress.current && progress !== seenProgress.current) void dash.reload();
+    seenProgress.current = progress;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress]);
 
   const scan = async () => {
     setScanning(true);

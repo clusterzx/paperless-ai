@@ -6,9 +6,9 @@
  * never stored twice, also when it is fetched again after a crash.
  */
 import { ImapFlow } from 'imapflow';
-import { simpleParser, type ParsedMail } from 'mailparser';
+import { simpleParser, type Attachment, type ParsedMail } from 'mailparser';
 import type { LocalBackend } from './backend.js';
-import { sniffType } from './files.js';
+import { imageSize, sniffType } from './files.js';
 import { SYSTEM_SCOPE } from '../access/scope.js';
 import { open as openSecret, seal } from '../util/secretBox.js';
 import { describeError } from '../util/http.js';
@@ -87,6 +87,25 @@ export const imapClient: MailClientFactory = (a) =>
   }) as unknown as MailClient;
 
 const MAX_PER_RUN = 200;
+
+/**
+ * Whether an image attachment is decoration of the mail rather than a document: logos, icons,
+ * avatars, signatures, banners and tracking pixels. Mail clients do not mark them reliably
+ * (Outlook, for one, turns embedded pictures into "Unnamed attachment 00044.png" attachments),
+ * so the size of the picture decides:
+ * - smaller than a readable page (longer side < 700 px or shorter side < 250 px): decoration;
+ * - part of the HTML text (multipart/related): decoration unless it is as large as a photo or scan
+ *   (longer side >= 1500 px). Photos sent from phones are "inline" but not related, so they stay.
+ * Without sharp the dimensions are unknown: embedded pictures below 200 KB and any below 10 KB.
+ */
+export async function isMailDecoration(att: Pick<Attachment, 'content' | 'size' | 'contentDisposition' | 'related'>): Promise<boolean> {
+  const dims = await imageSize(att.content);
+  if (!dims) return att.size < 10_000 || ((att.related || att.contentDisposition === 'inline') && att.size < 200_000);
+  const long = Math.max(dims.width, dims.height);
+  const short = Math.min(dims.width, dims.height);
+  if (long < 700 || short < 250) return true;
+  return Boolean(att.related) && long < 1500;
+}
 
 export interface MailCheckResult {
   messages: number;
@@ -233,8 +252,8 @@ export class MailWatcher {
     for (const [i, att] of mail.attachments.entries()) {
       const type = sniffType(att.content);
       if (!type) continue;
-      // Logos and signatures in the text of the mail are no documents.
-      if (att.contentDisposition === 'inline' && type.startsWith('image/') && att.size < 50_000) continue;
+      // Logos, icons and signatures are no documents.
+      if (type.startsWith('image/') && (await isMailDecoration(att))) continue;
       const res = await this.backend.ingest(SYSTEM_SCOPE, { data: att.content, filename: att.filename || `attachment-${i + 1}.${type.split('/')[1]}` }, 'mail', {
         libraryId: row.library_id,
         tags: rule?.tags,
