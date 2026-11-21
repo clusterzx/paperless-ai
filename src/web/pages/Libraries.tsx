@@ -344,6 +344,7 @@ function SettingsTab({
 
 function MembersTab({ library, manage }: { library: LibraryInfo; manage: boolean }) {
   const toast = useToast();
+  const admin = useSession().session?.user?.role === 'admin';
   const members = useAsync((signal) => get<LibraryMember[]>(`/api/libraries/${library.id}/members`, signal), [library.id]);
   const candidates = useAsync(
     (signal) => (manage ? get<LibraryCandidates>(`/api/libraries/${library.id}/candidates`, signal) : Promise.resolve(null)),
@@ -448,6 +449,20 @@ function MembersTab({ library, manage }: { library: LibraryInfo; manage: boolean
               Add
             </Button>
           </div>
+          <p className="text-xs text-muted">
+            Existing accounts and groups.{' '}
+            {admin ? (
+              <>
+                New people:{' '}
+                <a className="text-accent hover:underline" href="/settings?tab=users">
+                  Settings → Users &amp; groups
+                </a>
+                .
+              </>
+            ) : (
+              'New people are added by an administrator.'
+            )}
+          </p>
           <ul className="space-y-0.5 text-xs text-muted">
             {(['owner', 'editor', 'viewer'] as const).map((r) => (
               <li key={r}>
