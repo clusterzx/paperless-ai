@@ -94,8 +94,12 @@ export async function exportArchive(
   const dir = path.resolve(opts.directory);
   fs.mkdirSync(dir, { recursive: true });
   if (fs.readdirSync(dir).length) throw new Error(`The target directory is not empty: ${dir}`);
-  const libFilter = opts.libraryIds ? `AND library_id IN (SELECT value FROM json_each('${JSON.stringify(opts.libraryIds)}'))` : '';
-  const docs = db.prepare(`SELECT * FROM lib_documents WHERE deleted_at IS NULL ${libFilter} ORDER BY id`).all() as DocRow[];
+  // The libraries as a bound parameter (JSON array), never as part of the SQL text.
+  const docs = (
+    opts.libraryIds
+      ? db.prepare('SELECT * FROM lib_documents WHERE deleted_at IS NULL AND library_id IN (SELECT value FROM json_each(?)) ORDER BY id').all(JSON.stringify(opts.libraryIds.map(Number)))
+      : db.prepare('SELECT * FROM lib_documents WHERE deleted_at IS NULL ORDER BY id').all()
+  ) as DocRow[];
   const fileOf = db.prepare('SELECT kind, blob_sha256, original_filename, mime_type, size FROM lib_document_files WHERE document_id = ? AND version = ?');
   const textOf = db.prepare('SELECT text FROM lib_document_text WHERE document_id = ? AND version = ?');
   const tagsOf = db.prepare('SELECT tag_id FROM lib_document_tags WHERE document_id = ? ORDER BY tag_id');

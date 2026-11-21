@@ -185,6 +185,12 @@ describe('migration from Paperless-ngx', () => {
     const doc101 = manifest.find((m) => m.model === 'documents.document' && m.pk === 101)!;
     expect(doc101.fields).toMatchObject({ title: 'Stromrechnung März 2024', checksum: sha256(pdfA), archive_serial_number: 17, created: '2024-03-31', storage_type: 'unencrypted' });
     expect(md5(fs.readFileSync(path.join(ngxDir, doc101.__exported_file_name__!)))).toBe(md5(pdfA));
+    // One library only (the ids are a bound parameter); an unknown one exports nothing.
+    const firstLib = h.ctx.repos.libraries.list()[0].id;
+    const oneLib = (await post('/api/archive/export', { format: 'plain', directory: path.join(h.dataDir, 'export-one'), libraryIds: [firstLib] })).json() as { documents: number };
+    const inLib = (h.ctx.db.prepare('SELECT COUNT(*) AS c FROM lib_documents WHERE deleted_at IS NULL AND library_id = ?').get(firstLib) as { c: number }).c;
+    expect(oneLib.documents).toBe(inLib);
+    expect(((await post('/api/archive/export', { format: 'plain', directory: path.join(h.dataDir, 'export-none'), libraryIds: [999999] })).json() as { documents: number }).documents).toBe(0);
     // For an older Paperless-ngx: MD5 checksums.
     const oldDir = path.join(h.dataDir, 'export-ngx-md5');
     await post('/api/archive/export', { format: 'ngx', directory: oldDir, checksums: 'md5' });
