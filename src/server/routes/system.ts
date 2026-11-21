@@ -1,7 +1,8 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import type { AccountInfo, SessionInfo } from '../../shared/api.js';
+import type { AccountInfo, ArchiveInfo, SessionInfo } from '../../shared/api.js';
+import type { AppContext } from '../context.js';
 import type { Services } from '../http/app.js';
 import { badRequest, sendEventStream } from '../http/helpers.js';
 import {
@@ -52,6 +53,7 @@ export const systemRoutes =
         user: p?.kind === 'user' ? { id: p.userId, username: p.username } : undefined,
         version: ctx.version,
         features: { rag: ctx.cfg.rag.enabled, calendar: ctx.cfg.processing.functions.events },
+        archive: archiveInfo(ctx),
         login: { password: passwordLoginAllowed(ctx.cfg), sso: oidcUsable(ctx.cfg) ? ctx.cfg.auth.oidc.buttonLabel || 'Sign in with SSO' : null },
       };
     });
@@ -285,6 +287,7 @@ export const systemRoutes =
       async (req) => {
         const r = req.params.resource;
         const query = r === 'ui_settings' || r === 'statistics' ? undefined : { page_size: 25, ...(r === 'documents' ? { truncate_content: true } : {}) };
+        // Companion mode only: raw Paperless-ngx API answers for troubleshooting.
         return ctx.paperless().req(`/${r}/`, { query });
       },
     );
@@ -299,4 +302,15 @@ export function compareVersions(a: string, b: string): number {
     if (d) return Math.sign(d);
   }
   return 0;
+}
+
+/** Archive mode and capabilities for the UI; null while the archive is not configured. */
+export function archiveInfo(ctx: AppContext): ArchiveInfo | null {
+  if (!ctx.archiveConfigured()) return null;
+  try {
+    const backend = ctx.archive();
+    return { mode: backend.kind, label: backend.label, capabilities: backend.capabilities };
+  } catch {
+    return null;
+  }
 }

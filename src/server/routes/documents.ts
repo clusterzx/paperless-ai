@@ -11,12 +11,12 @@ import { configSchema, type AppConfig, type DeepPartial } from '../config/schema
 import { deepMerge } from '../config/store.js';
 import { applyPlannedUpdate, planManualUpdate } from '../processing/applier.js';
 import { datePart } from '../processing/dates.js';
-import type { PaperlessDocument } from '../paperless/types.js';
+import type { ArchiveDocument } from '../backend/types.js';
 import { documentChat } from '../rag/documentChat.js';
 
 const chatTurn = z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(50_000) });
 
-function summary(d: PaperlessDocument): DocumentSummary {
+function summary(d: ArchiveDocument): DocumentSummary {
   return {
     id: d.id,
     title: d.title,
@@ -33,12 +33,14 @@ export const documentRoutes =
     const app = fastify.withTypeProvider<ZodTypeProvider>();
 
     app.get('/api/metadata', async () => {
-      const meta = await ctx.metadata().snapshot();
+      const scopes = await ctx.backend().metadataScopes();
+      const metas = await Promise.all(scopes.map(async (lib) => ({ lib, meta: await ctx.metadata(lib).snapshot() })));
+      const lib = (l: number | null) => (l == null ? {} : { library_id: l });
       return {
-        tags: meta.tags.map((t) => ({ id: t.id, name: t.name, color: t.color, document_count: t.document_count })),
-        correspondents: meta.correspondents.map((c) => ({ id: c.id, name: c.name, document_count: c.document_count })),
-        documentTypes: meta.documentTypes.map((d) => ({ id: d.id, name: d.name, document_count: d.document_count })),
-        customFields: meta.customFields.map((f) => ({ id: f.id, name: f.name, data_type: f.data_type })),
+        tags: metas.flatMap(({ lib: l, meta }) => meta.tags.map((t) => ({ id: t.id, name: t.name, color: t.color, document_count: t.document_count, ...lib(l) }))),
+        correspondents: metas.flatMap(({ lib: l, meta }) => meta.correspondents.map((c) => ({ id: c.id, name: c.name, document_count: c.document_count, ...lib(l) }))),
+        documentTypes: metas.flatMap(({ lib: l, meta }) => meta.documentTypes.map((d) => ({ id: d.id, name: d.name, document_count: d.document_count, ...lib(l) }))),
+        customFields: metas.flatMap(({ lib: l, meta }) => meta.customFields.map((f) => ({ id: f.id, name: f.name, data_type: f.data_type, ...lib(l) }))),
       };
     });
 
@@ -54,7 +56,7 @@ export const documentRoutes =
         },
       },
       async (req) => {
-        const res = await ctx.paperless().searchDocuments({ query: req.query.query, page: req.query.page, pageSize: req.query.pageSize });
+        const res = await ctx.backend().searchDocuments({ query: req.query.query, page: req.query.page, pageSize: req.query.pageSize });
         const states = ctx.repos.documents;
         return {
           count: res.count,
@@ -65,7 +67,7 @@ export const documentRoutes =
     );
 
     app.get('/api/documents/:id', { schema: { params: z.object({ id: z.coerce.number().int().positive() }) } }, async (req): Promise<DocumentDetail> => {
-      const d = await ctx.paperless().getDocument(req.params.id);
+      const d = await ctx.backend().getDocument(req.params.id);
       return {
         ...summary(d),
         content: d.content ?? '',
@@ -79,7 +81,7 @@ export const documentRoutes =
     });
 
     app.get('/api/documents/:id/thumb', { schema: { params: z.object({ id: z.coerce.number().int().positive() }), hide: true } }, async (req, reply) => {
-      const { data, contentType } = await ctx.paperless().thumbnail(req.params.id);
+      const { data, contentType } = await ctx.backend().thumbnail(req.params.id);
       return reply.header('Cache-Control', 'private, max-age=3600').type(contentType).send(data);
     });
 
@@ -99,7 +101,7 @@ export const documentRoutes =
         },
       },
       async (req) => {
-        const doc = await ctx.paperless().getDocument(req.params.id);
+        const doc = await ctx.backend().getDocument(req.params.id);
         const processing = req.body?.processing
           ? configSchema.parse(deepMerge(structuredClone(ctx.cfg), { processing: req.body.processing } as DeepPartial<AppConfig>)).processing
           : undefined;
@@ -112,6 +114,7 @@ export const documentRoutes =
           filename: doc.original_file_name,
           processing: processing ?? rule?.processing,
           model: rule?.model,
+          libraryId: doc.library_id ?? null,
         });
         return { ...result, rule: rule ? describeMatch(rule) : null };
       },
@@ -135,7 +138,7 @@ export const documentRoutes =
         },
       },
       async (req) => {
-        const doc = await ctx.paperless().getDocument(req.params.id);
+        const doc = await ctx.backend().getDocument(req.params.id);
         const plan = await planManualUpdate(ctx, doc, req.body);
         const prompt = req.body.promptId ? ctx.repos.prompts.get(req.body.promptId) : undefined;
         const updated = await applyPlannedUpdate(ctx, doc, plan, { source: 'manual', prompt: prompt ? { id: prompt.id, name: prompt.name } : null });
@@ -149,7 +152,7 @@ export const documentRoutes =
       '/api/playground/documents',
       { schema: { querystring: z.object({ limit: z.coerce.number().int().min(1).max(48).default(16), query: z.string().max(200).optional() }) } },
       async (req) => {
-        const res = await ctx.paperless().searchDocuments({ pageSize: req.query.limit, query: req.query.query });
+        const res = await ctx.backend().searchDocuments({ pageSize: req.query.limit, query: req.query.query });
         return res.results.map(summary);
       },
     );
@@ -184,12 +187,12 @@ export const documentRoutes =
     const who = (p: Principal | null) => (p?.kind === 'user' ? `u${p.userId}` : 'key');
 
     app.get('/chat/init/:id', { schema: { hide: true, params: z.object({ id: z.coerce.number().int().positive() }) } }, async (req) => {
-      const doc = await ctx.paperless().getDocument(req.params.id);
+      const doc = await ctx.backend().getDocument(req.params.id);
       remember(historyKey(doc.id, who(req.principal)), { turns: [], at: Date.now() });
       return { documentTitle: doc.title, initialized: true };
     });
     app.get('/chat/init', { schema: { hide: true, querystring: z.object({ documentId: z.coerce.number().int().positive() }) } }, async (req) => {
-      const doc = await ctx.paperless().getDocument(req.query.documentId);
+      const doc = await ctx.backend().getDocument(req.query.documentId);
       remember(historyKey(doc.id, who(req.principal)), { turns: [], at: Date.now() });
       return { documentTitle: doc.title, initialized: true };
     });

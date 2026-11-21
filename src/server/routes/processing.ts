@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import type { DashboardData, HistoryPage } from '../../shared/api.js';
+import type { ArchiveStatus, DashboardData, HistoryPage } from '../../shared/api.js';
 import type { Services } from '../http/app.js';
 import { badRequest, documentIdFrom } from '../http/helpers.js';
 import { revertDocument } from '../processing/applier.js';
@@ -15,6 +15,9 @@ export const processingRoutes =
   async (fastify) => {
     const app = fastify.withTypeProvider<ZodTypeProvider>();
 
+    /** Tags of all metadata namespaces the archive has (ids are unique across them). */
+    const allTags = async () => (await Promise.all((await ctx.backend().metadataScopes()).map((lib) => ctx.metadata(lib).snapshot()))).flatMap((m) => m.tags);
+
     // ---------------------------------------------------------------- dashboard
 
     app.get(
@@ -22,34 +25,42 @@ export const processingRoutes =
       // tzOffset: the browser's Date#getTimezoneOffset() so the activity chart uses the viewer's days.
       { schema: { querystring: z.object({ tzOffset: z.coerce.number().int().min(-840).max(840).optional() }) } },
       async (req): Promise<DashboardData> => {
-        const paperless: DashboardData['paperless'] = {
+        const archive: ArchiveStatus = {
+          mode: ctx.archiveMode(),
+          label: ctx.archiveMode() === 'builtin' ? 'Archive' : 'Paperless-ngx',
           connected: false,
           documents: 0,
           tags: 0,
           correspondents: 0,
           documentTypes: 0,
         };
-        if (ctx.paperlessConfigured()) {
+        if (ctx.archiveConfigured()) {
           try {
-            const client = ctx.paperless();
-            const info = await client.connect();
-            const [documents, meta] = await Promise.all([client.count('/documents/'), ctx.metadata().snapshot()]);
-            Object.assign(paperless, {
+            const backend = ctx.backend();
+            const info = await backend.info();
+            if (!info.connected) throw new Error(info.error ?? 'Not connected');
+            const [documents, metas] = await Promise.all([
+              backend.countDocuments(),
+              backend.metadataScopes().then((libs) => Promise.all(libs.map((lib) => ctx.metadata(lib).snapshot()))),
+            ]);
+            Object.assign(archive, {
+              label: backend.label,
               connected: true,
-              version: info.serverVersion,
-              apiVersion: info.apiVersion,
+              version: info.version ?? null,
+              apiVersion: info.apiVersion ?? null,
               documents,
-              tags: meta.tags.length,
-              correspondents: meta.correspondents.length,
-              documentTypes: meta.documentTypes.length,
+              tags: metas.reduce((n, m) => n + m.tags.length, 0),
+              correspondents: metas.reduce((n, m) => n + m.correspondents.length, 0),
+              documentTypes: metas.reduce((n, m) => n + m.documentTypes.length, 0),
             });
           } catch (err) {
-            paperless.error = describeError(err);
+            archive.error = describeError(err);
           }
-        } else paperless.error = 'Not configured';
+        } else archive.error = 'Not configured';
         return {
           version: ctx.version,
-          paperless,
+          archive,
+          paperless: archive,
           processing: engine.status(),
           usage: ctx.repos.usage.stats(),
           timeline: ctx.repos.documents.timeline(30, req.query.tzOffset ?? new Date().getTimezoneOffset()),
@@ -61,12 +72,16 @@ export const processingRoutes =
     );
 
     app.get('/api/metadata/counts', async () => {
-      const meta = await ctx.metadata().snapshot();
+      const metas = await Promise.all((await ctx.backend().metadataScopes()).map((lib) => ctx.metadata(lib).snapshot()));
       const pick = (items: { id: number; name: string; document_count?: number }[]) =>
         items
           .map((i) => ({ id: i.id, name: i.name, document_count: i.document_count ?? 0 }))
           .sort((a, b) => b.document_count - a.document_count);
-      return { tags: pick(meta.tags), correspondents: pick(meta.correspondents), documentTypes: pick(meta.documentTypes) };
+      return {
+        tags: pick(metas.flatMap((m) => m.tags)),
+        correspondents: pick(metas.flatMap((m) => m.correspondents)),
+        documentTypes: pick(metas.flatMap((m) => m.documentTypes)),
+      };
     });
 
     // ---------------------------------------------------------------- processing control
@@ -193,11 +208,10 @@ export const processingRoutes =
       const res = ctx.repos.history.list(req.query);
       let tagName = (id: number) => `#${id}`;
       try {
-        const meta = ctx.metadata();
-        await meta.snapshot();
-        tagName = (id) => meta.tagName(id) ?? `#${id}`;
+        const names = new Map((await allTags()).map((t) => [t.id, t.name]));
+        tagName = (id) => names.get(id) ?? `#${id}`;
       } catch {
-        /* Paperless unreachable: show ids */
+        /* archive unreachable: show ids */
       }
       return {
         items: res.items.map((i) => ({ ...i, tagNames: i.tags.map(tagName), url: ctx.documentLink(i.documentId) })),
@@ -211,7 +225,7 @@ export const processingRoutes =
     app.get('/api/history/filters', async () => {
       let tags: { id: number; name: string }[] = [];
       try {
-        tags = (await ctx.metadata().snapshot()).tags.map((t) => ({ id: t.id, name: t.name }));
+        tags = (await allTags()).map((t) => ({ id: t.id, name: t.name }));
       } catch {
         /* ignore */
       }

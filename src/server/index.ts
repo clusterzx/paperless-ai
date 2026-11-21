@@ -12,6 +12,7 @@ import { RagService } from './rag/service.js';
 import { OcrService } from './ocr/service.js';
 import { logger } from './logger.js';
 import { resetTwoFactorFromEnv } from './twoFactor.js';
+import { wireDocumentEvents } from './wiring.js';
 
 const log = logger.child({ module: 'main' });
 
@@ -31,7 +32,7 @@ async function main(): Promise<void> {
   const rag = new RagService(ctx);
   // Keep the search index fresh after documents were changed by the AI or got a new text from OCR.
   engine.on('idle', () => rag.requestSync());
-  ocr.onTextChanged = (id) => rag.invalidate(id);
+  wireDocumentEvents(ctx, { rag, ocr });
   if (ctx.cfg.ocr.enabled && !(await ocr.isAvailable())) {
     log.warn('OCR is enabled, but its libraries are not installed (onnxruntime-node, sharp, @hyzyla/pdfium) – OCR is skipped');
   }

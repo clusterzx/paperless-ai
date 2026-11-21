@@ -57,6 +57,12 @@ export class CalendarRepo {
     })();
   }
 
+  /** Forget the dates of a deleted document (and that it was scanned). */
+  removeDocument(documentId: number): void {
+    this.db.prepare('DELETE FROM calendar_events WHERE document_id = ?').run(documentId);
+    this.db.prepare('DELETE FROM calendar_scans WHERE document_id = ?').run(documentId);
+  }
+
   markScanFailed(documentId: number, error: string): void {
     this.db
       .prepare(

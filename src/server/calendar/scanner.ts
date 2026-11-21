@@ -59,10 +59,10 @@ export class CalendarScanner {
   }
 
   private async run(months: number, signal: AbortSignal): Promise<void> {
-    const paperless = this.ctx.paperless();
+    const backend = this.ctx.backend();
     const repo = this.ctx.repos.calendar;
     const since = months > 0 ? monthsAgo(months) : null;
-    const docs = await paperless.listDocuments({ fields: ['id', 'title', 'created'], ordering: '-created' });
+    const docs = await backend.listDocuments({ fields: ['id', 'title', 'created'], ordering: '-created' });
     const scanned = repo.scannedIds();
     const todo = docs.filter((d) => !scanned.has(d.id) && (!since || (datePart(d.created) ?? '') >= since));
     this.state.total = todo.length;
@@ -73,7 +73,7 @@ export class CalendarScanner {
       if (signal.aborted) break;
       for (let attempt = 0; ; attempt++) {
         try {
-          const doc = await paperless.getDocument(d.id);
+          const doc = await backend.getDocument(d.id);
           const content = this.ocr.storedText(doc) ?? doc.content ?? '';
           if (content.trim().length < 10) {
             repo.replaceForDocument(doc.id, doc.title ?? null, []);
@@ -84,6 +84,7 @@ export class CalendarScanner {
               documentId: doc.id,
               customPrompt: DATES_PROMPT,
               filename: doc.original_file_name,
+              libraryId: doc.library_id ?? null,
               signal,
               processing: {
                 ...p,

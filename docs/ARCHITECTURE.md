@@ -49,6 +49,18 @@ crashing). Saving settings emits a `change` event; the Paperless client, the AI 
 and the RAG service rebuild themselves from it – no restart. Secrets are never sent to the browser
 (masked values round-trip unchanged).
 
+## Archive backends
+
+Documents live either in Paperless-ngx (companion mode) or in the built-in archive
+(`archive.mode`). Everything outside `src/server/backend/` and `src/server/archive/` works with the
+`DocumentBackend` interface (`backend/types.ts`): `ctx.backend(scope)` returns a `BackendView` bound
+to an access scope (system scope for internal work), `ctx.metadata(libraryId)` the metadata cache of
+a namespace (Paperless-ngx has one, the built-in archive one per library). Features ask the backend's
+capabilities (`SessionInfo.archive.capabilities`), never the mode. Committed changes are published on
+the document event bus (`events.ts`); `wiring.ts` connects the RAG index and the calendar to it.
+`test/backend/contract.ts` is the test suite every backend must pass. The plan for the built-in archive
+is in `docs/standalone/`.
+
 ## Paperless-ngx compatibility
 
 `PaperlessClient` negotiates the API version on the first request: it asks for version 9 (accepted by

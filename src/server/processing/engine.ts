@@ -9,6 +9,7 @@ import type { AppContext } from '../context.js';
 import { NotConfiguredError } from '../context.js';
 import type { AppConfig } from '../config/schema.js';
 import type { PaperlessDocument } from '../paperless/types.js';
+import type { ArchiveDocument } from '../backend/types.js';
 import { AiError } from '../ai/types.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
@@ -169,29 +170,42 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
     return this.scanning;
   }
 
+  /**
+   * Ids of the named tags in every metadata namespace (Paperless-ngx has one, the built-in archive
+   * one per library).
+   */
+  private async tagIds(names: string[]): Promise<number[]> {
+    if (!names.length) return [];
+    const ids: number[] = [];
+    for (const lib of await this.ctx.backend().metadataScopes()) {
+      const meta = this.ctx.metadata(lib);
+      await meta.snapshot(true);
+      ids.push(...(await meta.resolveTags(names, false)).ids);
+    }
+    return [...new Set(ids)];
+  }
+
   private async doScan(): Promise<number> {
     if (!this.ctx.isConfigured()) throw new NotConfiguredError('Setup is not complete – skipping scan');
     const p = this.ctx.cfg.processing;
-    const client = this.ctx.paperless();
-    const meta = this.ctx.metadata();
+    const backend = this.ctx.backend();
     try {
-      await meta.snapshot(true);
       let tagFilter: number[] | undefined;
       if (p.onlyTagged) {
-        const res = await meta.resolveTags(p.tags, false);
-        if (!res.ids.length) {
-          log.warn(`"Only process tagged documents" is enabled, but none of the tags exist in Paperless: ${p.tags.join(', ') || '(none set)'}`);
+        const ids = await this.tagIds(p.tags);
+        if (!ids.length) {
+          log.warn(`"Only process tagged documents" is enabled, but none of the tags exist in ${backend.label}: ${p.tags.join(', ') || '(none set)'}`);
           this.lastScanAt = Date.now();
           return 0;
         }
-        tagFilter = res.ids;
+        tagFilter = ids;
       }
       let excludeFilter: number[] | undefined;
       if (p.excludeTags.length) {
-        const res = await meta.resolveTags(p.excludeTags, false);
-        if (res.ids.length) excludeFilter = res.ids;
+        const ids = await this.tagIds(p.excludeTags);
+        if (ids.length) excludeFilter = ids;
       }
-      const docs = await client.listDocuments({
+      const docs = await backend.listDocuments({
         tagsAny: tagFilter,
         tagsNone: excludeFilter,
         fields: ['id', 'title', 'modified'],
@@ -218,13 +232,13 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
   }
 
   /**
-   * Forget the states of documents that were deleted in Paperless (or came with an imported 3.x
+   * Forget the states of documents that were deleted in the archive (or came with an imported 3.x
    * database) – they inflate the statistics. Never fails the scan.
    */
   private async pruneDeleted(listed?: number[]): Promise<void> {
     try {
       if (!listed && Date.now() - this.lastPruneAt < PRUNE_INTERVAL_MS) return;
-      const ids = listed ?? (await this.ctx.paperless().listDocuments({ fields: ['id'], ordering: 'id', pageSize: 1000 })).map((d) => d.id);
+      const ids = listed ?? (await this.ctx.backend().listDocuments({ fields: ['id'], ordering: 'id', pageSize: 1000 })).map((d) => d.id);
       this.lastPruneAt = Date.now();
       if (!ids.length) return; // an empty archive is more likely missing permissions
       const repo = this.ctx.repos.documents;
@@ -232,11 +246,11 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       if (!missing.length) return;
       const known = repo.all().size;
       if (missing.length > 20 && missing.length > known / 2) {
-        log.warn(`${missing.length} of ${known} known documents are missing in Paperless – not forgetting them (permissions changed?)`);
+        log.warn(`${missing.length} of ${known} known documents are missing in the archive – not forgetting them (permissions changed?)`);
         return;
       }
       repo.reset(missing);
-      log.info(`Forgot the processing state of ${missing.length} document(s) deleted in Paperless`);
+      log.info(`Forgot the processing state of ${missing.length} deleted document(s)`);
     } catch (err) {
       log.warn(`Could not check for deleted documents: ${describeError(err)}`);
     }
@@ -265,10 +279,10 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
   }
 
   /** The first exclude tag (Settings → Processing) the document carries, if any. */
-  private async excludeTag(doc: Pick<PaperlessDocument, 'tags'>): Promise<string | null> {
+  private async excludeTag(doc: Pick<ArchiveDocument, 'tags' | 'library_id'>): Promise<string | null> {
     const names = this.ctx.cfg.processing.excludeTags;
     if (!names.length || !doc.tags?.length) return null;
-    const meta = this.ctx.metadata();
+    const meta = this.ctx.metadata(doc.library_id ?? null);
     for (const name of names) {
       const [id] = (await meta.resolveTags([name], false)).ids;
       if (id !== undefined && doc.tags.includes(id)) return name;
@@ -376,13 +390,13 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
   async run(job: Job, info?: ProcessingJob): Promise<JobOutcome> {
     const { documentId } = job;
     const repo = this.ctx.repos.documents;
-    let doc: PaperlessDocument | undefined;
+    let doc: ArchiveDocument | undefined;
     try {
       if (!job.force) {
         const state = repo.get(documentId);
         if (state?.status === 'processed') return 'unchanged';
       }
-      doc = await this.ctx.paperless().getDocument(documentId);
+      doc = await this.ctx.backend().getDocument(documentId);
       if (info) info.title = doc.title;
       // Exclude tags guard automatic processing (scan and Paperless workflow webhook). Documents
       // requested explicitly – manual review, OCR page, API queue – are still processed.
@@ -445,6 +459,7 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
         filename: doc.original_file_name,
         processing: rule?.processing,
         model: rule?.model,
+        libraryId: doc.library_id ?? null,
       });
       if (info) info.stage = 'saving';
       const plan = await planAutomaticUpdate(this.ctx, doc, analysis.suggestion, processing);
