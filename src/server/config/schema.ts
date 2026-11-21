@@ -157,6 +157,8 @@ export const configSchema = z.object({
           storageDir: str(),
           /** Watch folder; empty = off. */
           consumeDir: str(),
+          /** Exports chosen in the web interface go below <data directory>/exports or below this directory. */
+          exportDir: str(),
           consumePollSeconds: z.coerce.number().int().min(2).max(3600).default(10),
           /** After intake: delete the file from the watch folder or move it to <consumeDir>/.done */
           consumeAfter: z.enum(['delete', 'move']).default('delete'),

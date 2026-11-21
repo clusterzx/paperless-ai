@@ -178,7 +178,7 @@ describe('migration from Paperless-ngx', () => {
     expect((h.ctx.indexDb.prepare('SELECT library_id FROM rag_documents WHERE id = 101').get() as { library_id: number }).library_id).toBe(annaLib.id);
 
     // Exports of the built-in archive.
-    const ngxDir = path.join(h.dataDir, 'export-ngx');
+    const ngxDir = path.join(h.dataDir, 'exports', 'export-ngx');
     const ngx = (await post('/api/archive/export', { format: 'ngx', directory: ngxDir })).json() as { documents: number; files: number };
     expect(ngx).toMatchObject({ documents: 3 });
     const manifest = JSON.parse(fs.readFileSync(path.join(ngxDir, 'manifest.json'), 'utf8')) as { model: string; pk: number; fields: Record<string, unknown>; __exported_file_name__?: string }[];
@@ -187,12 +187,21 @@ describe('migration from Paperless-ngx', () => {
     expect(md5(fs.readFileSync(path.join(ngxDir, doc101.__exported_file_name__!)))).toBe(md5(pdfA));
     // One library only (the ids are a bound parameter); an unknown one exports nothing.
     const firstLib = h.ctx.repos.libraries.list()[0].id;
-    const oneLib = (await post('/api/archive/export', { format: 'plain', directory: path.join(h.dataDir, 'export-one'), libraryIds: [firstLib] })).json() as { documents: number };
+    const oneLib = (await post('/api/archive/export', { format: 'plain', directory: path.join(h.dataDir, 'exports', 'export-one'), libraryIds: [firstLib] })).json() as { documents: number };
     const inLib = (h.ctx.db.prepare('SELECT COUNT(*) AS c FROM lib_documents WHERE deleted_at IS NULL AND library_id = ?').get(firstLib) as { c: number }).c;
     expect(oneLib.documents).toBe(inLib);
-    expect(((await post('/api/archive/export', { format: 'plain', directory: path.join(h.dataDir, 'export-none'), libraryIds: [999999] })).json() as { documents: number }).documents).toBe(0);
+    expect(((await post('/api/archive/export', { format: 'plain', directory: path.join(h.dataDir, 'exports', 'export-none'), libraryIds: [999999] })).json() as { documents: number }).documents).toBe(0);
+    // Only below data/exports (or PAPERLESS_AI_EXPORT_DIR) – a name is enough; anywhere else is refused.
+    const outside = await post('/api/archive/export', { format: 'plain', directory: path.join(h.dataDir, 'elsewhere') });
+    expect(outside.statusCode).toBe(400);
+    expect(outside.json().error).toContain('PAPERLESS_AI_EXPORT_DIR');
+    expect((await post('/api/archive/export', { format: 'plain', directory: '../../etc/x' })).statusCode).toBe(400);
+    const named = (await post('/api/archive/export', { format: 'plain', directory: 'by-name' })).json() as { directory: string };
+    expect(named.directory).toBe(path.join(h.dataDir, 'exports', 'by-name'));
+    h.ctx.config.update({ archive: { builtin: { exportDir: path.join(h.dataDir, 'volume') } } });
+    expect((await post('/api/archive/export', { format: 'plain', directory: path.join(h.dataDir, 'volume', 'nightly') })).statusCode).toBe(200);
     // For an older Paperless-ngx: MD5 checksums.
-    const oldDir = path.join(h.dataDir, 'export-ngx-md5');
+    const oldDir = path.join(h.dataDir, 'exports', 'export-ngx-md5');
     await post('/api/archive/export', { format: 'ngx', directory: oldDir, checksums: 'md5' });
     const oldManifest = JSON.parse(fs.readFileSync(path.join(oldDir, 'manifest.json'), 'utf8')) as { model: string; pk: number; fields: Record<string, unknown> }[];
     expect(oldManifest.find((m) => m.model === 'documents.document' && m.pk === 101)!.fields.checksum).toBe(md5(pdfA));
@@ -200,7 +209,7 @@ describe('migration from Paperless-ngx', () => {
       expect.arrayContaining(['EUR84.20', 'a1']),
     );
     expect(JSON.parse(fs.readFileSync(path.join(ngxDir, 'metadata.json'), 'utf8')).version).toMatch(/^2\./);
-    const plainDir = path.join(h.dataDir, 'export-plain');
+    const plainDir = path.join(h.dataDir, 'exports', 'export-plain');
     await post('/api/archive/export', { format: 'plain', directory: plainDir });
     const meta = JSON.parse(fs.readFileSync(path.join(plainDir, 'metadata.json'), 'utf8')) as { id: number; file: string }[];
     expect(meta.find((m) => m.id === 101)?.file).toBe('anna/Stadtwerke/2024/2024-03-31 Stromrechnung März 2024.pdf');

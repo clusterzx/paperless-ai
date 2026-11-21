@@ -128,7 +128,8 @@ export async function renderTemplate(template: string, env: ActionEnv): Promise<
   const values = await templateValues(env);
   const { doc, meta } = env.subject;
   return template
-    .replace(/\{field:([^}]+)\}/g, (_, name: string) => {
+    // No "{" in the name and a bounded length: linear, also on templates full of "{field:".
+    .replace(/\{field:([^{}]{1,128})\}/g, (_, name: string) => {
       const def = meta.customFieldByName(name.trim());
       const v = def ? (doc.custom_fields ?? []).find((f) => f.field === def.id)?.value : undefined;
       return v === null || v === undefined ? '' : String(v);
@@ -420,7 +421,7 @@ async function sideEffect(action: Action, step: RunStep, env: ActionEnv): Promis
     }
     case 'notify_webhook': {
       if (env.dryRun) {
-        step.details = { url: safeHost(action.url), preset: action.preset };
+        step.details = { url: action.previewHost ?? safeHost(action.url), preset: action.preset };
         return;
       }
       const res = await notifyWebhook(action.url, action.preset, action.secret, {

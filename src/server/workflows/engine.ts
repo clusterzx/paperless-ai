@@ -20,6 +20,17 @@ import type { DryRunResult, RunStep, Trigger, Workflow, WorkflowDefinition } fro
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
 
+/** The address webhook actions get in a dry run – never contacted. */
+const DRY_RUN_URL = 'https://dry-run.invalid/';
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return '(invalid address)';
+  }
+}
+
 const log = logger.child({ module: 'workflows' });
 
 /** Chains of workflow runs (A changes the document, B reacts …) end at this depth. */
@@ -443,8 +454,10 @@ export class WorkflowEngine {
     const matched = await evaluateGroup(def.conditions, env);
     const changes: DryRunResult['changes'] = [];
     if (matched) {
+      // A dry run sends nothing: webhook actions get an inert address (the plan shows the real host).
+      const actions = def.actions.map((a) => (a.type === 'notify_webhook' ? { ...a, url: DRY_RUN_URL, previewHost: hostOf(a.url), secret: undefined } : a));
       try {
-        await runActions(def.actions, { ...env, workflow: { id: def.id ?? 0, name: def.name, libraryId: def.libraryId, allowedLibraries: def.allowedLibraries }, runId: null, dryRun: true, hooks: {}, changes });
+        await runActions(actions, { ...env, workflow: { id: def.id ?? 0, name: def.name, libraryId: def.libraryId, allowedLibraries: def.allowedLibraries }, runId: null, dryRun: true, hooks: {}, changes });
       } catch {
         /* the failing step is in the list */
       }

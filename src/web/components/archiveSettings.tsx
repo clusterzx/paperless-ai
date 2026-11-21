@@ -237,7 +237,7 @@ function ExportCard() {
               <option value="ngx">Paperless-ngx (document_importer)</option>
             </Select>
           </Field>
-          <Field label="Directory on the server" hint="Empty: data/exports/<format>-<time>. Must be empty.">
+          <Field label="Directory on the server" hint="Below data/exports (a name is enough) or below PAPERLESS_AI_EXPORT_DIR. Empty: data/exports/<format>-<time>. Must be empty.">
             <Input value={directory} placeholder="/exports/archive" onChange={(e) => setDirectory(e.target.value)} />
           </Field>
           {format === 'ngx' && (

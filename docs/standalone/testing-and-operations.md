@@ -83,6 +83,7 @@ scanners that cannot use WebDAV or the REST upload.
 | `PAPERLESS_AI_CONSUME_DIR` | `archive.builtin.consumeDir` | empty (off) |
 | `PAPERLESS_AI_CONSUME_POLL` | `archive.builtin.consumePollSeconds` | `10` |
 | `PAPERLESS_AI_MAIL_POLL` | `archive.builtin.mailPollMinutes` | `5` |
+| `PAPERLESS_AI_EXPORT_DIR` | `archive.builtin.exportDir` | empty: exports from the web interface go below `<dataDir>/exports` only |
 | `PAPERLESS_AI_MAX_UPLOAD_MB` | `archive.builtin.maxUploadMb` | `200` |
 | `PAPERLESS_AI_READERS` | – | `min(4, cpus)` worker threads for reads |
 | `PAPERLESS_AI_BACKUP_KEEP` | `archive.backup.keep` | `7 daily, 4 weekly` |

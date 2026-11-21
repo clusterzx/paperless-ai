@@ -72,7 +72,7 @@ export type Action =
   | { type: 'ai_extract'; question: string; field: string }
   | { type: 'add_calendar_event'; source: 'created' | 'custom_field'; field?: string; offsetDays: number; title: string; kind: EventKind }
   | { type: 'notify_email'; to: string[]; users: number[]; groups: number[]; subject: string; body: string }
-  | { type: 'notify_webhook'; url: string; preset: 'generic' | 'ntfy' | 'gotify'; secret?: string }
+  | { type: 'notify_webhook'; url: string; preset: 'generic' | 'ntfy' | 'gotify'; secret?: string; /** Dry runs only: the host of the real address (the action gets an inert one). */ previewHost?: string }
   | { type: 'notify_inapp'; users: number[]; groups: number[]; title: string; body: string }
   /** Needs `confirm: true` – set explicitly in the editor. */
   | { type: 'move_to_trash'; confirm: boolean };

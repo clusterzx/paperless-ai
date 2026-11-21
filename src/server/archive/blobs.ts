@@ -160,7 +160,12 @@ export class BlobStore {
   // ---------------------------------------------------------------- thumbnails
 
   thumbPath(documentId: number, version: number): string {
-    return path.join(this.thumbsDir, `${documentId}-v${version}.webp`);
+    // Ids are integers – checked anyway, and the path must stay inside the thumbnail directory.
+    if (!Number.isSafeInteger(documentId) || !Number.isSafeInteger(version) || documentId < 0 || version < 0) throw new Error('Invalid document id or version');
+    const root = path.resolve(this.thumbsDir);
+    const file = path.resolve(root, `${documentId}-v${version}.webp`);
+    if (!file.startsWith(root + path.sep)) throw new Error('Invalid thumbnail path');
+    return file;
   }
 
   async removeThumbs(documentId: number): Promise<void> {

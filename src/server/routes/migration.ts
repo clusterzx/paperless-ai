@@ -105,11 +105,24 @@ export const migrationRoutes =
 
     // ------------------------------------------------------------ exports
 
+    /**
+     * Where an export from the web interface goes: below <data>/exports, or below PAPERLESS_AI_EXPORT_DIR
+     * (e.g. a mounted volume) – never anywhere else on the server. Relative names are below <data>/exports.
+     */
+    const exportDirectory = (requested: string | undefined, format: 'ngx' | 'plain'): string => {
+      const roots = [path.resolve(ctx.dataDir, 'exports'), ...(ctx.cfg.archive.builtin.exportDir ? [path.resolve(ctx.cfg.archive.builtin.exportDir)] : [])];
+      const target = requested ? path.resolve(roots[0], requested) : path.join(roots[0], `${format}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+      const allowed = roots.find((root) => target.startsWith(root + path.sep));
+      if (!allowed) throw new HttpProblem(400, `Exports go into a folder below ${roots.join(' or ')} – set PAPERLESS_AI_EXPORT_DIR to allow another directory`);
+      return target;
+    };
     const run = async (libraryIds: number[] | null, body: z.output<typeof exportBody>): Promise<ExportResult> => {
       const b = ctx.archive();
       if (!(b instanceof LocalBackend)) throw new HttpProblem(409, 'Exports are for the built-in archive – Paperless-ngx has its own document_exporter');
-      const dir = body.directory || path.join(ctx.dataDir, 'exports', `${body.format}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
-      return guard(() => exportArchive(ctx, b.blobs, { format: body.format, directory: dir, libraryIds, checksums: body.checksums }));
+      const format = body.format === 'ngx' ? 'ngx' : 'plain';
+      const checksums = body.checksums === 'md5' ? 'md5' : 'sha256';
+      const dir = exportDirectory(body.directory, format);
+      return guard(() => exportArchive(ctx, b.blobs, { format, directory: dir, libraryIds, checksums }));
     };
     app.post('/api/archive/export', { schema: { body: exportBody, description: 'Export documents (all or some libraries) into a directory on the server.' } }, async (req) => {
       const res = await run(req.body.libraryIds ?? null, req.body);

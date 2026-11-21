@@ -122,6 +122,7 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'PAPERLESS_AI_SMTP_PASSWORD', path: 'notifications.smtp.password', parse: s },
   { env: 'PAPERLESS_AI_SMTP_FROM', path: 'notifications.smtp.from', parse: s },
   { env: 'PAPERLESS_AI_CONSUME_DIR', path: 'archive.builtin.consumeDir', parse: s },
+  { env: 'PAPERLESS_AI_EXPORT_DIR', path: 'archive.builtin.exportDir', parse: s },
   { env: 'PAPERLESS_AI_CONSUME_POLL', path: 'archive.builtin.consumePollSeconds', parse: i },
   { env: 'PAPERLESS_AI_MAIL_POLL', path: 'archive.builtin.mailPollMinutes', parse: i },
   { env: 'PAPERLESS_AI_MAX_UPLOAD_MB', path: 'archive.builtin.maxUploadMb', parse: i },
