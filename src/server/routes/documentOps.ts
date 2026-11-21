@@ -16,6 +16,7 @@ import { actorName } from '../access/context.js';
 import { notSupported, type ArchiveDocument, type ChangeOrigin, type DocumentPatch, type IngestChannel, type IngestHints } from '../backend/types.js';
 import { convertCustomFieldValue } from '../processing/applier.js';
 import { parseDocumentFilter } from '../http/documentQuery.js';
+import { applySearchSyntax } from '../http/searchSyntax.js';
 import { badRequest, HttpProblem } from '../http/helpers.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
@@ -30,7 +31,8 @@ const BULK_LIMIT = 10_000;
 async function idsOf(ctx: AppContext, scope: AccessScope, input: BulkEditInput): Promise<number[]> {
   if (input.ids?.length) return [...new Set(input.ids)].slice(0, BULK_LIMIT);
   if (!input.filter) throw badRequest('Give the documents by id or by filter');
-  const filter = parseDocumentFilter(input.filter);
+  // The same documents as the list shows for this search (tag:, title: … included).
+  const { filter } = await applySearchSyntax(ctx, scope, parseDocumentFilter(input.filter));
   const ids: number[] = [];
   let cursor: string | null = null;
   do {

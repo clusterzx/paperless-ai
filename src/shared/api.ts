@@ -1,3 +1,4 @@
+import type { SearchKey } from './searchSyntax.js';
 import type { MatchedPromptRule } from './promptRules.js';
 
 /**
@@ -177,6 +178,17 @@ export interface DocumentListResponse {
   results: DocumentRow[];
   /** Cursor of the next page (null on the last one). */
   nextCursor: string | null;
+  /** How the search syntax (tag:, title: …) was understood – shown under the search box. */
+  search?: SearchInterpretation[];
+}
+
+/** One key:value term of the search and what it matched (names, a date range) or why not. */
+export interface SearchInterpretation {
+  key: SearchKey;
+  value: string;
+  negate: boolean;
+  matched: string[];
+  problem?: string;
 }
 
 export interface DocumentFacetsResponse {

@@ -269,7 +269,14 @@ export class PaperlessBackend implements DocumentBackend {
     if (f.createdMonth) q.created__month = f.createdMonth;
     if (f.addedFrom) q.added__date__gte = f.addedFrom;
     if (f.addedTo) q.added__date__lte = f.addedTo;
-    if (f.query?.trim()) q.query = f.query.trim();
+    // Words to leave out: Paperless-ngx's full text search understands NOT (next to other words).
+    const exclude = (f.notQuery ?? '').split(/\s+/).filter(Boolean);
+    if (f.query?.trim()) q.query = [f.query.trim(), ...exclude.map((w) => `NOT ${w.replace(/["()]/g, '')}`)].join(' ');
+    if (f.titleQuery) q.title__icontains = f.titleQuery;
+    if (f.contentQuery) q.content__icontains = f.contentQuery;
+    if (f.correspondentsNone?.length) q.correspondent__id__none = list(f.correspondentsNone);
+    if (f.documentTypesNone?.length) q.document_type__id__none = list(f.documentTypesNone);
+    if (f.asn !== undefined) q.archive_serial_number = f.asn;
     if (f.customFields?.length) {
       const op = { exists: 'exists', eq: 'exact', gte: 'gte', lte: 'lte', contains: 'icontains' } as const;
       const parts = f.customFields.map((c) => [c.field, op[c.op], c.op === 'exists' ? true : c.value]);

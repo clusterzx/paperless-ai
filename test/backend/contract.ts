@@ -153,6 +153,20 @@ export function backendContract(name: string, make: () => Promise<ContractFixtur
       expect(page.results.map((d) => d.id)).toContain(ids[3]);
     });
 
+    it('filters by words in the title / the text, words to leave out, excluded correspondents and types (search syntax)', async () => {
+      const titles = async (filter: Parameters<DocumentBackend['queryDocuments']>[1]['filter']) =>
+        (await backend.queryDocuments(scope, { filter, sort: 'title' })).results.map((d) => d.title);
+      expect(await titles({ titleQuery: 'bill' })).toEqual(['Electricity bill March', 'Gas bill April']);
+      // "insurance" is in the title of one and the text of the same – "invoice" only in texts
+      expect(await titles({ titleQuery: 'invoice' })).toEqual([]);
+      expect(await titles({ contentQuery: 'invoice' })).toEqual(['Electricity bill March', 'Gas bill April']);
+      expect(await titles({ query: 'Stadtwerke', notQuery: 'gas' })).toEqual(['Electricity bill March']);
+      const stadtwerke = (await meta.resolveCorrespondent('Stadtwerke', false)).id!;
+      const contract = (await meta.resolveDocumentType('Contract', false)).id!;
+      expect(await titles({ correspondentsNone: [stadtwerke] })).toEqual(['Car insurance policy', 'Tax assessment 2023', 'Unsorted letter']);
+      expect(await titles({ documentTypesNone: [contract], createdFrom: '2024-01-01' })).toEqual(['Electricity bill March', 'Gas bill April', 'Tax assessment 2023']);
+    });
+
     it('counts facets of a filter', async () => {
       const invoice = await tagId('Invoice');
       const f = await backend.facets(scope, { tagsAny: [invoice] });

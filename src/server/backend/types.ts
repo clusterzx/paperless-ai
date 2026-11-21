@@ -106,6 +106,16 @@ export interface DocumentFilter {
   addedTo?: string;
   /** Custom field conditions. */
   customFields?: { field: number; op: 'exists' | 'eq' | 'gte' | 'lte' | 'contains'; value?: string | number | boolean }[];
+  /** Search syntax (title:, text:, -word, -tag: …): words in the title / in the text. */
+  titleQuery?: string;
+  contentQuery?: string;
+  /** Documents with any of these words are left out (anywhere / in the title). */
+  notQuery?: string;
+  notTitle?: string;
+  correspondentsNone?: number[];
+  documentTypesNone?: number[];
+  /** Archive serial number. */
+  asn?: number;
 }
 
 export type DocumentSort = 'created' | '-created' | 'added' | '-added' | 'title' | '-title' | 'modified' | '-modified' | 'relevance';

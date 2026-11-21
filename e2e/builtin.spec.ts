@@ -208,3 +208,26 @@ test('finds duplicate correspondents and merges them under one name', async ({ p
   await expect(page.getByText('No duplicates found')).toBeVisible();
   await expect(page.locator('li').filter({ hasText: /^ADAC Versicherung AG/ })).toHaveCount(0);
 });
+
+test('searches with tag:, title: … and completes names', async ({ page }) => {
+  await login(page);
+  const res = await page.request.post('/api/documents/upload', {
+    multipart: { file: { name: 'urlaub.pdf', mimeType: 'application/pdf', buffer: makePdf([['Buchungsbestätigung Ferienhaus Ostsee']]) }, tags: 'Urlaubsreise', skipAnalysis: 'true', title: 'Ferienhaus Ostsee' },
+  });
+  expect(res.ok(), await res.text()).toBe(true);
+  await page.goto('/documents');
+  const box = page.getByRole('combobox', { name: 'Search documents' });
+  // A key is offered while typing it …
+  await box.fill('corr');
+  await expect(page.getByRole('option', { name: /correspondent:/ })).toBeVisible();
+  // … and names after it.
+  await box.fill('tag:urlaub');
+  await page.getByRole('option', { name: /Urlaubsreise/ }).click();
+  await expect(box).toHaveValue('tag:Urlaubsreise ');
+  await expect(page.getByLabel('Search understood as')).toContainText('tag:Urlaubsreise');
+  await expect(page.getByText('Ferienhaus Ostsee').first()).toBeVisible();
+  await expect(page.getByText('Stromrechnung')).toHaveCount(0);
+  // A name that does not exist says so.
+  await box.fill('tag:gibtesnicht');
+  await expect(page.getByLabel('Search understood as')).toContainText('No tag “gibtesnicht”');
+});

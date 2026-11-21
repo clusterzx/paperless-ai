@@ -17,7 +17,9 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { BulkEditInput, BulkEditResult, DocumentFacetsResponse, DocumentListResponse, DocumentRow, SavedView } from '@shared/api';
+import type { BulkEditInput, BulkEditResult, DocumentFacetsResponse, DocumentListResponse, DocumentRow, SavedView, SearchInterpretation } from '@shared/api';
+import { DocumentSearchBox } from '../components/searchBox';
+import { parseSearch } from '@shared/searchSyntax';
 import { Page } from '../components/Layout';
 import { RunWorkflowModal } from '../components/workflowEditor';
 import { Alert, Badge, Button, EmptyState, Field, IconButton, Input, LinkButton, Modal, PageHeader, Select, SlideOver, Skeleton, TagInput, useConfirm, useToast } from '../components/ui';
@@ -188,14 +190,20 @@ export default function DocumentsPage() {
   const [text, setText] = useState(state.q ?? '');
   const q = useDebounced(text, 350);
   useEffect(() => {
-    if ((q || undefined) !== state.q) set({ q: q || undefined, sort: q && !state.sort ? 'relevance' : state.sort === 'relevance' && !q ? undefined : state.sort });
+    // Relevance only for words to search for – tag:, created: … alone keep the date order.
+    const words = Boolean(q && parseSearch(q).text);
+    if ((q || undefined) !== state.q) set({ q: q || undefined, sort: words && !state.sort ? 'relevance' : state.sort === 'relevance' && !words ? undefined : state.sort });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
   const params = useMemo(() => apiParams(state), [state]);
+  /** The search has words to rank by (not only tag:, created: …). */
+  const searchWords = Boolean(state.q && parseSearch(state.q).text);
   const key = JSON.stringify(params);
   const [rows, setRows] = useState<DocumentRow[]>([]);
   const [count, setCount] = useState<number | null>(null);
+  /** How the server understood tag:, title: … of the search. */
+  const [interpretation, setInterpretation] = useState<SearchInterpretation[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -219,7 +227,10 @@ export default function DocumentsPage() {
         if (gen !== generation.current) return;
         setRows((r) => (append ? [...r, ...res.results] : res.results));
         setCursor(res.nextCursor);
-        if (!append) setCount(res.count);
+        if (!append) {
+          setCount(res.count);
+          setInterpretation(res.search ?? []);
+        }
         setError(null);
         setStale(false);
       } catch (err) {
@@ -340,15 +351,12 @@ export default function DocumentsPage() {
         </aside>
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[200px] flex-1">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-faint" />
-              <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Search title and text…" className="pl-9" aria-label="Search documents" />
-            </div>
+            <DocumentSearchBox value={text} onChange={setText} meta={meta} interpretation={interpretation} libraries={Boolean(archive?.capabilities.libraries)} />
             <Button className="lg:hidden" icon={<Filter className="size-4" />} onClick={() => setFiltersOpen(true)}>
               Filters{activeFilters ? ` (${activeFilters})` : ''}
             </Button>
-            <Select aria-label="Sort" value={state.sort ?? (state.q ? 'relevance' : '-created')} onChange={(e) => set({ sort: e.target.value as ListState['sort'] })} className="w-auto">
-              {SORT_OPTIONS.filter((o) => o.value !== 'relevance' || state.q).map((o) => (
+            <Select aria-label="Sort" value={state.sort ?? (searchWords ? 'relevance' : '-created')} onChange={(e) => set({ sort: e.target.value as ListState['sort'] })} className="w-auto">
+              {SORT_OPTIONS.filter((o) => o.value !== 'relevance' || searchWords).map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
                 </option>

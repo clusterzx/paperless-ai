@@ -414,6 +414,46 @@ export class LocalBackend implements DocumentBackend {
       conds.push('d.id IN (SELECT rowid FROM lib_fts WHERE lib_fts MATCH ?)');
       params.push(match);
     }
+    // Search syntax: words in one column (all of them), words that leave documents out (any of them).
+    const fts = (q: string | undefined, col: 'title' | 'body' | null, mode: 'all' | 'any') => {
+      const m = q ? ftsMatch(q) : null;
+      if (!m) return q ? '' : null;
+      const parts = m.split(' AND ').map((t) => (col ? `${col} : ${t}` : t));
+      return parts.join(mode === 'all' ? ' AND ' : ' OR ');
+    };
+    for (const [q, col] of [
+      [f.titleQuery, 'title'],
+      [f.contentQuery, 'body'],
+    ] as const) {
+      const m = fts(q, col, 'all');
+      if (m === '') conds.push('0');
+      else if (m) {
+        conds.push('d.id IN (SELECT rowid FROM lib_fts WHERE lib_fts MATCH ?)');
+        params.push(m);
+      }
+    }
+    for (const [q, col] of [
+      [f.notQuery, null],
+      [f.notTitle, 'title'],
+    ] as const) {
+      const m = fts(q, col, 'any');
+      if (m) {
+        conds.push('d.id NOT IN (SELECT rowid FROM lib_fts WHERE lib_fts MATCH ?)');
+        params.push(m);
+      }
+    }
+    for (const [col, none] of [
+      ['correspondent_id', f.correspondentsNone],
+      ['document_type_id', f.documentTypesNone],
+    ] as const) {
+      if (!none?.length) continue;
+      conds.push(`(d.${col} IS NULL OR d.${col} NOT ${IN_IDS})`);
+      params.push(json(none));
+    }
+    if (f.asn !== undefined) {
+      conds.push('d.archive_serial_number = ?');
+      params.push(f.asn);
+    }
     return { sql: conds.join(' AND '), params };
   }
 

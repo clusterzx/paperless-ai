@@ -571,6 +571,12 @@ export class MockPaperless {
     }
     if (q.has('created__year')) docs = docs.filter((d) => Number(d.created.slice(0, 4)) === Number(q.get('created__year')));
     if (q.has('created__month')) docs = docs.filter((d) => Number(d.created.slice(5, 7)) === Number(q.get('created__month')));
+    const none = (key: string) => (q.get(key) ?? '').split(',').filter(Boolean).map(Number);
+    if (q.has('correspondent__id__none')) docs = docs.filter((d) => d.correspondent === null || !none('correspondent__id__none').includes(d.correspondent));
+    if (q.has('document_type__id__none')) docs = docs.filter((d) => d.document_type === null || !none('document_type__id__none').includes(d.document_type));
+    if (q.has('title__icontains')) docs = docs.filter((d) => d.title.toLowerCase().includes(q.get('title__icontains')!.toLowerCase()));
+    if (q.has('content__icontains')) docs = docs.filter((d) => d.content.toLowerCase().includes(q.get('content__icontains')!.toLowerCase()));
+    if (q.has('archive_serial_number')) docs = docs.filter((d) => d.archive_serial_number === Number(q.get('archive_serial_number')));
     const idIn = q.get('id__in');
     if (idIn) {
       const wanted = idIn.split(',').map(Number);
@@ -578,8 +584,12 @@ export class MockPaperless {
     }
     const text = q.get('title_content') ?? q.get('text') ?? q.get('query');
     if (text) {
-      const needle = text.toLowerCase();
-      docs = docs.filter((d) => d.title.toLowerCase().includes(needle) || d.content.toLowerCase().includes(needle));
+      // Like Paperless-ngx's full text search: words (all), NOT word leaves documents out.
+      const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+      const not = words.flatMap((w, i) => (words[i - 1] === 'not' ? [w] : []));
+      const want = words.filter((w, i) => w !== 'not' && words[i - 1] !== 'not');
+      const has = (d: MockDoc, w: string) => d.title.toLowerCase().includes(w) || d.content.toLowerCase().includes(w);
+      docs = docs.filter((d) => (want.length ? has(d, want.join(' ')) || want.every((w) => has(d, w)) : true) && !not.some((w) => has(d, w)));
     }
     const ordering = q.get('ordering') ?? 'id';
     const desc = ordering.startsWith('-');

@@ -15,6 +15,7 @@ import type {
   UploadResult,
 } from '../../shared/api.js';
 import { documentFilterParams, documentSort, parseDocumentFilter, toRow } from '../http/documentQuery.js';
+import { applySearchSyntax } from '../http/searchSyntax.js';
 import { hasScope, roleIn, userIdOf, type AccessScope } from '../access/scope.js';
 import { badRequest } from '../http/helpers.js';
 import { bulkEdit, documentActivity, receiveUploads, sendFile } from './documentOps.js';
@@ -89,7 +90,8 @@ export const documentRoutes =
       },
       async (req): Promise<DocumentListResponse> => {
         const q = req.query;
-        const filter = parseDocumentFilter({ ...q, q: q.q ?? q.query });
+        // tag:, title:, created: … → structured filter (names of what the caller can see).
+        const { filter, terms } = await applySearchSyntax(ctx, req.access!, parseDocumentFilter({ ...q, q: q.q ?? q.query }));
         // Without cursor and limit: page-based (the pickers of ≤ 4.4 use page/pageSize).
         const page = q.cursor === undefined && q.limit === undefined ? (q.page ?? 1) : undefined;
         const res = await ctx.backend(req.access!).queryDocuments({
@@ -106,6 +108,7 @@ export const documentRoutes =
           ...(page ? { page } : {}),
           results: res.results.map((d) => toRow(d, states, res.snippets?.[d.id])),
           nextCursor: res.nextCursor,
+          ...(terms.length ? { search: terms } : {}),
         };
       },
     );
@@ -113,7 +116,7 @@ export const documentRoutes =
     app.get(
       '/api/documents/facets',
       { schema: { description: 'Number of documents per tag, correspondent and type within the filter.', querystring: documentFilterParams } },
-      async (req): Promise<DocumentFacetsResponse> => ctx.backend(req.access!).facets(parseDocumentFilter(req.query)),
+      async (req): Promise<DocumentFacetsResponse> => ctx.backend(req.access!).facets((await applySearchSyntax(ctx, req.access!, parseDocumentFilter(req.query))).filter),
     );
 
     app.get('/api/documents/:id', { schema: { params: z.object({ id: z.coerce.number().int().positive() }) } }, async (req): Promise<DocumentDetail> => {
