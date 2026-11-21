@@ -699,3 +699,67 @@ export interface OcrDocumentText {
   inPaperless: boolean;
   ocr: OcrResultInfo | null;
 }
+
+// ---------------------------------------------------------------- libraries and versions (built-in archive)
+
+export interface LibrarySettings {
+  trashDays?: number;
+  maxVersions?: number;
+  maxVersionAgeDays?: number;
+  reanalyzeOnNewVersion?: boolean;
+  allowDuplicates?: boolean;
+}
+
+export interface LibraryInfo {
+  id: number;
+  name: string;
+  description: string;
+  /** Role of the caller (null: an admin who is no member). */
+  role: LibraryRole | null;
+  documents: number;
+  settings: LibrarySettings;
+  createdAt: number;
+}
+
+export interface LibraryMember {
+  type: 'user' | 'group';
+  id: number;
+  name: string;
+  role: LibraryRole;
+}
+
+export interface LibraryCandidates {
+  users: { id: number; name: string }[];
+  groups: { id: number; name: string }[];
+}
+
+export interface WatchFolder {
+  id: number;
+  libraryId: number;
+  path: string;
+  subfolders: 'ignore' | 'tags' | 'library';
+  after: 'delete' | 'move';
+  tags: string[];
+  skipAnalysis: boolean;
+  enabled: boolean;
+}
+
+export interface DocumentVersionInfo {
+  version: number;
+  kind: 'original' | 'archive';
+  filename: string | null;
+  mimeType: string;
+  size: number;
+  pages: number | null;
+  comment: string;
+  createdAt: number;
+  createdBy: string | null;
+  textLength: number | null;
+  textSource: string | null;
+  current: boolean;
+}
+
+export interface TextDiffLine {
+  type: 'same' | 'add' | 'del';
+  text: string;
+}

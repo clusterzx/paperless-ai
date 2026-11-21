@@ -1,4 +1,4 @@
-import { canEdit, type AccessScope } from '../access/scope.js';
+import { canEdit, readableLibraries, type AccessScope } from '../access/scope.js';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -67,7 +67,8 @@ export const ocrRoutes =
       },
       async (req): Promise<OcrListResponse> => {
         ocr.assessIfStale();
-        const list = ctx.repos.ocr.list(req.query);
+        const libs = readableLibraries(req.access!);
+        const list = ctx.repos.ocr.list({ ...req.query, libraryIds: libs });
         const jobs = engine.ocrJobs();
         const active = ocr.status(0).active;
         const items: OcrDocumentItem[] = list.items.map((a) => ({
@@ -87,7 +88,7 @@ export const ocrRoutes =
                   ? { state: 'queued' }
                   : null,
         }));
-        return { items, total: list.total, page: list.page, pageSize: list.pageSize, counts: ctx.repos.ocr.counts() };
+        return { items, total: list.total, page: list.page, pageSize: list.pageSize, counts: ctx.repos.ocr.counts(libs) };
       },
     );
 

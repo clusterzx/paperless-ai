@@ -957,7 +957,7 @@ export class LocalBackend implements DocumentBackend {
                     ? 'OCR'
                     : 'System';
         const kind: ActivityItem['kind'] = r.kind === 'created' ? 'created' : r.kind.startsWith('version') ? 'version' : r.kind === 'deleted' ? 'deleted' : r.kind === 'restored' ? 'restored' : r.kind === 'moved' ? 'moved' : r.actor_type === 'ai' ? 'ai' : 'change';
-        const undoable = ['updated', 'moved'].includes(r.kind) && !r.reverted_by && !r.ref?.startsWith('undo:');
+        const undoable = UNDOABLE_KINDS.has(r.kind) && !r.reverted_by && !r.ref?.startsWith('undo:');
         return {
           at: r.at,
           kind,
@@ -966,7 +966,8 @@ export class LocalBackend implements DocumentBackend {
           details: Object.entries(changes).map(([field, [before, after]]) =>
             field === 'library_id' ? { field: 'Library', before: libName(before), after: libName(after) } : { field: FIELD_LABELS[field] ?? field, before, after },
           ),
-          undo: undoable && Object.keys(changes).some((f) => UNDOABLE.has(f)) ? { kind: 'event' as const, id: r.id } : null,
+          // Metadata changes need a field that can be set back; version and trash events always can.
+          undo: undoable && (!['updated', 'moved'].includes(r.kind) || Object.keys(changes).some((f) => UNDOABLE.has(f))) ? { kind: 'event' as const, id: r.id } : null,
           reverted: Boolean(r.reverted_by),
         };
       });
@@ -977,14 +978,44 @@ export class LocalBackend implements DocumentBackend {
    * were changed again later need `force` (no silent overwrite). The text is not part of an undo
    * (OCR text has its own undo on the OCR page).
    */
-  async undoEvent(scope: AccessScope, id: number, eventId: number, origin: ChangeOrigin, force = false): Promise<{ fields: string[]; libraryId: number }> {
-    const row = this.editableRow(scope, id);
+  async undoEvent(
+    scope: AccessScope,
+    id: number,
+    eventId: number,
+    origin: ChangeOrigin,
+    force = false,
+  ): Promise<{ fields: string[]; libraryId: number; effect: 'updated' | 'deleted' | 'restored' }> {
+    const row = this.editableRow(scope, id, true);
     const ev = this.db.prepare('SELECT * FROM lib_document_events WHERE id = ? AND document_id = ?').get(eventId, id) as
       | { id: number; kind: string; changes: string; reverted_by: number | null }
       | undefined;
-    if (!ev || !['updated', 'moved'].includes(ev.kind)) throw notFound('Change');
+    if (!ev || !UNDOABLE_KINDS.has(ev.kind)) throw notFound('Change');
     if (ev.reverted_by) throw new ArchiveError('This change was undone already', 409, 'already_undone');
     const changes = JSON.parse(ev.changes || '{}') as Record<string, [unknown, unknown]>;
+    const markReverted = () => {
+      const undo = this.db.prepare('SELECT MAX(id) AS id FROM lib_document_events WHERE document_id = ?').get(id) as { id: number };
+      this.db.prepare('UPDATE lib_document_events SET reverted_by = ? WHERE id = ?').run(undo.id, eventId);
+    };
+    // Trash: moving to the trash is undone by restoring, restoring by moving back.
+    if (ev.kind === 'deleted' || ev.kind === 'restored') {
+      const inTrash = row.deleted_at !== null;
+      if ((ev.kind === 'deleted') !== inTrash) throw new ArchiveError(inTrash ? 'The document is in the trash again' : 'The document is no longer in the trash', 409, 'undo_conflict');
+      if (ev.kind === 'deleted') await this.restoreDocument(scope, id, origin);
+      else await this.deleteDocument(scope, id, origin);
+      markReverted();
+      return { fields: [], libraryId: row.library_id, effect: ev.kind === 'deleted' ? 'restored' : 'deleted' };
+    }
+    if (row.deleted_at !== null) throw new ArchiveError('Restore the document from the trash first', 409, 'in_trash');
+    // Versions: a new version or a switch is undone by making the version before current again.
+    // The added file stays in the version list (it can be deleted there).
+    if (ev.kind === 'version_added' || ev.kind === 'version_switched') {
+      const [previous, made] = (changes.version ?? []) as [number | null, number | null];
+      if (previous == null || !this.fileRow(id, previous, 'original')) throw new ArchiveError('The previous version does not exist any more', 409, 'not_undoable');
+      if (!force && row.current_version !== made) throw new ArchiveError(`Version ${row.current_version} was made current since then – undo anyway to switch to version ${previous}`, 409, 'undo_conflict');
+      this.activateVersion(scope, id, previous, origin);
+      markReverted();
+      return { fields: ['version'], libraryId: row.library_id, effect: 'updated' };
+    }
     const fields = Object.keys(changes).filter((f) => UNDOABLE.has(f));
     if (!fields.length) throw new ArchiveError('This change cannot be undone here', 409, 'not_undoable');
     if (!force) {
@@ -1016,9 +1047,8 @@ export class LocalBackend implements DocumentBackend {
       patch.custom_fields = out;
     }
     await this.updateDocument(scope, id, patch, origin);
-    const undo = this.db.prepare('SELECT MAX(id) AS id FROM lib_document_events WHERE document_id = ?').get(id) as { id: number };
-    this.db.prepare('UPDATE lib_document_events SET reverted_by = ? WHERE id = ?').run(undo.id, eventId);
-    return { fields: Object.keys(patch), libraryId: this.row(id)!.library_id };
+    markReverted();
+    return { fields: Object.keys(patch), libraryId: this.row(id)!.library_id, effect: 'updated' };
   }
 
   // ---------------------------------------------------------------- metadata
@@ -1140,6 +1170,9 @@ function sortOf(ordering: string | undefined): DocumentSort {
 }
 
 /** Order and keyset condition per sort (NULL dates sort as '' so the keyset stays total). */
+/** Change log entries that can be undone from the activity (docs/standalone/data-model.md §4). */
+const UNDOABLE_KINDS = new Set(['updated', 'moved', 'version_added', 'version_switched', 'deleted', 'restored']);
+
 const SORT_KEYS: Record<Exclude<DocumentSort, 'relevance'>, { order: string; after: string; value: (r: DocRow) => string }> = {
   created: { order: "COALESCE(d.created, '') ASC, d.id ASC", after: "(COALESCE(d.created, '') > ? OR (COALESCE(d.created, '') = ? AND d.id > ?))", value: (r) => r.created ?? '' },
   '-created': { order: "COALESCE(d.created, '') DESC, d.id DESC", after: "(COALESCE(d.created, '') < ? OR (COALESCE(d.created, '') = ? AND d.id < ?))", value: (r) => r.created ?? '' },

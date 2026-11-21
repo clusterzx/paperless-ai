@@ -16,17 +16,10 @@ import { toRow } from '../http/documentQuery.js';
 import { receiveUploads } from './documentOps.js';
 import { diffLines } from '../archive/diff.js';
 
+import type { DocumentVersionInfo, LibraryCandidates, LibraryInfo, LibraryMember, TextDiffLine, WatchFolder } from '../../shared/api.js';
+
 const id = z.object({ id: z.coerce.number().int().positive() });
 
-export interface LibraryInfo {
-  id: number;
-  name: string;
-  description: string;
-  role: 'owner' | 'editor' | 'viewer' | null;
-  documents: number;
-  settings: Record<string, unknown>;
-  createdAt: number;
-}
 
 export const archiveRoutes =
   ({ ctx }: Services): FastifyPluginAsync =>
@@ -45,7 +38,7 @@ export const archiveRoutes =
 
     const libraryInfo = (scope: AccessScope): LibraryInfo[] => {
       const counts = new Map(
-        (ctx.db.prepare('SELECT library_id AS id, COUNT(*) AS c FROM lib_documents WHERE deleted_at IS NULL GROUP BY library_id').all() as { id: number; c: number }[]).map((r) => [r.id, r.c]),
+        (ctx.db.prepare("SELECT library_id AS id, count AS c FROM lib_counters WHERE kind = 'documents' AND item_id = 0").all() as { id: number; c: number }[]).map((r) => [r.id, r.c]),
       );
       return ctx.repos.libraries
         .list()
@@ -56,7 +49,7 @@ export const archiveRoutes =
           description: l.description,
           role: scope.libraries ? (scope.libraries.get(l.id) ?? null) : 'owner',
           documents: counts.get(l.id) ?? 0,
-          settings: l.settings as Record<string, unknown>,
+          settings: l.settings,
           createdAt: l.created_at,
         }));
     };
@@ -119,10 +112,24 @@ export const archiveRoutes =
       return { ok: true };
     });
 
-    app.get('/api/libraries/:id/members', { schema: { params: id } }, async (req) => {
+    app.get('/api/libraries/:id/members', { schema: { params: id } }, async (req): Promise<LibraryMember[]> => {
       local('Libraries');
       if (!canRead(req.access!, req.params.id) && !isAdmin(req.access!)) throw notFound('Library not found');
-      return ctx.repos.libraries.members(req.params.id).map((m) => ({ type: m.principal_type, id: m.principal_id, name: m.name, role: m.role }));
+      return ctx.repos.libraries.members(req.params.id).map((m) => ({ type: m.principal_type, id: m.principal_id, name: m.name ?? `#${m.principal_id}`, role: m.role }));
+    });
+
+    // Who an owner can add: active users and groups (names only). Owners need it to manage members
+    // without being administrators (the user and group administration stays admin-only).
+    app.get('/api/libraries/:id/candidates', { schema: { params: id } }, async (req): Promise<LibraryCandidates> => {
+      local('Libraries');
+      ownerOrAdmin(req.access!, req.params.id);
+      return {
+        users: ctx.repos.users
+          .list()
+          .filter((u) => !u.disabled_at)
+          .map((u) => ({ id: u.id, name: u.display_name ? `${u.display_name} (${u.username})` : u.username })),
+        groups: ctx.repos.groups.list().map((g) => ({ id: g.id, name: g.name })),
+      };
     });
 
     app.put(
@@ -154,7 +161,7 @@ export const archiveRoutes =
       skipAnalysis: z.boolean().default(false),
       enabled: z.boolean().default(true),
     });
-    const folderDto = (r: { id: number; library_id: number; path: string; hints: string; subfolders: string; after: string; enabled: number }) => {
+    const folderDto = (r: { id: number; library_id: number; path: string; hints: string; subfolders: WatchFolder['subfolders']; after: WatchFolder['after']; enabled: number }): WatchFolder => {
       const hints = JSON.parse(r.hints || '{}') as { tags?: string[]; skipAnalysis?: boolean };
       return { id: r.id, libraryId: r.library_id, path: r.path, subfolders: r.subfolders, after: r.after, tags: hints.tags ?? [], skipAnalysis: Boolean(hints.skipAnalysis), enabled: Boolean(r.enabled) };
     };
@@ -295,7 +302,7 @@ export const archiveRoutes =
 
     // ---------------------------------------------------------------- versions
 
-    app.get('/api/documents/:id/versions', { schema: { params: id } }, async (req) => {
+    app.get('/api/documents/:id/versions', { schema: { params: id } }, async (req): Promise<DocumentVersionInfo[]> => {
       const b = local('File versions');
       const row = b.readableRow(req.access!, req.params.id);
       return b.versions(req.access!, req.params.id).map((v) => ({
@@ -345,7 +352,8 @@ export const archiveRoutes =
       { schema: { params: id, querystring: z.object({ from: z.coerce.number().int().positive(), to: z.coerce.number().int().positive() }) } },
       async (req) => {
         const b = local('File versions');
-        return { lines: diffLines(b.versionText(req.access!, req.params.id, req.query.from), b.versionText(req.access!, req.params.id, req.query.to)) };
+        const lines: TextDiffLine[] = diffLines(b.versionText(req.access!, req.params.id, req.query.from), b.versionText(req.access!, req.params.id, req.query.to));
+        return { lines };
       },
     );
 
@@ -361,9 +369,12 @@ export const archiveRoutes =
       },
       async (req) => {
       const b = local('The change log');
-      const res = await b.undoEvent(req.access!, req.params.id, req.params.eventId, origin(req.access!, `undo:${req.params.eventId}`), Boolean(req.body?.force));
-      ctx.events.emit({ type: 'document.updated', id: req.params.id, fields: res.fields, origin: origin(req.access!), libraryId: res.libraryId });
-      return { ok: true, fields: res.fields };
+      const o = origin(req.access!, `undo:${req.params.eventId}`);
+      const res = await b.undoEvent(req.access!, req.params.id, req.params.eventId, o, Boolean(req.body?.force));
+      if (res.effect === 'deleted') ctx.events.emit({ type: 'document.deleted', id: req.params.id, origin: o, libraryId: res.libraryId });
+      else if (res.effect === 'restored') ctx.events.emit({ type: 'document.restored', id: req.params.id, libraryId: res.libraryId });
+      else ctx.events.emit({ type: 'document.updated', id: req.params.id, fields: res.fields, origin: o, libraryId: res.libraryId });
+      return { ok: true, fields: res.fields, effect: res.effect };
       },
     );
 

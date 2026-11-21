@@ -59,8 +59,8 @@ export const documentRoutes =
       role: scope.libraries && d.library_id != null ? roleIn(scope, d.library_id) : null,
     });
 
-    app.get('/api/metadata', async () => {
-      const scopes = await ctx.backend().metadataScopes();
+    app.get('/api/metadata', async (req) => {
+      const scopes = await ctx.backend(req.access!).metadataScopes();
       const metas = await Promise.all(scopes.map(async (lib) => ({ lib, meta: await ctx.metadata(lib).snapshot() })));
       const lib = (l: number | null) => (l == null ? {} : { library_id: l });
       return {

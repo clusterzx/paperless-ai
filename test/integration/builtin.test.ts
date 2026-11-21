@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { analysisJson, createHarness, makeTempDir, type Harness } from '../helpers/appHarness.js';
+import { analysisJson, createHarness, makeTempDir, waitFor, type Harness } from '../helpers/appHarness.js';
 import { makePdf } from '../helpers/pdf.js';
 import type { ActivityItem, DocumentDetail, DocumentListResponse, UploadResult } from '../../src/shared/api.js';
 import { LocalBackend } from '../../src/server/archive/backend.js';
@@ -157,13 +157,62 @@ describe('versions, change log and trash', () => {
     const diff = (await h.inject({ method: 'GET', url: `/api/documents/${id}/text/diff?from=1&to=2`, headers: { cookie } })).json() as { lines: { type: string; text: string }[] };
     expect(diff.lines.filter((l) => l.type === 'add').map((l) => l.text)).toEqual(['Vertrag Version zwei', 'Laufzeit 24 Monate']);
 
+    // The search index of Ask your archive follows the current version.
+    const indexed = () => h.rag.store.documentChunks(id).map((c) => c.text).join(' ');
+    await h.rag.sync();
+    expect(indexed()).toContain('24 Monate');
+    h.ctx.config.update({ rag: { autoSync: true } });
+
     await h.inject({ method: 'POST', url: `/api/documents/${id}/versions/1/activate`, headers: { cookie } });
     doc = (await h.inject({ method: 'GET', url: `/api/documents/${id}`, headers: { cookie } })).json() as DocumentDetail;
     expect(doc.current_version).toBe(1);
     expect(doc.content).toContain('12 Monate');
+    // Switching the version is a document event: the index is updated without waiting for a sync.
+    await waitFor(() => indexed().includes('12 Monate'));
+    expect(indexed()).not.toContain('24 Monate');
     // the current version cannot be deleted, another one can (owners)
     expect((await h.inject({ method: 'DELETE', url: `/api/documents/${id}/versions/1`, headers: { cookie } })).statusCode).toBe(409);
     expect((await h.inject({ method: 'DELETE', url: `/api/documents/${id}/versions/2`, headers: { cookie } })).statusCode).toBe(200);
+  });
+
+  it('undoes version changes and trash moves from the change log', async () => {
+    const [r] = await upload([{ name: 'v1.pdf', data: makePdf([['Angebot Version eins']]) }], { skipAnalysis: 'true' });
+    const id = r.documentId!;
+    const m = multipart([{ name: 'v2.pdf', data: makePdf([['Angebot Version zwei']]) }]);
+    await h.inject({ method: 'POST', url: `/api/documents/${id}/versions`, headers: { cookie, 'content-type': m.contentType }, payload: m.payload });
+    await h.engine.drain();
+    const events = () => h.ctx.db.prepare('SELECT id, kind, reverted_by FROM lib_document_events WHERE document_id = ? ORDER BY id').all(id) as { id: number; kind: string; reverted_by: number | null }[];
+    const undo = (eventId: number, force = false) => h.inject({ method: 'POST', url: `/api/documents/${id}/events/${eventId}/undo`, headers: { cookie }, payload: { force } });
+    const current = async () => ((await h.inject({ method: 'GET', url: `/api/documents/${id}`, headers: { cookie } })).json() as DocumentDetail).current_version;
+
+    // The new version is undone by making version 1 current again (the file stays in the list).
+    const added = events().find((e) => e.kind === 'version_added')!;
+    const activity = (await h.inject({ method: 'GET', url: `/api/documents/${id}/activity`, headers: { cookie } })).json() as ActivityItem[];
+    expect(activity.find((a) => a.kind === 'version' && a.title === 'New version')?.undo).toEqual({ kind: 'event', id: added.id });
+    expect((await undo(added.id)).statusCode).toBe(200);
+    expect(await current()).toBe(1);
+    expect((await undo(added.id)).json().code).toBe('already_undone');
+
+    // A switch that was overtaken by another one needs force.
+    await h.inject({ method: 'POST', url: `/api/documents/${id}/versions/2/activate`, headers: { cookie } });
+    const switched = events().filter((e) => e.kind === 'version_switched').at(-1)!;
+    await h.inject({ method: 'POST', url: `/api/documents/${id}/versions/1/activate`, headers: { cookie } });
+    expect((await undo(switched.id)).json().code).toBe('undo_conflict');
+    expect((await undo(switched.id, true)).statusCode).toBe(200);
+    expect(await current()).toBe(1);
+
+    // Trash: undoing "moved to the trash" restores, undoing the restore moves it back.
+    await h.inject({ method: 'DELETE', url: `/api/documents/${id}`, headers: { cookie } });
+    const deleted = events().filter((e) => e.kind === 'deleted').at(-1)!;
+    const restored = await undo(deleted.id);
+    expect(restored.json()).toMatchObject({ ok: true, effect: 'restored' });
+    expect((await h.inject({ method: 'GET', url: `/api/documents/${id}`, headers: { cookie } })).statusCode).toBe(200);
+    const restoreEvent = events().filter((e) => e.kind === 'restored').at(-1)!;
+    expect(restoreEvent.id).toBeGreaterThan(deleted.id);
+    // The restore made by the undo is itself marked as an undo and offers no undo of its own.
+    const after = (await h.inject({ method: 'GET', url: `/api/documents/${id}/activity`, headers: { cookie } })).json() as ActivityItem[];
+    expect(after.find((a) => a.kind === 'restored')?.undo ?? null).toBeNull();
+    expect(after.find((a) => a.kind === 'deleted')?.reverted).toBe(true);
   });
 
   it('undoes single changes and detects conflicts', async () => {

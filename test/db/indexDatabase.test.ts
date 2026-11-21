@@ -20,14 +20,16 @@ describe('index.db', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pai-index-'));
     dirs.push(dir);
     const core = openDatabase(path.join(dir, 'paperless-ai.db'));
-    // An index as ≤ 4.4 left it: float32 embeddings in the core database.
-    const legacy = new RagStore(core);
-    legacy.upsertDocument(
-      { id: 7, modified: '2024-01-01T00:00:00Z', contentHash: 'h7', title: 'Stromrechnung', correspondent: 'Stadtwerke', documentType: 'Rechnung', tags: ['Energie'], created: '2024-01-01' },
-      ['Abschlag für Strom im Januar', 'Zählerstand 4711'],
-    );
+    // An index as ≤ 4.4 left it: float32 embeddings in the core database (no library column).
     const vec = Float32Array.from({ length: 16 }, (_, i) => (i % 3) - 1 + i / 100);
-    core.prepare('UPDATE rag_chunks SET embedding = ?').run(Buffer.from(vec.buffer));
+    core
+      .prepare(
+        "INSERT INTO rag_documents (id, modified, content_hash, title, correspondent, document_type, tags, created, chunk_count, indexed_at) VALUES (7, '2024-01-01T00:00:00Z', 'h7', 'Stromrechnung', 'Stadtwerke', 'Rechnung', 'Energie', '2024-01-01', 2, 0)",
+      )
+      .run();
+    const insChunk = core.prepare('INSERT INTO rag_chunks (document_id, idx, text, embedding) VALUES (7, ?, ?, ?)');
+    insChunk.run(0, 'Abschlag für Strom im Januar', Buffer.from(vec.buffer));
+    insChunk.run(1, 'Zählerstand 4711', Buffer.from(vec.buffer));
 
     const index = openIndexDatabase(path.join(dir, 'index.db'));
     moveRagIndex(core, index, dir);

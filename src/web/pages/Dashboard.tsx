@@ -320,6 +320,7 @@ function greeting(): string {
 
 export default function DashboardPage() {
   const { session } = useSession();
+  const admin = session?.user?.role === 'admin';
   const toast = useToast();
   // tzOffset: the activity timeline is grouped by the viewer's local days.
   const dash = useAsync(() => get<DashboardData>(`/api/dashboard${qs({ tzOffset: new Date().getTimezoneOffset() })}`), []);
@@ -490,7 +491,11 @@ export default function DashboardPage() {
                 hint="Click for details"
                 onClick={() => setMeta('tags')}
               />
-              <Stat label="Tokens used" value={compactNumber(d.usage.totalTokens)} icon={<Coins />} hint={`${formatNumber(d.usage.calls)} AI requests`} />
+              {admin ? (
+                <Stat label="Tokens used" value={compactNumber(d.usage.totalTokens)} icon={<Coins />} hint={`${formatNumber(d.usage.calls)} AI requests`} />
+              ) : (
+                <Stat label="Processed today" value={formatNumber(d.processing.processedToday)} icon={<Clock />} hint="in your libraries" />
+              )}
             </>
           ) : (
             [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[124px] rounded-2xl" />)
@@ -499,7 +504,7 @@ export default function DashboardPage() {
 
         {/* Activity */}
         <Card
-          className="lg:col-span-8"
+          className={admin ? 'lg:col-span-8' : 'lg:col-span-12'}
           title="Activity"
           description={d ? `${formatNumber(last30)} documents processed in the last 30 days` : 'Documents processed per day'}
           icon={<Clock />}
@@ -507,8 +512,9 @@ export default function DashboardPage() {
           {d ? <AreaChart data={timeline} height={210} formatLabel={(l) => formatDate(l)} /> : <Skeleton className="h-52" />}
         </Card>
 
-        {/* Token usage */}
-        <Card className="lg:col-span-4" title="Token usage" icon={<Coins />} description="Per analysed document">
+        {/* Token usage (instance-wide: administrators only) */}
+        {admin && (
+          <Card className="lg:col-span-4" title="Token usage" icon={<Coins />} description="Per analysed document">
           {d ? (
             d.usage.analyses ? (
               <div className="space-y-5">
@@ -533,7 +539,8 @@ export default function DashboardPage() {
           ) : (
             <Skeleton className="h-36" />
           )}
-        </Card>
+          </Card>
+        )}
 
         <div className="lg:col-span-8">
           <RecentChanges />

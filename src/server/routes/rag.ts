@@ -1,3 +1,4 @@
+import { readableLibraries } from '../access/scope.js';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -49,17 +50,20 @@ export const ragRoutes =
       },
     );
 
-    app.get('/api/rag/filters', async () => ({
-      correspondents: rag.store.distinctValues('correspondent').sort((a, b) => a.localeCompare(b)),
-      documentTypes: rag.store.distinctValues('document_type').sort((a, b) => a.localeCompare(b)),
-    }));
+    app.get('/api/rag/filters', async (req) => {
+      const libs = readableLibraries(req.access!);
+      return {
+        correspondents: [...rag.store.distinctValues('correspondent', libs)].sort((a, b) => a.localeCompare(b)),
+        documentTypes: [...rag.store.distinctValues('document_type', libs)].sort((a, b) => a.localeCompare(b)),
+      };
+    });
 
     app.post(
       '/api/rag/search',
       { schema: { body: z.object({ query: z.string().min(1).max(2000), filters, limit: z.number().int().min(1).max(50).optional() }) } },
       async (req): Promise<{ sources: RagSource[]; mode: string; tookMs: number }> => {
         requireEnabled();
-        const result = await rag.search(req.body.query, { filters: req.body.filters, limit: req.body.limit ?? 20 });
+        const result = await rag.search(req.body.query, { filters: req.body.filters, limit: req.body.limit ?? 20, scope: req.access! });
         return { sources: rag.toSources(result), mode: result.mode, tookMs: result.tookMs };
       },
     );
@@ -70,7 +74,7 @@ export const ragRoutes =
       async (req, reply) => {
         requireEnabled();
         ctx.llm(); // fail fast (before streaming) if the AI provider is not configured
-        await sendEventStream<ChatStreamEvent>(req, reply, (signal) => rag.chat(req.body.question, req.body.history, { filters: req.body.filters, signal }));
+        await sendEventStream<ChatStreamEvent>(req, reply, (signal) => rag.chat(req.body.question, req.body.history, { filters: req.body.filters, signal, scope: req.access! }));
       },
     );
 
@@ -82,7 +86,7 @@ export const ragRoutes =
         requireEnabled();
         let answer = '';
         let sources: RagSource[] = [];
-        for await (const e of rag.chat(req.body.question, [])) {
+        for await (const e of rag.chat(req.body.question, [], { scope: req.access! })) {
           if (e.type === 'delta') answer += e.text;
           else if (e.type === 'sources') sources = e.sources;
         }
