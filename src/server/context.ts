@@ -22,7 +22,7 @@ import { activeModel, aiConfigProblem, createLlmClient, withModel } from './ai/f
 import type { CompletionResult, LlmClient, Usage } from './ai/types.js';
 import { logger } from './logger.js';
 
-export const VERSION = '4.4.0';
+export const VERSION = '4.5.0';
 
 export class NotConfiguredError extends Error {
   constructor(message: string) {
