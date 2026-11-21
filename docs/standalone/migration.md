@@ -176,3 +176,36 @@ Two exports, both from Settings → Archive (admins; owners for their libraries)
   staying valid (no document re-queued).
 * `e2e/real-paperless-check.ts` gets a migration check against a real instance (manual / nightly).
 * Round trip: built-in → exporter format → `document_importer` (Docker, nightly CI).
+
+## 7. Implementation notes (M7)
+
+Code: `src/server/migration/service.ts` (analysis, plan, import, sync, cutover, rollback, discard),
+`src/server/migration/export.ts` (both exports), `src/server/routes/migration.ts`,
+`src/server/cli.ts`, `src/web/pages/Migration.tsx` (*Move to built-in archive*, admins in companion
+mode), *Settings → Archive → Export*. Tests: `test/integration/migration.test.ts`,
+`test/integration/cli.test.ts`; nightly round trip `.github/workflows/roundtrip.yml`.
+
+* The import runs while companion mode is active, with its own passive instance of the built-in
+  archive (no intake, no maintenance timers). Names are resolved per library directly in the
+  `lib_*` tables, so metadata is never created in Paperless-ngx.
+* Checksums: Paperless-ngx reports the MD5 of the original; it is compared with the download
+  before the blob is stored. A changed checksum on a sync adds a new file version.
+* Paperless-AI administrators become owners of every library the migration creates (otherwise
+  they would not see the documents after the switch). Accounts created for Paperless-ngx users are
+  disabled and have no password.
+* Custom field values that do not fit their type are stored as text and listed by the analysis.
+* The cutover pauses the processing queue, runs a final sync, closes the passive instance and
+  switches `archive.mode` – without a restart. Documents that never had an analysis (e.g. added in
+  Paperless-ngx after the last scan) are analysed afterwards as usual; nothing else is queued again.
+* "Switch back" (rollback) changes the mode and reports how many changes were made in the
+  built-in archive since the switch; writing them back to Paperless-ngx is not automated yet.
+* CLI: `paperless-ai migrate analyse | plan | start | sync | status | cutover | discard` and
+  `paperless-ai export --format ngx|plain --out <dir>` (`npm run cli -- …` from a checkout; the
+  data directory is `PAPERLESS_AI_DATA_DIR` or `--data`). Stop the server before a cutover from
+  the command line – the web assistant does it without a restart.
+* The exporter writes the manifest for Paperless-ngx 2.x (`metadata.json` version 2.20.0): users,
+  correspondents, types, tags, storage paths, custom fields and their values, documents with MD5
+  checksums, originals and archived PDFs. Names that exist in several libraries become one object
+  (Paperless-ngx names are global). The round trip into the official image runs as a nightly CI
+  job; it could not be run in the environment the feature was built in (no Docker), so its first
+  run is the real check.

@@ -31,8 +31,12 @@ export class ArchiveMaintenance {
   private timer: NodeJS.Timeout | null = null;
   private running: Promise<MaintenanceReport> | null = null;
 
-  constructor(private readonly backend: LocalBackend) {
+  constructor(
+    private readonly backend: LocalBackend,
+    scheduled = true,
+  ) {
     // First run a few minutes after the start, then hourly. Timers never keep the process alive.
+    if (!scheduled) return;
     this.timer = setTimeout(() => this.tick(), 5 * 60_000);
     this.timer.unref();
   }

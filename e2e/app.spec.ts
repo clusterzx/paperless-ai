@@ -704,3 +704,24 @@ test('prompt rules: a rule analyses matching documents with its own prompt and s
   await page.getByRole('dialog', { name: 'Delete “Utility bills”?' }).getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByText('No rules yet – every document is analysed with the system prompt.')).toBeVisible();
 });
+
+// Last: switches the demo to the built-in archive.
+test('moves the archive from Paperless-ngx into the built-in archive', async ({ page }) => {
+  await login(page);
+  await page.goto('/migration');
+  await page.getByRole('button', { name: 'Analyse' }).click();
+  await expect(page.getByText(/Space needed: about/)).toBeVisible({ timeout: 20_000 });
+  await page.getByLabel('Library', { exact: true }).fill('Familie');
+  await page.getByRole('button', { name: 'Show who will see what' }).click();
+  await expect(page.getByRole('cell', { name: 'Familie' })).toBeVisible();
+  await page.getByRole('button', { name: 'Start the import' }).click();
+  await expect(page.getByText(/imported · imported/)).toBeVisible({ timeout: 60_000 });
+  await page.getByRole('button', { name: 'Switch to the built-in archive' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Switch' }).click();
+  await expect(page.getByText('The built-in archive is in use').first()).toBeVisible({ timeout: 30_000 });
+  // The documents are there, with the same ids; the trash and libraries exist now.
+  await page.goto('/documents');
+  await expect(page.getByRole('link').filter({ hasText: /Stromrechnung|Telekom/ }).first()).toBeVisible();
+  await page.goto('/libraries');
+  await expect(page.getByText('Familie')).toBeVisible();
+});

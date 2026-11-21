@@ -36,6 +36,7 @@ import { twoFactorRoutes } from '../routes/twoFactor.js';
 import { archiveRoutes } from '../routes/archive.js';
 import { workflowRoutes } from '../routes/workflows.js';
 import { DAV_METHODS, davRoutes } from '../routes/dav.js';
+import { migrationRoutes } from '../routes/migration.js';
 import { metadataRoutes } from '../routes/metadata.js';
 import { accessRoutes } from '../routes/access.js';
 import { calendarRoutes } from '../routes/calendar.js';
@@ -233,6 +234,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(archiveRoutes(services));
   await app.register(workflowRoutes(services));
   await app.register(davRoutes(services));
+  await app.register(migrationRoutes(services));
 
   // Web UI (single page app)
   const staticDir = opts.staticDir;

@@ -219,6 +219,24 @@ Searchable archive PDF (text layer from OCR boxes), folder projection (storage p
 Office formats via Gotenberg, per-user mapping in companion mode, separator page splitting, notes,
 share links.
 
+### Implementation status
+
+All milestones M0–M7 are implemented on this branch (one commit per milestone). Deviations from
+the plan, decided while building:
+
+* **No experimental flag:** the setup offers both modes from M3 on; the migration assistant and
+  the exports make the built-in archive usable for existing installations (M7).
+* **Importer CLI** moved from M3 to M7, together with the migration it serves.
+* **Performance (M4):** prefix indexes for 3 *and* 4 characters, ranking of very common terms
+  among their newest 5,000 matches, counters maintained by SQLite triggers; measured results in
+  [search-and-scale.md §6.1](search-and-scale.md#61-measured-m4).
+* **Workflows (M6):** see [workflows.md §12](workflows.md#12-implementation-notes-m6) – prompt
+  rules are workflows, webhooks are admin-only, IMAP IDLE and drag and drop are not there yet.
+* **Migration (M7):** see [migration.md §7](migration.md#7-implementation-notes-m7) – rollback
+  does not write changes back to Paperless-ngx yet; the round trip CI job awaits its first run.
+* Still open from the plan, in "Later": folder projection, searchable PDF/A, Office formats,
+  per-user mapping in companion mode, notes (exported to `data/migration/notes.json` for now).
+
 ## 8. Decision log
 
 | # | Decision | Date |

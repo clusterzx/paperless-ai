@@ -9,6 +9,7 @@
  * - every request is recorded for assertions
  */
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 
 export interface MockPaperlessOptions {
@@ -47,6 +48,10 @@ export interface MockDoc {
   file: { data: Buffer; contentType: string };
   /** The archived PDF Paperless created (none for documents it did not convert). */
   archive: Buffer | null;
+  archive_serial_number: number | null;
+  /** View / change permissions (returned with `full_perms=true`). */
+  permissions: { view: { users: number[]; groups: number[] }; change: { users: number[]; groups: number[] } };
+  notes: { id: number; note: string; created: string; user: number | null }[];
 }
 
 /** A tiny but valid-looking PDF for download tests. */
@@ -59,6 +64,10 @@ export interface MockNamed {
   color?: string;
   /** Like Paperless: the creating user unless `owner` is sent explicitly. */
   owner?: number | null;
+  /** Storage paths: the path template. */
+  path?: string;
+  is_inbox_tag?: boolean;
+  parent?: number | null;
 }
 
 export interface MockCustomField {
@@ -101,7 +110,16 @@ export class MockPaperless {
   readonly documentTypes = new Map<number, MockNamed>();
   readonly storagePaths = new Map<number, MockNamed>();
   /** Paperless users; `null` = the API user may not view users (403). */
-  users: { id: number; username: string }[] | null = [];
+  users: { id: number; username: string; is_superuser?: boolean }[] | null = [];
+  groups: { id: number; name: string; users?: number[] }[] = [];
+  /** Lists of objects the migration does not transfer (workflows, mail accounts …). */
+  readonly extras: Record<'workflows' | 'mail_accounts' | 'mail_rules' | 'saved_views' | 'share_links', unknown[]> = {
+    workflows: [],
+    mail_accounts: [],
+    mail_rules: [],
+    saved_views: [],
+    share_links: [],
+  };
   readonly customFields = new Map<number, MockCustomField>();
   readonly requests: RecordedRequest[] = [];
   /** Optional hook to fake errors / slow responses for specific requests. */
@@ -177,11 +195,14 @@ export class MockPaperless {
       custom_fields: d.custom_fields ?? [],
       user_can_change: d.user_can_change ?? true,
       original_file_name: d.original_file_name ?? `${id}.pdf`,
-      owner: d.owner ?? this.user.id,
+      owner: d.owner === undefined ? this.user.id : d.owner,
       storage_path: d.storage_path ?? null,
       page_count: d.page_count ?? 1,
       file: d.file ?? { data: SAMPLE_PDF, contentType: 'application/pdf' },
       archive: d.archive ?? null,
+      archive_serial_number: d.archive_serial_number ?? null,
+      permissions: d.permissions ?? { view: { users: [], groups: [] }, change: { users: [], groups: [] } },
+      notes: d.notes ?? [],
     };
     this.docs.set(id, doc);
     return doc;
@@ -329,6 +350,30 @@ export class MockPaperless {
       const items = [...this.storagePaths.values()].sort((a, b) => a.name.localeCompare(b.name));
       return send(200, this.paginate(items, q, version, u, items.map((i) => i.id)));
     }
+    if (path === '/api/groups/' && record.method === 'GET') return send(200, this.paginate(this.groups, q, version, u, this.groups.map((g) => g.id)));
+    if ((m = /^\/api\/(workflows|mail_accounts|mail_rules|saved_views|share_links)\/$/.exec(path)) && record.method === 'GET') {
+      const items = this.extras[m[1] as keyof MockPaperless['extras']];
+      return send(200, this.paginate(items, q, version, u, items.map((_, i) => i + 1)));
+    }
+    if ((m = /^\/api\/documents\/(\d+)\/metadata\/$/.exec(path)) && record.method === 'GET') {
+      const doc = this.docs.get(Number(m[1]));
+      if (!doc) return send(404, { detail: 'Not found.' });
+      const md5 = (b: Buffer) => createHash('md5').update(b).digest('hex');
+      return send(200, {
+        original_checksum: md5(doc.file.data),
+        original_size: doc.file.data.length,
+        original_mime_type: doc.file.contentType,
+        original_filename: doc.original_file_name,
+        has_archive_version: Boolean(doc.archive),
+        archive_checksum: doc.archive ? md5(doc.archive) : null,
+        archive_size: doc.archive?.length ?? null,
+      });
+    }
+    if ((m = /^\/api\/documents\/(\d+)\/notes\/$/.exec(path)) && record.method === 'GET') {
+      const doc = this.docs.get(Number(m[1]));
+      if (!doc) return send(404, { detail: 'Not found.' });
+      return send(200, doc.notes);
+    }
     if (path === '/api/users/' && record.method === 'GET') {
       if (!this.users) return send(403, { detail: 'You do not have permission to perform this action.' });
       return send(200, this.paginate(this.users, q, version, u, this.users.map((i) => i.id)));
@@ -457,12 +502,12 @@ export class MockPaperless {
       created: version >= 9 ? doc.created : `${doc.created}T00:00:00+01:00`,
       modified: doc.modified,
       added: doc.added,
-      archive_serial_number: null,
+      archive_serial_number: doc.archive_serial_number,
       original_file_name: doc.original_file_name,
       owner: doc.owner,
       user_can_change: doc.user_can_change,
       custom_fields: doc.custom_fields.map((f) => ({ ...f })),
-      notes: [],
+      notes: doc.notes.map((n) => ({ ...n })),
       mime_type: doc.file.contentType,
       page_count: doc.page_count,
     };
@@ -545,6 +590,7 @@ export class MockPaperless {
     const fields = q.get('fields')?.split(',').filter(Boolean);
     const serialized = docs.map((d) => {
       const full = this.serialize(d, version);
+      if (q.get('full_perms') === 'true') full.permissions = structuredClone(d.permissions);
       if (q.get('truncate_content') === 'true') full.content = d.content.slice(0, 300);
       return fields ? Object.fromEntries(fields.filter((f) => f in full).map((f) => [f, full[f]])) : full;
     });

@@ -119,15 +119,23 @@ export class LocalBackend implements DocumentBackend {
   rankCandidates = 5000;
   private readonly sources = new Map<number, LibraryMetadataSource>();
 
-  constructor(readonly ctx: AppContext) {
+  /**
+   * `passive`: the archive is written by the migration assistant while Paperless-ngx is still the
+   * archive in use – no default library, no intake, no maintenance timers.
+   */
+  constructor(
+    readonly ctx: AppContext,
+    opts: { passive?: boolean } = {},
+  ) {
     const dir = ctx.cfg.archive.builtin.storageDir || path.join(ctx.dataDir, 'library');
     this.blobs = new BlobStore(dir);
     this.reader = ReadPool.for(ctx.db);
-    this.ensureDefaultLibrary();
     this.ingestService = new IngestService(this);
-    this.maintenance = new ArchiveMaintenance(this);
+    this.maintenance = new ArchiveMaintenance(this, !opts.passive);
     this.folders = new FolderWatcher(this);
     this.mail = new MailWatcher(this);
+    if (opts.passive) return;
+    this.ensureDefaultLibrary();
     if (ctx.cfg.archive.builtin.consumeDir || ctx.db.prepare('SELECT 1 FROM intake_folders WHERE enabled = 1 LIMIT 1').get()) this.startIntake();
     if (ctx.db.prepare('SELECT 1 FROM intake_mail_accounts WHERE enabled = 1 LIMIT 1').get()) this.mail.start();
     // A watch folder set later in the settings starts right away.

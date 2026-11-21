@@ -163,6 +163,16 @@ processing job ─▶ analysis.before workflows (synchronous) ─▶ prompt + se
 * Notifications: in the app, e-mail (`notifications.smtp`, nodemailer), webhooks with an HMAC
   signature (`X-Paperless-AI-Signature`) or as ntfy / Gotify messages; retried up to three times.
 
+## Migration and exports
+
+`migration/service.ts` moves a Paperless-ngx archive into the built-in archive while companion
+mode stays active (a passive `LocalBackend` writes the `lib_*` tables): same document ids and the
+same `modified` strings, so processing state, AI history, OCR results, calendar and the RAG index
+stay valid. Progress is kept per document (`migration_items`), so the import can pause, resume and
+sync repeatedly; the cutover switches `archive.mode` without a restart. `migration/export.ts`
+writes the Paperless-ngx exporter format (for `document_importer`) or plain folders with
+metadata.json/.csv. Both are also available on the command line (`src/server/cli.ts`).
+
 ## OCR
 
 ```
