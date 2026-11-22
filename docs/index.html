@@ -6,213 +6,371 @@
   <title>Paperless-AI – your documents, organised and answerable</title>
   <meta name="description" content="Paperless-AI fills in titles, tags, correspondents, dates and custom fields, reads bad scans with local OCR and answers questions about your whole archive – as an extension of Paperless-ngx or on its own.">
   <link rel="icon" href="favicon.ico">
+  <link rel="preload" href="fonts/geist.woff2" as="font" type="font/woff2" crossorigin>
   <style>
+    /* Geist and Geist Mono – the typefaces of the app (SIL Open Font License, fonts/OFL.txt). Served from here, no third party. */
+    @font-face { font-family: "Geist"; src: url("fonts/geist.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+    @font-face { font-family: "Geist Mono"; src: url("fonts/geist-mono.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+
+    /* The design tokens of the app (src/web/styles.css): ink palette, iris accent. */
     :root {
-      --canvas: #f7f7fa; --surface: #ffffff; --surface-2: #f1f1f6; --border: #e3e3ea;
-      --text: #15151c; --muted: #5b5b6a; --accent: #5b3ff3; --accent-strong: #4a2fdb; --accent-soft: #efecfe; --accent-2: #0ea5e9;
-      --shadow: 0 1px 2px rgb(16 16 30 / .04), 0 8px 24px -8px rgb(16 16 30 / .12);
+      --canvas: #f1f1f4; --sheet: #fbfbfc; --surface: #ffffff; --surface-2: #f7f7fa; --surface-3: #ececf1;
+      --border: #e6e6ec; --border-strong: #d2d2db;
+      --text: #0d0d14; --muted: #5b5b6a; --faint: #696977;
+      --accent: #5b3ff3; --accent-strong: #4a2fdb; --accent-soft: #efecfe; --accent-text: #4a2fdb;
+      --code-bg: #0e0e12; --code-text: #e4e4ec; --code-muted: #8d8d9d; --code-border: #25252f;
+      --shadow-lg: 0 28px 56px -16px rgb(16 16 30 / .22), 0 10px 20px -10px rgb(16 16 30 / .1);
+      --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       color-scheme: light;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --canvas: #08080b; --surface: #141419; --surface-2: #1a1a21; --border: #25252f;
-        --text: #ededf3; --muted: #a2a2b2; --accent: #8f7dff; --accent-strong: #a899ff; --accent-soft: #211c45; --accent-2: #38bdf8;
-        --shadow: 0 1px 2px rgb(0 0 0 / .35), 0 10px 28px -10px rgb(0 0 0 / .6);
+        --canvas: #08080b; --sheet: #0e0e12; --surface: #141419; --surface-2: #1a1a21; --surface-3: #23232b;
+        --border: #25252f; --border-strong: #33333f;
+        --text: #ededf3; --muted: #a2a2b2; --faint: #8d8d9d;
+        --accent: #8f7dff; --accent-strong: #a899ff; --accent-soft: #211c45; --accent-text: #b3a8ff;
+        --code-bg: #141419; --code-border: #33333f;
+        --shadow-lg: 0 32px 64px -16px rgb(0 0 0 / .75), 0 0 0 1px rgb(255 255 255 / .04);
         color-scheme: dark;
       }
     }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
-    body { font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: var(--canvas); color: var(--text); }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    code, pre { font: 13.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
-    nav { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--canvas) 85%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
-    nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; gap: 16px; }
-    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--text); font-size: 17px; white-space: nowrap; }
-    .brand img { width: 28px; height: 28px; border-radius: 7px; }
-    .links { display: flex; gap: 22px; font-size: 14.5px; white-space: nowrap; }
-    .links a { color: var(--muted); }
-    .links a:hover { color: var(--text); text-decoration: none; }
-    @media (max-width: 720px) { .links .hide-sm { display: none; } .links { gap: 16px; } }
-    header { padding: 72px 0 48px; text-align: center; }
-    .eyebrow { display: inline-block; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: 18px; }
-    h1 { font-size: clamp(34px, 6vw, 58px); line-height: 1.08; letter-spacing: -0.02em; margin-bottom: 18px; }
-    .grad { background: linear-gradient(90deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-    .lead { font-size: clamp(16px, 2.2vw, 19px); color: var(--muted); max-width: 720px; margin: 0 auto 28px; }
-    .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: 12px; font-weight: 600; font-size: 15px; border: 1px solid var(--border); background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
-    .btn:hover { text-decoration: none; border-color: var(--accent); }
-    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-    .btn.primary:hover { background: var(--accent-strong); }
-    .hero-shot { margin: 48px auto 0; max-width: 1040px; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); }
-    .hero-shot img { display: block; width: 100%; height: auto; }
-    section { padding: 64px 0; }
-    h2 { font-size: clamp(26px, 3.6vw, 36px); letter-spacing: -0.01em; text-align: center; margin-bottom: 10px; }
-    .sub { text-align: center; color: var(--muted); max-width: 680px; margin: 0 auto 36px; }
-    .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px; box-shadow: var(--shadow); }
-    .card h3 { font-size: 17px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
-    .card p, .card li { color: var(--muted); font-size: 15px; }
-    .card ul { padding-left: 18px; margin-top: 8px; }
-    .icon { width: 34px; height: 34px; flex: none; border-radius: 10px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
-    .icon svg { width: 18px; height: 18px; }
-    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
-    .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
-    figure { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
-    figure img { display: block; width: 100%; height: auto; }
-    figcaption { padding: 10px 14px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--border); }
-    .start { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; align-items: start; }
-    .code { position: relative; background: #0f0f15; color: #e6e6ef; border-radius: 14px; padding: 18px; overflow-x: auto; border: 1px solid #23232b; }
-    .code pre { white-space: pre; }
-    .copy { position: absolute; top: 10px; right: 10px; font: 600 12px/1 ui-sans-serif, system-ui, sans-serif; padding: 6px 10px; border-radius: 8px; border: 1px solid #33333f; background: #1a1a21; color: #e6e6ef; cursor: pointer; }
-    ol.steps { padding-left: 20px; color: var(--muted); }
-    ol.steps li { margin-bottom: 10px; }
-    ol.steps strong { color: var(--text); }
-    .note { margin-top: 16px; font-size: 14px; color: var(--muted); border-left: 3px solid var(--accent); padding: 6px 12px; background: var(--surface-2); border-radius: 0 8px 8px 0; }
-    .docs { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-    .docs a { display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; color: var(--text); }
-    .docs a:hover { border-color: var(--accent); text-decoration: none; }
-    .docs span { display: block; font-size: 13.5px; color: var(--muted); }
-    footer { border-top: 1px solid var(--border); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
-    footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-    footer nav { position: static; background: none; border: 0; backdrop-filter: none; display: flex; gap: 18px; flex-wrap: wrap; }
+    body { font: 16px/1.6 var(--sans); background: var(--canvas); color: var(--text); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+    a { color: var(--accent-text); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 35%, transparent); text-underline-offset: 3px; }
+    a:hover { text-decoration-color: currentColor; }
+    code, pre, .mono { font-family: var(--mono); }
+    code { font-size: .88em; background: var(--surface-3); padding: 1px 5px; border-radius: 5px; }
+    .wrap { max-width: 1160px; margin: 0 auto; padding: 0 16px; }
+    @media (min-width: 720px) { .wrap { padding: 0 32px; } }
+
+    /* ------------------------------------------------ top bar: like the app's sheet header */
+    .top { border-bottom: 1px solid var(--border); background: var(--sheet); }
+    .top .wrap { display: flex; align-items: center; gap: 24px; height: 56px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; color: var(--text); text-decoration: none; white-space: nowrap; }
+    .brand img { width: 26px; height: 26px; }
+    .brand .ver { font: 500 12px/1 var(--mono); color: var(--faint); }
+    .top nav { margin-left: auto; display: flex; gap: 4px; font-size: 14.5px; }
+    .top nav a { color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 8px; white-space: nowrap; }
+    .top nav a:hover { color: var(--text); background: var(--surface-3); }
+    @media (max-width: 640px) { .top nav .opt { display: none; } .top nav a { padding: 6px 8px; } }
+
+    /* ------------------------------------------------ hero: text left, the app bleeding off the right edge */
+    .hero { overflow: hidden; border-bottom: 1px solid var(--border); background: var(--sheet); }
+    .hero .wrap { display: grid; grid-template-columns: 1fr; gap: 40px; padding-top: 56px; padding-bottom: 0; }
+    @media (min-width: 980px) { .hero .wrap { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 56px; padding-top: 88px; } }
+    .hero h1 { font-size: clamp(38px, 5.4vw, 62px); line-height: 1.02; letter-spacing: -0.035em; font-weight: 680; }
+    .hero h1 .dot { color: var(--accent); }
+    .hero .lead { margin-top: 22px; font-size: clamp(16.5px, 1.6vw, 18.5px); color: var(--muted); max-width: 34em; }
+    .run { margin-top: 32px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; }
+    .cmd { display: inline-flex; align-items: stretch; border: 1px solid var(--code-border); border-radius: 10px; background: var(--code-bg); color: var(--code-text); overflow: hidden; max-width: 100%; }
+    .cmd code { background: none; padding: 12px 14px; font-size: 14.5px; border-radius: 0; white-space: nowrap; overflow-x: auto; }
+    .cmd code::before { content: "$ "; color: var(--code-muted); }
+    .cmd button { font: 600 12.5px/1 var(--sans); color: var(--code-text); background: rgb(255 255 255 / .06); border: 0; border-left: 1px solid var(--code-border); padding: 0 14px; cursor: pointer; }
+    .cmd button:hover { background: rgb(255 255 255 / .12); }
+    .run .more { font-weight: 600; white-space: nowrap; }
+    .facts { margin-top: 40px; display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 0; border-top: 1px solid var(--border); padding-bottom: 48px; }
+    .facts div { padding: 14px 22px 0 0; margin-right: 22px; border-right: 1px solid var(--border); }
+    .facts div:last-child { border-right: 0; margin-right: 0; }
+    .facts dt { font: 500 11.5px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+    .facts dd { font-size: 14.5px; font-weight: 550; margin-top: 4px; }
+    @media (max-width: 560px) { .facts { grid-template-columns: 1fr; } .facts div { border-right: 0; padding-right: 0; margin-right: 0; } }
+    .shot-hero { align-self: end; }
+    .shot-hero img { display: block; width: 100%; height: auto; border: 1px solid var(--border-strong); border-bottom: 0; border-radius: 12px 12px 0 0; box-shadow: var(--shadow-lg); }
+    @media (min-width: 980px) { .shot-hero img { width: 920px; max-width: none; } }
+
+    /* ------------------------------------------------ sections: numbered heads, title left, text right */
+    section { padding: 88px 0 0; }
+    .head { display: grid; grid-template-columns: 1fr; gap: 10px 48px; margin-bottom: 36px; }
+    @media (min-width: 860px) { .head { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: end; } }
+    .num { font: 500 13px/1 var(--mono); color: var(--accent-text); display: block; margin-bottom: 14px; }
+    .num::after { content: ""; display: inline-block; width: 28px; height: 1px; background: currentColor; vertical-align: middle; margin-left: 10px; opacity: .5; }
+    h2 { font-size: clamp(27px, 3.4vw, 38px); line-height: 1.1; letter-spacing: -0.025em; font-weight: 660; }
+    .head p { color: var(--muted); font-size: 16.5px; max-width: 36em; }
+
+    /* ------------------------------------------------ comparison table */
+    .compare { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; font-size: 15px; }
+    .compare th, .compare td { text-align: left; vertical-align: top; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+    .compare tr:last-child td, .compare tr:last-child th { border-bottom: 0; }
+    .compare thead th { font-size: 15px; font-weight: 650; background: var(--surface-2); }
+    .compare thead th.corner { font: 500 12px/1.4 var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: .08em; }
+    .compare thead th small { display: block; font: 500 12px/1.4 var(--mono); color: var(--faint); margin-top: 2px; }
+    .compare tbody th { font-weight: 550; width: 30%; color: var(--text); }
+    .compare td { color: var(--muted); width: 35%; }
+    .compare td + td { border-left: 1px solid var(--border); }
+    .yes { color: var(--accent-text); font-weight: 650; }
+    .compare-note { margin-top: 14px; color: var(--muted); font-size: 15px; }
+    @media (max-width: 720px) {
+      .compare thead { display: none; }
+      .compare, .compare tbody, .compare tr, .compare th, .compare td { display: block; width: 100%; }
+      .compare tr { border-bottom: 1px solid var(--border); padding: 12px 16px; }
+      .compare tr:last-child { border-bottom: 0; }
+      .compare th, .compare td, .compare tbody th { border: 0 !important; padding: 2px 0; width: auto; }
+      .compare tbody th { margin-bottom: 4px; }
+      .compare td::before { content: attr(data-label) ": "; font-weight: 600; color: var(--text); }
+    }
+
+    /* ------------------------------------------------ tour: alternating rows with screenshots */
+    .tour { display: grid; gap: 72px; }
+    .stop { display: grid; grid-template-columns: 1fr; gap: 28px; align-items: center; }
+    @media (min-width: 900px) {
+      .stop { grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 56px; }
+      .stop:nth-child(even) { grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); }
+      .stop:nth-child(even) .text { order: 2; }
+    }
+    .stop h3 { font-size: 22px; letter-spacing: -0.015em; font-weight: 650; margin-bottom: 10px; }
+    .stop .label { font: 500 12px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--faint); margin-bottom: 12px; display: block; }
+    .stop p { color: var(--muted); }
+    .stop ul { list-style: none; margin-top: 16px; border-top: 1px solid var(--border); }
+    .stop li { padding: 9px 0 9px 22px; border-bottom: 1px solid var(--border); position: relative; font-size: 15px; }
+    .stop li::before { content: ""; position: absolute; left: 2px; top: 17px; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
+    .frame { border: 1px solid var(--border-strong); border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow-lg); }
+    .frame .bar { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+    .frame .bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--surface-3); border: 1px solid var(--border-strong); }
+    .frame .bar span { margin-left: 8px; font: 500 11.5px/1 var(--mono); color: var(--faint); }
+    .frame img { display: block; width: 100%; height: auto; }
+
+    /* ------------------------------------------------ more: a ruled list, no cards */
+    .more-list { display: grid; grid-template-columns: 1fr; border-top: 1px solid var(--border-strong); }
+    @media (min-width: 640px) { .more-list { grid-template-columns: 1fr 1fr; column-gap: 40px; } }
+    @media (min-width: 980px) { .more-list { grid-template-columns: 1fr 1fr 1fr; } }
+    .more-list div { padding: 18px 0 20px; border-bottom: 1px solid var(--border); }
+    .more-list h3 { font-size: 16px; font-weight: 650; margin-bottom: 4px; }
+    .more-list p { color: var(--muted); font-size: 15px; }
+
+    /* ------------------------------------------------ get started: steps and a file window */
+    .start { display: grid; grid-template-columns: 1fr; gap: 40px; align-items: start; }
+    @media (min-width: 900px) { .start { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 56px; } }
+    ol.steps { list-style: none; counter-reset: step; border-top: 1px solid var(--border-strong); }
+    ol.steps li { counter-increment: step; display: grid; grid-template-columns: 44px 1fr; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--border); color: var(--muted); }
+    ol.steps li::before { content: counter(step, decimal-leading-zero); font: 500 14px/1.7 var(--mono); color: var(--accent-text); }
+    ol.steps strong { color: var(--text); font-weight: 600; }
+    ol.steps code { white-space: nowrap; }
+    .caution { margin-top: 20px; font-size: 14.5px; color: var(--muted); }
+    .caution strong { color: var(--text); }
+    .file { border: 1px solid var(--code-border); border-radius: 12px; overflow: hidden; background: var(--code-bg); color: var(--code-text); }
+    .file .tab { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--code-border); font: 500 12.5px/1 var(--mono); color: var(--code-muted); }
+    .file .tab button { font: 600 12.5px/1 var(--sans); color: var(--code-text); background: rgb(255 255 255 / .07); border: 1px solid var(--code-border); border-radius: 7px; padding: 6px 10px; cursor: pointer; }
+    .file .tab button:hover { background: rgb(255 255 255 / .13); }
+    .file pre { padding: 16px 18px; overflow-x: auto; font-size: 13.5px; line-height: 1.6; }
+    .file .k { color: #b3a8ff; } .file .c { color: var(--code-muted); }
+
+    /* ------------------------------------------------ docs index */
+    .index { list-style: none; display: grid; grid-template-columns: 1fr; column-gap: 40px; border-top: 1px solid var(--border-strong); }
+    @media (min-width: 760px) { .index { grid-template-columns: 1fr 1fr; } }
+    .index a { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 14px 0; border-bottom: 1px solid var(--border); color: var(--text); text-decoration: none; }
+    .index a b { font-weight: 600; }
+    .index a span { grid-column: 1; color: var(--muted); font-size: 14.5px; }
+    .index a::after { content: "→"; grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--faint); transition: transform .15s; }
+    .index a:hover b { color: var(--accent-text); }
+    .index a:hover::after { color: var(--accent-text); transform: translateX(3px); }
+
+    footer { margin-top: 96px; border-top: 1px solid var(--border); background: var(--sheet); }
+    footer .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding-top: 28px; padding-bottom: 40px; color: var(--muted); font-size: 14px; }
+    footer nav { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+    footer nav a { color: var(--muted); text-decoration: none; }
+    footer nav a:hover { color: var(--text); }
+
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .index a::after { transition: none; } }
   </style>
 </head>
 <body>
-  <nav>
+  <div class="top">
     <div class="wrap">
-      <a class="brand" href="#"><img src="logo.png" alt="">Paperless-AI</a>
-      <div class="links">
-        <a class="hide-sm" href="#features">Features</a>
-        <a class="hide-sm" href="#screenshots">Screenshots</a>
-        <a href="#start">Get started</a>
+      <a class="brand" href="#"><img src="logo.png" alt="" width="26" height="26">Paperless-AI <span class="ver">v4.5</span></a>
+      <nav aria-label="Page">
+        <a class="opt" href="#modes">Modes</a>
+        <a class="opt" href="#tour">Tour</a>
+        <a href="#start">Install</a>
         <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/README.md">Docs</a>
         <a href="https://github.com/clusterzx/paperless-ai">GitHub</a>
-      </div>
+      </nav>
     </div>
-  </nav>
+  </div>
 
-  <header>
+  <header class="hero">
     <div class="wrap">
-      <span class="eyebrow">Open source · runs on your own server</span>
-      <h1>Your documents,<br><span class="grad">organised and answerable.</span></h1>
-      <p class="lead">Paperless-AI fills in titles, tags, correspondents, dates and custom fields, reads bad scans with local OCR and answers questions about your whole archive – as an extension of Paperless-ngx or on its own with the built-in archive.</p>
-      <div class="cta">
-        <a class="btn primary" href="#start">Get started</a>
-        <a class="btn" href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/README.md">Documentation</a>
+      <div>
+        <h1>Your documents, organised and answerable<span class="dot">.</span></h1>
+        <p class="lead">Paperless-AI fills in titles, tags, correspondents, dates and custom fields, reads bad scans with local OCR and answers questions about your whole archive – as an extension of Paperless-ngx or on its own with the built-in archive.</p>
+        <div class="run">
+          <span class="cmd"><code id="up">docker compose up -d</code><button type="button" data-copy="up" aria-label="Copy the command">Copy</button></span>
+          <a class="more" href="#start">Full setup →</a>
+        </div>
+        <dl class="facts">
+          <div><dt>Runs with</dt><dd>Paperless-ngx 2.x / 3.x – or alone</dd></div>
+          <div><dt>AI</dt><dd>OpenAI, Claude, Ollama, Azure …</dd></div>
+          <div><dt>License</dt><dd>MIT, self-hosted</dd></div>
+        </dl>
       </div>
-      <div class="hero-shot"><img src="screenshots/dashboard.png" alt="The dashboard of Paperless-AI" width="1440" height="900"></div>
+      <div class="shot-hero"><img src="screenshots/dashboard.png" alt="The dashboard of Paperless-AI" width="1440" height="900"></div>
     </div>
   </header>
 
-  <section>
-    <div class="wrap">
-      <h2>Two ways to run it</h2>
-      <p class="sub">The setup asks once. An installation with Paperless-ngx can move to the built-in archive later – with the same document ids.</p>
-      <div class="modes">
-        <div class="card">
-          <h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span>With Paperless-ngx</h3>
-          <p>Paperless-ngx (2.x and 3.x) stays your archive. Paperless-AI analyses new documents on a schedule or instantly through a Paperless-ngx workflow and writes the results back.</p>
+  <main>
+    <section id="modes">
+      <div class="wrap">
+        <div class="head">
+          <div><span class="num">01</span><h2>Two ways to run it</h2></div>
+          <p>The setup asks once. Start next to Paperless-ngx and move to the built-in archive later – the migration keeps the document ids, so history, OCR and answers stay valid.</p>
         </div>
-        <div class="card">
-          <h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M10 13h4"/></svg></span>Built-in archive</h3>
-          <p>No Paperless-ngx, Redis or Postgres needed: upload, watch folders, e-mail, WebDAV and sharing from the phone; full-text search for 200,000+ documents, versions, a trash and libraries with roles for families and teams. The mobile apps made for Paperless-ngx connect to it as well.</p>
+        <table class="compare">
+          <thead>
+            <tr><th scope="col" class="corner">What you get</th><th scope="col">With Paperless-ngx<small>companion mode</small></th><th scope="col">Built-in archive<small>standalone mode</small></th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Where the documents live</th><td data-label="With Paperless-ngx">In Paperless-ngx (2.x and 3.x)</td><td data-label="Built-in archive">In Paperless-AI – one container, no Redis or Postgres</td></tr>
+            <tr><th scope="row">AI analysis, OCR, Ask your archive, workflows</th><td data-label="With Paperless-ngx"><span class="yes">Yes</span> – results are written back</td><td data-label="Built-in archive"><span class="yes">Yes</span></td></tr>
+            <tr><th scope="row">Getting documents in</th><td data-label="With Paperless-ngx">Through Paperless-ngx</td><td data-label="Built-in archive">Upload, REST, watch folders, e-mail, WebDAV, phone</td></tr>
+            <tr><th scope="row">Versions, trash, undo</th><td data-label="With Paperless-ngx">Undo for changes made by Paperless-AI</td><td data-label="Built-in archive"><span class="yes">Yes</span> – every change can be undone</td></tr>
+            <tr><th scope="row">Libraries with roles</th><td data-label="With Paperless-ngx">Paperless-ngx permissions apply</td><td data-label="Built-in archive"><span class="yes">Yes</span> – for families and teams</td></tr>
+            <tr><th scope="row">Mobile apps made for Paperless-ngx</th><td data-label="With Paperless-ngx">Connect to Paperless-ngx</td><td data-label="Built-in archive"><span class="yes">Yes</span> – Swift Paperless, Paperless Mobile, Paperparrot …</td></tr>
+            <tr><th scope="row">Search</th><td data-label="With Paperless-ngx">Search syntax on top of Paperless-ngx</td><td data-label="Built-in archive">Full-text search for 200,000+ documents</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tour">
+      <div class="wrap">
+        <div class="head">
+          <div><span class="num">02</span><h2>A short tour</h2></div>
+          <p>With OpenAI, Anthropic (Claude), Azure OpenAI, any OpenAI-compatible API – or fully local with Ollama. Light and dark theme, a command menu (⌘K / Ctrl+K), and it works on the phone.</p>
+        </div>
+        <div class="tour">
+          <div class="stop">
+            <div class="text">
+              <span class="label">Ask your archive</span>
+              <h3>Questions in plain language, answers with sources</h3>
+              <p>“When did I sign my rental agreement?” – Paperless-AI finds the passages and answers with citations you can open.</p>
+              <ul>
+                <li>Hybrid keyword and vector search, local embeddings included</li>
+                <li>A chat on every document</li>
+                <li>AI agents (Claude, Hermes …) connect over MCP</li>
+              </ul>
+            </div>
+            <figure class="frame"><div class="bar"><i></i><i></i><i></i><span>/ask</span></div><img src="screenshots/ask.png" alt="Ask your archive: an answer with sources" loading="lazy" width="1440" height="900"></figure>
+          </div>
+          <div class="stop">
+            <div class="text">
+              <span class="label">Automatic processing</span>
+              <h3>Every new document, filled in</h3>
+              <p>Title, tags, correspondent, document type, date and custom fields – on a schedule or instantly through a Paperless-ngx workflow.</p>
+              <ul>
+                <li>Prompt rules: another prompt per kind of document</li>
+                <li>Only existing tags, correspondents and types, if you like</li>
+                <li>Review suggestions before they are applied</li>
+              </ul>
+            </div>
+            <figure class="frame"><div class="bar"><i></i><i></i><i></i><span>/review</span></div><img src="screenshots/review.png" alt="Manual review of the AI suggestions" loading="lazy" width="1440" height="900"></figure>
+          </div>
+          <div class="stop">
+            <div class="text">
+              <span class="label">Documents and search</span>
+              <h3>Find it, fix it, in bulk</h3>
+              <p>Filters, saved views and bulk edits – and a search syntax like <code>tag:steuer from:adac created:2024</code> that completes names as you type.</p>
+              <ul>
+                <li>Duplicate tags and correspondents found and merged in one click</li>
+                <li>Workflows: when a document matches, set fields, send e-mails or webhooks</li>
+              </ul>
+            </div>
+            <figure class="frame"><div class="bar"><i></i><i></i><i></i><span>/documents</span></div><img src="screenshots/documents.png" alt="The document list with filters and search syntax" loading="lazy" width="1440" height="900"></figure>
+          </div>
+          <div class="stop">
+            <div class="text">
+              <span class="label">History</span>
+              <h3>Nothing is lost</h3>
+              <p>Every change – by you, the AI or a workflow – is recorded with its old values and can be undone, one document or a whole run at a time.</p>
+            </div>
+            <figure class="frame"><div class="bar"><i></i><i></i><i></i><span>/history</span></div><img src="screenshots/history.png" alt="The history with undo" loading="lazy" width="1440" height="900"></figure>
+          </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section id="features">
-    <div class="wrap">
-      <h2>What it does</h2>
-      <p class="sub">With OpenAI, Anthropic (Claude), Azure OpenAI, any OpenAI-compatible API – or fully local with Ollama.</p>
-      <div class="features">
-        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8L20 10l-5 3.6L16.5 20 12 16.5 7.5 20 9 13.6 4 10l6.1-1.2z"/></svg></span>Automatic processing</h3><p>Title, tags, correspondent, document type, date and custom fields for every new document. Prompt rules give each kind of document its own prompt.</p></div>
-        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></span>Ask your archive</h3><p>Questions in plain language over all documents – hybrid keyword and vector search, answers that cite their sources. AI agents (Claude, Hermes …) connect over MCP.</p></div>
-        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2"/><path d="M8 9h8M8 12h8M8 15h5"/></svg></span>Local OCR</h3><p>Scans and photos are read with PaddleOCR on your CPU or NVIDIA GPU – the text is only replaced when it reads better.</p></div>
-        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/></svg></span>Getting documents in</h3><p>Built-in archive: upload, a REST API, watch folders for scanners, IMAP mailboxes with rules, a WebDAV inbox and the share menu of your phone.</p></div>
-        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>Search and clean metadata</h3><p>Search syntax like <code>tag:steuer from:adac created:2024</code>; duplicate tags and correspondents found and merged in one click.</p></div>
-        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4a2 2 0 0 1 2 2V14"/></svg></span>Workflows</h3><p>When a document arrives or is analysed and it matches, set tags and fields, extract values with the AI, send e-mails or webhooks – with test runs and undo.</p></div>
-        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>Calendar</h3><p>Appointments, payment due dates and deadlines from your documents, as a private iCal subscription.</p></div>
-        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.4 8.4 8 9 4.6-.6 8-4 8-9V6z"/></svg></span>Sign-in and history</h3><p>Two-factor authentication, single sign-on with OpenID Connect, API keys with fine-grained permissions and rate limits – and a history in which every change can be undone.</p></div>
+    <section id="more">
+      <div class="wrap">
+        <div class="head">
+          <div><span class="num">03</span><h2>Also in the box</h2></div>
+          <p>Everything below is part of the one container – no add-ons to install.</p>
+        </div>
+        <div class="more-list">
+          <div><h3>Local OCR</h3><p>Scans and photos are read with PaddleOCR on your CPU or NVIDIA GPU – the text is only replaced when it reads better.</p></div>
+          <div><h3>Getting documents in</h3><p>Built-in archive: upload, a REST API, watch folders for scanners, IMAP mailboxes with rules, a WebDAV inbox and the share menu of your phone.</p></div>
+          <div><h3>Mobile apps</h3><p>The apps made for Paperless-ngx work with the built-in archive: browse, search, edit, upload from the phone.</p></div>
+          <div><h3>AI agents (MCP)</h3><p>An MCP server for Claude, Hermes, OpenCode and others – what an agent may do is set per API key.</p></div>
+          <div><h3>Calendar</h3><p>Appointments, payment due dates and deadlines from your documents, as a private iCal subscription.</p></div>
+          <div><h3>Sign-in and API keys</h3><p>Two-factor authentication, single sign-on with OpenID Connect, API keys with fine-grained permissions and rate limits.</p></div>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section id="screenshots">
-    <div class="wrap">
-      <h2>See it</h2>
-      <p class="sub">Light and dark theme, a command menu (⌘K / Ctrl+K), and it works on the phone.</p>
-      <div class="shots">
-        <figure><img src="screenshots/documents.png" alt="Documents" loading="lazy" width="1440" height="900"><figcaption>Documents – filters, search syntax, bulk edits</figcaption></figure>
-        <figure><img src="screenshots/ask.png" alt="Ask your archive" loading="lazy" width="1440" height="900"><figcaption>Ask your archive – answers with sources</figcaption></figure>
-        <figure><img src="screenshots/review.png" alt="Manual review" loading="lazy" width="1440" height="900"><figcaption>Manual review of the AI suggestions</figcaption></figure>
-        <figure><img src="screenshots/history.png" alt="History" loading="lazy" width="1440" height="900"><figcaption>History with undo</figcaption></figure>
-
-      </div>
-    </div>
-  </section>
-
-  <section id="start">
-    <div class="wrap">
-      <h2>Get started</h2>
-      <p class="sub">One container, one data volume. No restart after the setup.</p>
-      <div class="start">
-        <div class="code">
-          <button class="copy" type="button" data-copy="compose">Copy</button>
-<pre id="compose"># docker-compose.yml
-services:
-  paperless-ai:
-    image: clusterzx/paperless-ai:latest
-    container_name: paperless-ai
-    restart: unless-stopped
-    ports:
+    <section id="start">
+      <div class="wrap">
+        <div class="head">
+          <div><span class="num">04</span><h2>Install</h2></div>
+          <p>One container, one data volume. No restart after the setup.</p>
+        </div>
+        <div class="start">
+          <div>
+            <ol class="steps">
+              <li><span><strong>Save</strong> the file as <code>docker-compose.yml</code> and run <code>docker compose up -d</code>.</span></li>
+              <li><span><strong>Open</strong> <code>http://&lt;your-server&gt;:3000</code>.</span></li>
+              <li><span><strong>The setup wizard</strong> asks for your account, the archive (Paperless-ngx or built-in), the AI provider and the processing options.</span></li>
+              <li><span><strong>NVIDIA GPU for OCR?</strong> Use the image <code>latest-cuda</code> – see the <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/installation.md">installation guide</a>.</span></li>
+            </ol>
+            <p class="caution"><strong>Before others can reach it:</strong> complete the setup first, and keep Paperless-AI in your local network or behind a VPN or an authenticating reverse proxy. Coming from 3.x? See <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/upgrading.md">Upgrading</a>.</p>
+          </div>
+          <div class="file">
+            <div class="tab"><span>docker-compose.yml</span><button type="button" data-copy="compose">Copy</button></div>
+<pre id="compose"><span class="k">services:</span>
+  <span class="k">paperless-ai:</span>
+    <span class="k">image:</span> clusterzx/paperless-ai:latest
+    <span class="k">container_name:</span> paperless-ai
+    <span class="k">restart:</span> unless-stopped
+    <span class="k">ports:</span>
       - "3000:3000"
-    volumes:
+    <span class="k">volumes:</span>
       - paperless-ai_data:/app/data
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    <span class="k">extra_hosts:</span>
+      - "host.docker.internal:host-gateway" <span class="c"># Ollama on the host</span>
 
-volumes:
-  paperless-ai_data:</pre>
-        </div>
-        <div>
-          <ol class="steps">
-            <li><strong>Start it:</strong> <code>docker compose up -d</code></li>
-            <li><strong>Open</strong> <code>http://&lt;your-server&gt;:3000</code></li>
-            <li><strong>The setup wizard</strong> asks for your account, the archive (Paperless-ngx or built-in), the AI provider and the processing options.</li>
-            <li><strong>NVIDIA GPU for OCR?</strong> Use the image <code>latest-cuda</code> – see the <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/installation.md">installation guide</a>.</li>
-          </ol>
-          <p class="note">Complete the setup before the instance is reachable from other networks, and keep Paperless-AI in your local network or behind a VPN or an authenticating reverse proxy. Coming from 3.x? See <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/upgrading.md">Upgrading</a>.</p>
+<span class="k">volumes:</span>
+  <span class="k">paperless-ai_data:</span></pre>
+          </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section id="docs">
-    <div class="wrap">
-      <h2>Documentation</h2>
-      <p class="sub">Step-by-step guides in the repository.</p>
-      <div class="docs">
-        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/installation.md">Installation<span>Docker, images, Paperless-ngx user, reverse proxy</span></a>
-        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/configuration.md">Configuration<span>All environment variables</span></a>
-        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/built-in-archive.md">Built-in archive<span>Libraries, versions, moving from Paperless-ngx</span></a>
-        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/intake.md">Getting documents in<span>Upload, WebDAV, watch folders, e-mail, phone</span></a>
-        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/search-and-metadata.md">Search and metadata<span>Search syntax, duplicates</span></a>
-        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/ask-your-archive.md">Ask your archive<span>Embeddings, local models</span></a>
-        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/mcp.md">AI agents (MCP)<span>Claude, Hermes, OpenCode; key permissions</span></a>
-        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/ocr.md">OCR<span>Modes, GPU, speed</span></a>
-        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/README.md">All guides<span>Prompt rules, calendar, single sign-on, API …</span></a>
+    <section id="docs">
+      <div class="wrap">
+        <div class="head">
+          <div><span class="num">05</span><h2>Documentation</h2></div>
+          <p>Step-by-step guides in the repository.</p>
+        </div>
+        <ul class="index">
+          <li><a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/installation.md"><b>Installation</b><span>Docker, images, Paperless-ngx user, reverse proxy</span></a></li>
+          <li><a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/configuration.md"><b>Configuration</b><span>All environment variables</span></a></li>
+          <li><a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/built-in-archive.md"><b>Built-in archive</b><span>Libraries, versions, moving from Paperless-ngx</span></a></li>
+          <li><a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/intake.md"><b>Getting documents in</b><span>Upload, WebDAV, watch folders, e-mail, phone</span></a></li>
+          <li><a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/mobile-apps.md"><b>Mobile apps</b><span>Swift Paperless, Paperless Mobile, Paperparrot …</span></a></li>
+          <li><a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/mcp.md"><b>AI agents (MCP)</b><span>Claude, Hermes, OpenCode; key permissions</span></a></li>
+          <li><a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/search-and-metadata.md"><b>Search and metadata</b><span>Search syntax, duplicates</span></a></li>
+          <li><a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/ask-your-archive.md"><b>Ask your archive</b><span>Embeddings, local models</span></a></li>
+          <li><a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/ocr.md"><b>OCR</b><span>Modes, GPU, speed</span></a></li>
+          <li><a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/README.md"><b>All guides</b><span>Prompt rules, calendar, single sign-on, API …</span></a></li>
+        </ul>
       </div>
-    </div>
-  </section>
+    </section>
+  </main>
 
   <footer>
     <div class="wrap">
       <span>Paperless-AI · MIT license · a hobby project, provided as is</span>
-      <nav>
+      <nav aria-label="Project">
         <a href="https://github.com/clusterzx/paperless-ai">GitHub</a>
         <a href="https://github.com/clusterzx/paperless-ai/releases">Releases</a>
         <a href="https://github.com/clusterzx/paperless-ai/issues">Issues</a>
