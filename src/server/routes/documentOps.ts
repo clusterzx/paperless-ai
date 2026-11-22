@@ -11,7 +11,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { ActivityItem, BulkEditInput, BulkEditResult, UploadResult } from '../../shared/api.js';
 import type { AppContext } from '../context.js';
 import type { ProcessingEngine } from '../processing/engine.js';
-import { canEdit, canRead, userIdOf, type AccessScope } from '../access/scope.js';
+import { canEdit, canRead, hasScope, userIdOf, type AccessScope } from '../access/scope.js';
 import { actorName } from '../access/context.js';
 import { notSupported, type ArchiveDocument, type ChangeOrigin, type DocumentPatch, type IngestChannel, type IngestHints } from '../backend/types.js';
 import { convertCustomFieldValue } from '../processing/applier.js';
@@ -81,6 +81,7 @@ export async function bulkEdit(ctx: AppContext, engine: ProcessingEngine, scope:
   const origin: ChangeOrigin = { actor: 'user', actorId: userIdOf(scope), ref };
   const result: BulkEditResult = { ok: 0, failed: [], ref };
   if (input.action === 'edit' && !input.edit) throw badRequest('Nothing to change');
+  if (input.action === 'delete' && !hasScope(scope, 'delete')) throw new HttpProblem(403, 'The API key does not have the "delete" scope');
   if (input.action === 'restore' && !backend.backend.restoreDocument) throw notSupported('Restoring documents');
   for (const id of ids) {
     try {

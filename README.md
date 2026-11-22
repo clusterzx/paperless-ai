@@ -19,6 +19,7 @@ AI providers: OpenAI, Anthropic (Claude), **Ollama (fully local)**, Azure OpenAI
 - **[Ask your archive](docs/guide/ask-your-archive.md)** – questions in plain language, hybrid keyword and vector search, answers with sources
 - **[OCR](docs/guide/ocr.md)** – reads scans and photos locally with PaddleOCR (CPU or NVIDIA GPU) before the analysis
 - **[Built-in archive](docs/guide/built-in-archive.md)** – run without Paperless-ngx: [upload, watch folders, e-mail, WebDAV, phone](docs/guide/intake.md), versions, trash, libraries with roles; move over from Paperless-ngx with the same document ids; the [mobile apps made for Paperless-ngx](docs/guide/mobile-apps.md) work with it
+- **[AI agents (MCP)](docs/guide/mcp.md)** – an MCP server for Claude, Hermes, OpenCode and other agents: search, read, ask, change and add documents, with fine-grained permissions, libraries and rate limits per API key
 - **[Search and metadata](docs/guide/search-and-metadata.md)** – search syntax (`tag:steuer from:adac created:2024`), find and merge duplicate tags and correspondents
 - **Workflows** – when something happens and the document matches, do something (tags, fields, e-mail, webhooks …), with test runs and undo
 - **[Calendar](docs/guide/calendar.md)** – appointments and deadlines from your documents as an iCal subscription

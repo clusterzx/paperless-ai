@@ -122,8 +122,15 @@ feed, and neither responses nor AI prompts may contain a marker of the other lib
 
 * Per user, several keys, each with a name, **scopes** and optionally a library list (table
   `api_keys`, see [data-model.md](data-model.md#31-users-groups-api-keys-both-modes-m1)).
-* Scopes: `read` (list, search, download), `write` (metadata, versions), `upload`, `chat`
-  (Ask / document chat), `webhook` (enqueue processing), `admin` (settings; only for admin users).
+* Scopes: `read` (list, search, download), `write` (change documents, restore from the trash),
+  `delete` (trash, delete for good, delete versions), `metadata` (create, rename, merge, delete
+  tags, correspondents, types, custom fields), `upload`, `chat` (Ask / document chat), `mcp` (the MCP
+  server at `/mcp`; its tools need the other scopes), `webhook` (enqueue processing), `admin`
+  (settings; only for admin users). The table in `http/policy.ts` maps routes to scopes; bulk edits
+  and the trash of the Paperless-ngx compatible API check `delete` for their delete actions. Keys
+  with `write` from before migration 18 received `delete` and `metadata` (they were part of it).
+* Rate limit per key (`rate_limit`, requests per minute, token bucket in memory): `429` with
+  `Retry-After` for the whole API.
 * An admin's key acts as an administrator only with the `admin` scope: without it, it cannot manage
   libraries it does not own, watch folders (paths on the server) or mail accounts.
 * A key limited to libraries (Settings → API keys → Libraries) only sees those, and uploads without

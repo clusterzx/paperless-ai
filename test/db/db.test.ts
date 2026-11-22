@@ -93,7 +93,7 @@ describe('migrations', () => {
   it('creates the schema and records applied migrations', () => {
     const db = memoryDb();
     const versions = (db.prepare('SELECT version FROM schema_migrations ORDER BY version').all() as { version: number }[]).map((r) => r.version);
-    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
     const tables = (db.prepare(`SELECT name FROM sqlite_master WHERE type IN ('table')`).all() as { name: string }[]).map((t) => t.name);
     for (const t of ['users', 'documents', 'history', 'usage', 'kv', 'rag_documents', 'rag_chunks', 'rag_fts', 'ocr_documents', 'ocr_results', 'prompts', 'prompt_ratings', 'recovery_codes', 'calendar_events', 'calendar_scans']) expect(tables).toContain(t);
   });
@@ -102,7 +102,22 @@ describe('migrations', () => {
     const db = memoryDb();
     migrate(db);
     migrate(db);
-    expect((db.prepare('SELECT COUNT(*) AS c FROM schema_migrations').get() as { c: number }).c).toBe(17);
+    expect((db.prepare('SELECT COUNT(*) AS c FROM schema_migrations').get() as { c: number }).c).toBe(18);
+  });
+
+  it('gives API keys that could write the delete and metadata permissions split off from it', () => {
+    const db = memoryDb();
+    // The state before migration 18: keys with the old scopes, no rate limit.
+    db.exec("DELETE FROM schema_migrations WHERE version = 18; ALTER TABLE api_keys DROP COLUMN rate_limit;");
+    db.prepare("INSERT INTO users (username, password_hash, created_at, updated_at) VALUES ('u', 'x', 0, 0)").run();
+    const add = db.prepare("INSERT INTO api_keys (user_id, name, prefix, hash, scopes, created_at) VALUES (1, ?, ?, 'h', ?, 0)");
+    add.run('writer', 'aaaaaaaa', '["read","write"]');
+    add.run('reader', 'bbbbbbbb', '["read","upload"]');
+    migrate(db);
+    const scopes = (name: string) => JSON.parse((db.prepare('SELECT scopes FROM api_keys WHERE name = ?').get(name) as { scopes: string }).scopes) as string[];
+    expect(scopes('writer').sort()).toEqual(['delete', 'metadata', 'read', 'write']);
+    expect(scopes('reader').sort()).toEqual(['read', 'upload']);
+    expect((db.prepare("SELECT rate_limit FROM api_keys WHERE name = 'writer'").get() as { rate_limit: number | null }).rate_limit).toBeNull();
   });
 
   it('persists to a file and reopens without re-running migrations', () => {

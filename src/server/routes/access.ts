@@ -30,6 +30,7 @@ function keyInfo(k: ApiKeyRow, user?: { id: number; username: string }): ApiKeyI
     createdAt: k.created_at,
     lastUsedAt: k.last_used_at,
     expiresAt: k.expires_at,
+    rateLimit: k.rate_limit ?? null,
     revoked: Boolean(k.revoked_at),
     ...(user ? { user } : {}),
   };
@@ -243,6 +244,8 @@ export const accessRoutes =
             scopes: z.array(z.enum(API_SCOPES)).min(1),
             libraryIds: z.array(z.number().int().positive()).max(1000).nullable().optional(),
             expiresInDays: z.number().int().min(1).max(3650).nullable().optional(),
+            /** Requests per minute (null: no limit). */
+            rateLimit: z.number().int().min(1).max(100_000).nullable().optional(),
           }),
         },
       },
@@ -261,8 +264,9 @@ export const accessRoutes =
           scopes: req.body.scopes,
           libraryIds,
           expiresAt: req.body.expiresInDays ? Date.now() + req.body.expiresInDays * 86_400_000 : null,
+          rateLimit: req.body.rateLimit ?? null,
         });
-        audit(ctx, req.access, 'apikey.created', `apikey:${keyId}`, { name: req.body.name, scopes: req.body.scopes });
+        audit(ctx, req.access, 'apikey.created', `apikey:${keyId}`, { name: req.body.name, scopes: req.body.scopes, rateLimit: req.body.rateLimit ?? null });
         return { key, info: keyInfo(ctx.repos.apiKeys.get(keyId)!) };
       },
     );

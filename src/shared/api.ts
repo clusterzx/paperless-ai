@@ -505,7 +505,7 @@ export interface TwoFactorStatus {
 /** Answer of /api/account. */
 export type InstanceRole = 'admin' | 'member';
 export type LibraryRole = 'owner' | 'editor' | 'viewer';
-export const API_SCOPES = ['read', 'write', 'upload', 'chat', 'webhook', 'admin'] as const;
+export const API_SCOPES = ['read', 'write', 'delete', 'metadata', 'upload', 'chat', 'mcp', 'webhook', 'admin'] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
 
 export interface UserInfo {
@@ -540,6 +540,8 @@ export interface ApiKeyInfo {
   createdAt: number;
   lastUsedAt: number | null;
   expiresAt: number | null;
+  /** Requests per minute; null = no limit. */
+  rateLimit: number | null;
   revoked: boolean;
   /** Admin listing: the owner of the key. */
   user?: { id: number; username: string };

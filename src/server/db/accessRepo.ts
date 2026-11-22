@@ -120,6 +120,8 @@ export interface ApiKeyRow {
   last_used_at: number | null;
   expires_at: number | null;
   revoked_at: number | null;
+  /** Requests per minute the key may make; null = no limit. */
+  rate_limit: number | null;
 }
 
 type RawApiKey = Omit<ApiKeyRow, 'scopes' | 'library_ids'> & { scopes: string; library_ids: string | null; hash: string };
@@ -144,14 +146,14 @@ export class ApiKeysRepo {
    * Create a key; the full key is returned only here. Keys are 256-bit random values, so a fast hash
    * is enough to store them (a slow password hash would add nothing).
    */
-  create(userId: number, input: { name: string; scopes: ApiScope[]; libraryIds?: number[] | null; expiresAt?: number | null }): { id: number; key: string } {
+  create(userId: number, input: { name: string; scopes: ApiScope[]; libraryIds?: number[] | null; expiresAt?: number | null; rateLimit?: number | null }): { id: number; key: string } {
     for (;;) {
       const prefix = randomBytes(6).toString('base64url').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
       if (prefix.length < 8 || this.db.prepare('SELECT 1 FROM api_keys WHERE prefix = ?').get(prefix)) continue;
       const key = `pai_${prefix}_${randomBytes(32).toString('base64url')}`;
       const id = Number(
         this.db
-          .prepare('INSERT INTO api_keys (user_id, name, prefix, hash, scopes, library_ids, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .prepare('INSERT INTO api_keys (user_id, name, prefix, hash, scopes, library_ids, created_at, expires_at, rate_limit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
           .run(
             userId,
             input.name,
@@ -161,6 +163,7 @@ export class ApiKeysRepo {
             input.libraryIds?.length ? JSON.stringify([...new Set(input.libraryIds)]) : null,
             Date.now(),
             input.expiresAt ?? null,
+            input.rateLimit ?? null,
           ).lastInsertRowid,
       );
       return { id, key };

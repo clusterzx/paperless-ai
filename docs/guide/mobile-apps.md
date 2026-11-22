@@ -15,7 +15,7 @@ https://paperless-ai.example.com/ngx
 and sign in with your Paperless-AI user name and password.
 
 - **Two-factor authentication:** the app asks for the code, as with Paperless-ngx.
-- **Single sign-on only, or the password login switched off:** create an API key in *Settings → API keys* (permissions *Read documents*, *Change documents*, *Upload documents*) and enter it as the token, if the app offers token login.
+- **Single sign-on only, or the password login switched off:** create an API key in *Settings → API keys* (start from *Mobile app*: read, change and delete documents, manage labels, upload) and enter it as the token, if the app offers token login.
 - Each sign-in creates a personal API key named “Paperless-ngx app (…)”. It shows in *Settings → API keys*; revoke it there to sign a phone out.
 
 Use HTTPS (the apps send the password and the token), and a reverse proxy that passes `X-Forwarded-Proto` / `X-Forwarded-Host` (with `TRUST_PROXY` set, see [Installation](installation.md#behind-a-reverse-proxy)) – the apps follow the page links the API sends.

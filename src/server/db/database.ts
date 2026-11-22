@@ -458,6 +458,27 @@ const MIGRATIONS: Migration[] = [
         DELETE FROM intake_mail_accounts WHERE library_id IN (SELECT id FROM libraries WHERE deleted_at IS NOT NULL);
       `),
   },
+  {
+    version: 18,
+    name: 'API keys: delete, metadata and MCP scopes, rate limit',
+    up: (db) => {
+      // Requests per minute a key may make (NULL: no limit).
+      db.exec('ALTER TABLE api_keys ADD COLUMN rate_limit INTEGER');
+      // Deleting and managing labels were part of `write`: keys that could write keep them.
+      const rows = db.prepare('SELECT id, scopes FROM api_keys').all() as { id: number; scopes: string }[];
+      const update = db.prepare('UPDATE api_keys SET scopes = ? WHERE id = ?');
+      for (const r of rows) {
+        let scopes: string[];
+        try {
+          scopes = JSON.parse(r.scopes) as string[];
+        } catch {
+          continue;
+        }
+        if (!Array.isArray(scopes) || !scopes.includes('write')) continue;
+        update.run(JSON.stringify([...new Set([...scopes, 'delete', 'metadata'])]), r.id);
+      }
+    },
+  },
 ];
 
 export function openDatabase(file: string): Db {

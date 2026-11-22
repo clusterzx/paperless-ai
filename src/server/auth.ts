@@ -160,10 +160,10 @@ export async function authenticate(ctx: AppContext, req: FastifyRequest): Promis
 }
 
 /** Authenticate and build the access scope of a request. */
-export async function resolveAccess(ctx: AppContext, req: FastifyRequest): Promise<{ principal: Principal | null; access: AccessScope | null }> {
+export async function resolveAccess(ctx: AppContext, req: FastifyRequest): Promise<{ principal: Principal | null; access: AccessScope | null; key: ApiKeyRow | null }> {
   const a = await authenticate(ctx, req);
-  if (!a) return { principal: null, access: null };
-  return { principal: a.principal, access: scopeFor(ctx, a.principal, a.key) };
+  if (!a) return { principal: null, access: null, key: null };
+  return { principal: a.principal, access: scopeFor(ctx, a.principal, a.key), key: a.key };
 }
 
 export function isSecureRequest(req: FastifyRequest): boolean {

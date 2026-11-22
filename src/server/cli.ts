@@ -46,6 +46,7 @@ const print = (v: unknown) => process.stdout.write(`${JSON.stringify(v, (_, x) =
 const USAGE = `Usage:
   paperless-ai migrate analyse|plan|start|sync|status|cutover|discard [--strategy single:<name>|owner:<shared>] [--archived] [--no-create-users] [--concurrency n] [--analyze]
   paperless-ai export --format ngx|plain --out <directory> [--library <id> …] [--checksums sha256|md5 (Paperless-ngx: md5 for older versions)]
+  paperless-ai mcp [--url <address>] [--key <API key> | --key-file <file>]   MCP over stdio (for AI agents) – env: PAPERLESS_AI_URL, PAPERLESS_AI_API_KEY
 Options: --data <directory> (default: PAPERLESS_AI_DATA_DIR or ./data)`;
 
 export async function main(argv: string[]): Promise<number> {
@@ -54,6 +55,13 @@ export async function main(argv: string[]): Promise<number> {
   if (!cmd || cmd === 'help' || cmd === '--help') {
     process.stdout.write(`${USAGE}\n`);
     return cmd ? 0 : 1;
+  }
+  if (cmd === 'mcp') {
+    // The stdio bridge to the MCP server (this one by default): no database, nothing but stdin/stdout.
+    const { bridgeOptions, runBridge } = await import('./mcp/bridge.mjs');
+    const o = bridgeOptions(argv.slice(1), process.env);
+    const url = o.url || `http://127.0.0.1:${process.env.PAPERLESS_AI_PORT ?? 3000}/mcp`;
+    return runBridge({ url, key: o.key, input: process.stdin, output: process.stdout });
   }
   const dataDir = path.resolve(arg(all, 'data') ?? process.env.PAPERLESS_AI_DATA_DIR ?? path.join(process.cwd(), 'data'));
   const ctx = new AppContext({ dataDir });

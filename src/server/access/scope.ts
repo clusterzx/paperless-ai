@@ -7,8 +7,19 @@ export type InstanceRole = 'admin' | 'member';
 export type LibraryRole = 'owner' | 'editor' | 'viewer';
 export const LIBRARY_ROLES: readonly LibraryRole[] = ['viewer', 'editor', 'owner'];
 
-/** Scopes of API keys. Sessions have all of them (limited by the user's role). */
-export const API_SCOPES = ['read', 'write', 'upload', 'chat', 'webhook', 'admin'] as const;
+/**
+ * Scopes of API keys. Sessions have all of them (limited by the user's role).
+ * - read: see documents, their text and files, labels and libraries
+ * - write: change documents (title, date, labels, fields, text), restore them from the trash
+ * - delete: move documents to the trash, delete them for good, delete file versions
+ * - metadata: manage tags, correspondents, document types and custom fields (create, rename, merge, delete)
+ * - upload: add documents and file versions
+ * - chat: ask the AI about documents
+ * - mcp: use the MCP server (/mcp) – what its tools may do follows the other scopes
+ * - webhook: the document webhook
+ * - admin: administration (admins only)
+ */
+export const API_SCOPES = ['read', 'write', 'delete', 'metadata', 'upload', 'chat', 'mcp', 'webhook', 'admin'] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
 
 export type Principal =

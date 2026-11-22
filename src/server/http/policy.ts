@@ -22,7 +22,28 @@ const write: RoutePolicy = { admin: false, scope: 'write' };
 const chat: RoutePolicy = { admin: false, scope: 'chat' };
 const upload: RoutePolicy = { admin: false, scope: 'upload' };
 const webhook: RoutePolicy = { admin: false, scope: 'webhook' };
+const remove: RoutePolicy = { admin: false, scope: 'delete' };
+const metadata: RoutePolicy = { admin: false, scope: 'metadata' };
+const mcp: RoutePolicy = { admin: false, scope: 'mcp' };
 const admin: RoutePolicy = { admin: true, scope: 'admin' };
+
+/** Managing tags, correspondents, document types and custom fields – in our API and the Paperless-ngx compatible one. */
+const LABEL_ENTRIES: Entry[] = [
+  ...['tags', 'correspondents', 'document-types', 'custom-fields'].flatMap((p): Entry[] => [
+    ['POST', `/api/${p}`, metadata],
+    ['PATCH', `/api/${p}/:id`, metadata],
+    ['DELETE', `/api/${p}/:id`, metadata],
+    ['POST', `/api/${p}/merge`, metadata],
+    ['POST', `/api/${p}/similar/ai`, metadata],
+    ['POST', `/api/${p}/similar/dismiss`, metadata],
+  ]),
+  ...['tags', 'correspondents', 'document_types', 'custom_fields'].flatMap((p): Entry[] => [
+    ['POST', `/ngx/api/${p}/`, metadata],
+    ['PATCH', `/ngx/api/${p}/:id/`, metadata],
+    ['PUT', `/ngx/api/${p}/:id/`, metadata],
+    ['DELETE', `/ngx/api/${p}/:id/`, metadata],
+  ]),
+];
 
 /**
  * `url` is the route pattern as registered (with `:params`); a trailing `*` matches a prefix.
@@ -74,6 +95,19 @@ const ENTRIES: Entry[] = [
   ['POST', '/api/migration*', admin],
   ['POST', '/api/archive/*', admin],
   ['GET', '/api/archive/*', admin],
+
+  // ---------------------------------------------------------------- deleting documents (the trash and for good)
+  // (bulk edits and the trash of the Paperless-ngx compatible API check `delete` for their delete actions)
+  ['DELETE', '/api/documents/:id', remove],
+  ['DELETE', '/api/documents/:id/versions/:version', remove],
+  ['POST', '/api/trash/purge', remove],
+  ['DELETE', '/ngx/api/documents/:id/', remove],
+
+  // ---------------------------------------------------------------- managing labels
+  ...LABEL_ENTRIES,
+
+  // ---------------------------------------------------------------- MCP server (its tools check the other scopes)
+  ['*', '/mcp', mcp],
 
   // ---------------------------------------------------------------- AI chat and search
   ['POST', '/api/rag/ask', chat],

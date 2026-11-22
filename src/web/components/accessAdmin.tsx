@@ -13,11 +13,92 @@ import { useSession } from '../lib/session';
 const SCOPE_LABEL: Record<ApiScope, string> = {
   read: 'Read documents',
   write: 'Change documents',
+  delete: 'Delete documents',
+  metadata: 'Manage labels',
   upload: 'Upload documents',
   chat: 'Ask & chat',
+  mcp: 'MCP (AI agents)',
   webhook: 'Webhook (queue processing)',
   admin: 'Administration',
 };
+
+const SCOPE_HINT: Record<ApiScope, string> = {
+  read: 'Documents, their text and files, labels and libraries',
+  write: 'Title, date, labels, fields and text of documents; restore from the trash',
+  delete: 'Move to the trash, delete for good, delete file versions',
+  metadata: 'Create, rename, merge and delete tags, correspondents, types and fields',
+  upload: 'Add documents and new file versions',
+  chat: 'Ask the AI about documents, search by meaning',
+  mcp: 'Use the MCP server – its tools follow the permissions above',
+  webhook: 'The document webhook',
+  admin: 'Settings, users, libraries – everything an administrator can do',
+};
+
+const SCOPE_GROUPS: { label: string; scopes: ApiScope[] }[] = [
+  { label: 'Documents', scopes: ['read', 'write', 'delete', 'metadata', 'upload'] },
+  { label: 'AI and integrations', scopes: ['chat', 'mcp', 'webhook'] },
+  { label: 'Administration', scopes: ['admin'] },
+];
+
+/** Starting points for common uses (the boxes can be changed afterwards). */
+const PRESETS: { label: string; scopes: ApiScope[] }[] = [
+  { label: 'Read only', scopes: ['read'] },
+  { label: 'AI agent, reading', scopes: ['mcp', 'read', 'chat'] },
+  { label: 'AI agent, tidying up', scopes: ['mcp', 'read', 'chat', 'write'] },
+  { label: 'Scanner', scopes: ['upload'] },
+  { label: 'Mobile app', scopes: ['read', 'write', 'delete', 'metadata', 'upload'] },
+];
+
+/** A configuration to copy. */
+function Snippet({ text }: { text: string }) {
+  const toast = useToast();
+  return (
+    <div className="relative">
+      <pre className="max-h-48 overflow-auto rounded-lg bg-surface-2 p-2 pr-20 font-mono">{text}</pre>
+      <Button
+        size="sm"
+        className="absolute right-2 top-2"
+        icon={<Copy className="size-3.5" />}
+        onClick={() =>
+          navigator.clipboard.writeText(text).then(
+            () => toast.success('Copied'),
+            () => toast.error('Copying failed'),
+          )
+        }
+      >
+        Copy
+      </Button>
+    </div>
+  );
+}
+
+/** How to connect an MCP client with the new key. */
+function McpSetup({ apiKey }: { apiKey: string }) {
+  const url = `${window.location.origin}/mcp`;
+  const http = JSON.stringify({ mcpServers: { 'paperless-ai': { type: 'http', url, headers: { Authorization: `Bearer ${apiKey}` } } } }, null, 2);
+  const stdio = JSON.stringify(
+    { mcpServers: { 'paperless-ai': { command: 'node', args: ['/path/to/paperless-ai-mcp.mjs'], env: { PAPERLESS_AI_URL: window.location.origin, PAPERLESS_AI_API_KEY: apiKey } } } },
+    null,
+    2,
+  );
+  return (
+    <div className="space-y-2 text-xs">
+      <div className="font-medium text-sm">Connect an AI agent</div>
+      <p className="text-muted">
+        Clients that speak MCP over HTTP (Claude, Cursor, OpenCode …): the address <code className="kbd">{url}</code> with the key as Bearer token.
+      </p>
+      <Snippet text={http} />
+      <p className="text-muted">
+        Clients that start a local program (stdio, e.g. Hermes): the bridge{' '}
+        <a className="text-accent hover:underline" href="/mcp/bridge.mjs" download="paperless-ai-mcp.mjs">
+          paperless-ai-mcp.mjs
+        </a>{' '}
+        (Node.js 18 or newer) – or inside the container <code className="kbd">node dist/server/cli.js mcp</code>.
+      </p>
+      <Snippet text={stdio} />
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------- users
 
@@ -330,13 +411,20 @@ function NewKeyModal({ onClose, onCreated, isAdmin, libraries }: { onClose: () =
   const [scopes, setScopes] = useState<ApiScope[]>(['read']);
   const [libraryIds, setLibraryIds] = useState<number[]>([]);
   const [days, setDays] = useState('');
+  const [rate, setRate] = useState('');
   const [key, setKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const create = async () => {
     setBusy(true);
     try {
-      const res = await post<{ key: string }>('/api/me/api-keys', { name: name.trim(), scopes, libraryIds: libraryIds.length ? libraryIds : null, expiresInDays: days ? Number(days) : null });
+      const res = await post<{ key: string }>('/api/me/api-keys', {
+        name: name.trim(),
+        scopes,
+        libraryIds: libraryIds.length ? libraryIds : null,
+        expiresInDays: days ? Number(days) : null,
+        rateLimit: rate ? Number(rate) : null,
+      });
       setKey(res.key);
       onCreated();
     } catch (err) {
@@ -388,6 +476,7 @@ function NewKeyModal({ onClose, onCreated, isAdmin, libraries }: { onClose: () =
             Send it in the <code className="kbd">x-api-key</code> header, as <code className="kbd">Authorization: Bearer …</code> or – for apps made for Paperless-ngx –
             as <code className="kbd">Authorization: Token …</code>.
           </p>
+          {scopes.includes('mcp') && <McpSetup apiKey={key} />}
         </div>
       ) : (
         <div className="space-y-4">
@@ -395,14 +484,44 @@ function NewKeyModal({ onClose, onCreated, isAdmin, libraries }: { onClose: () =
           <Field label="Name" hint="What uses the key – e.g. “Scanner”, “Browser extension”.">
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
-          <Field label="Permissions" hint="A key can never do more than your own account.">
-            <div className="grid gap-1.5 sm:grid-cols-2">
-              {API_SCOPES.filter((s) => s !== 'admin' || isAdmin).map((s) => (
-                <label key={s} className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={scopes.includes(s)} onChange={(e) => setScopes((x) => (e.target.checked ? [...x, s] : x.filter((y) => y !== s)))} />
-                  {SCOPE_LABEL[s]}
-                </label>
-              ))}
+          <Field label="Permissions" hint="A key can never do more than your own account – in each library, your role there applies too.">
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-1.5">
+                {PRESETS.map((p) => (
+                  <Button key={p.label} size="sm" variant={p.scopes.length === scopes.length && p.scopes.every((s) => scopes.includes(s)) ? 'subtle' : 'secondary'} onClick={() => setScopes(p.scopes)}>
+                    {p.label}
+                  </Button>
+                ))}
+              </div>
+              {SCOPE_GROUPS.map((g) => {
+                const shown = g.scopes.filter((s) => API_SCOPES.includes(s) && (s !== 'admin' || isAdmin));
+                if (!shown.length) return null;
+                return (
+                  <div key={g.label}>
+                    <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted">{g.label}</div>
+                    <div className="grid gap-1.5 sm:grid-cols-2">
+                      {shown.map((s) => (
+                        <div key={s} className="flex items-start gap-2 text-sm">
+                          <input
+                            id={`scope-${s}`}
+                            type="checkbox"
+                            className="mt-1"
+                            aria-describedby={`scope-${s}-hint`}
+                            checked={scopes.includes(s)}
+                            onChange={(e) => setScopes((x) => (e.target.checked ? [...x, s] : x.filter((y) => y !== s)))}
+                          />
+                          <div>
+                            <label htmlFor={`scope-${s}`}>{SCOPE_LABEL[s]}</label>
+                            <span id={`scope-${s}-hint`} className="block text-xs text-muted">
+                              {SCOPE_HINT[s]}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </Field>
           {libraries.length > 1 && (
@@ -420,9 +539,14 @@ function NewKeyModal({ onClose, onCreated, isAdmin, libraries }: { onClose: () =
               </div>
             </Field>
           )}
-          <Field label="Expires after (days)" hint="Empty: never.">
-            <Input type="number" min={1} value={days} onChange={(e) => setDays(e.target.value)} />
-          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Expires after (days)" hint="Empty: never.">
+              <Input type="number" min={1} value={days} onChange={(e) => setDays(e.target.value)} />
+            </Field>
+            <Field label="Requests per minute" hint="Empty: no limit. Above it the key gets “429 Too many requests”.">
+              <Input type="number" min={1} max={100000} value={rate} onChange={(e) => setRate(e.target.value)} />
+            </Field>
+          </div>
         </div>
       )}
     </Modal>
@@ -476,6 +600,7 @@ export function ApiKeysCard() {
                 <div className="text-xs text-muted">
                   <code>pai_{k.prefix}_…</code> · used {timeAgo(k.lastUsedAt)}
                   {k.expiresAt ? ` · expires ${formatDate(k.expiresAt)}` : ''}
+                  {k.rateLimit ? ` · ${k.rateLimit} requests/min` : ''}
                 </div>
                 <div className="mt-1 flex flex-wrap gap-1">
                   {k.scopes.map((s) => (

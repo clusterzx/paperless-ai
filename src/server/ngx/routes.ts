@@ -14,7 +14,7 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest 
 import sharp from 'sharp';
 import type { Services } from '../http/app.js';
 import { LocalBackend } from '../archive/backend.js';
-import { canEdit, canRead, isAdmin, userIdOf, type AccessScope } from '../access/scope.js';
+import { canEdit, canRead, hasScope, isAdmin, userIdOf, type AccessScope } from '../access/scope.js';
 import type { ArchiveDocument, ChangeOrigin, CustomFieldType, DocumentFilter, DocumentPatch, MetadataKind, MetadataUpdate } from '../backend/types.js';
 import { statusOf } from '../backend/types.js';
 import { HttpProblem } from '../http/helpers.js';
@@ -138,7 +138,7 @@ export const ngxRoutes =
         if (!second.ok) throw refuse(secondFactorError(second.reason));
       }
       const agent = String(req.headers['user-agent'] ?? '').split(/[/ (]/)[0].slice(0, 40) || 'app';
-      const { key } = ctx.repos.apiKeys.create(user.id, { name: `Paperless-ngx app (${agent})`, scopes: ['read', 'write', 'upload'] });
+      const { key } = ctx.repos.apiKeys.create(user.id, { name: `Paperless-ngx app (${agent})`, scopes: ['read', 'write', 'delete', 'metadata', 'upload'] });
       log.info(`User "${user.username}" signed in to the Paperless-ngx compatible API (${agent})`);
       return { token: key };
     });
@@ -706,6 +706,7 @@ export const ngxRoutes =
       const body = (req.body ?? {}) as Body;
       const ids = ((body.documents as unknown[]) ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
       const method = String(body.method ?? '');
+      if (method === 'delete' && !hasScope(scope, 'delete')) throw new NgxError(403, 'The API key does not have the "delete" scope');
       const p = (body.parameters ?? {}) as Body;
       const o = origin(req, `bulk:${randomUUID()}`);
       const view = ctx.backend(scope);
@@ -861,6 +862,7 @@ export const ngxRoutes =
       const b = local();
       const scope = scopeOf(req);
       const body = (req.body ?? {}) as Body;
+      if (body.action === 'empty' && !hasScope(scope, 'delete')) throw new NgxError(403, 'The API key does not have the "delete" scope');
       let ids = ((body.documents as unknown[] | undefined) ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
       if (!ids.length && body.action === 'empty') {
         const libs = scope.libraries ? [...scope.libraries.keys()] : null;

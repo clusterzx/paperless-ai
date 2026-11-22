@@ -37,6 +37,8 @@ import { archiveRoutes } from '../routes/archive.js';
 import { workflowRoutes } from '../routes/workflows.js';
 import { DAV_METHODS, davRoutes } from '../routes/dav.js';
 import { ngxRoutes } from '../ngx/routes.js';
+import { mcpRoutes } from '../mcp/routes.js';
+import { KeyRateLimiter } from './keyRateLimit.js';
 import { MAX_API_VERSION as NGX_MAX_API_VERSION, MIN_API_VERSION as NGX_MIN_API_VERSION, NGX_VERSION, requestedVersion as ngxRequestedVersion } from '../ngx/format.js';
 import { migrationRoutes } from '../routes/migration.js';
 import { metadataRoutes } from '../routes/metadata.js';
@@ -167,6 +169,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
 
   app.decorateRequest('principal', null);
   app.decorateRequest('access', null);
+  const keyLimiter = new KeyRateLimiter();
   // Before the body is parsed and validated: unauthenticated or unauthorised callers learn nothing
   // about the input a route expects.
   app.addHook('onRequest', async (req, reply) => {
@@ -198,12 +201,22 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     if (!req.principal || !req.access) {
       // WebDAV clients (scanners, file managers) ask for the credentials on this header.
       if (url.startsWith('/dav/')) reply.header('WWW-Authenticate', 'Basic realm="Paperless-AI inbox", charset="UTF-8"');
+      // MCP clients: a Bearer token (the API key).
+      if (url === '/mcp') reply.header('WWW-Authenticate', 'Bearer realm="Paperless-AI MCP"');
       if (ngx) {
         // As Paperless-ngx: no credentials and wrong ones are told apart.
         const detail = req.headers.authorization ? 'Invalid token.' : 'Authentication credentials were not provided.';
         return reply.code(401).header('WWW-Authenticate', 'Token').send({ detail });
       }
       return deny(401, 'Authentication required');
+    }
+    // The requests per minute of the API key (when it has a limit).
+    if (resolved.key?.rate_limit) {
+      const r = keyLimiter.take(resolved.key.id, resolved.key.rate_limit);
+      if (!r.ok) {
+        reply.header('Retry-After', String(r.retryAfter));
+        return deny(429, `Too many requests for this API key (${resolved.key.rate_limit} per minute) – try again in ${r.retryAfter} s`, { code: 'rate_limited' });
+      }
     }
     if (level === 'session' && !(req.principal.kind === 'user' && req.principal.via === 'session')) {
       return deny(403, 'This action requires a logged-in user (API keys are not allowed)');
@@ -254,6 +267,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(davRoutes(services));
   await app.register(migrationRoutes(services));
   await app.register(ngxRoutes(services));
+  await app.register(mcpRoutes(services));
 
   // Web UI (single page app)
   const staticDir = opts.staticDir;
