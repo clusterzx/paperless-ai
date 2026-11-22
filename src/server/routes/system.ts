@@ -342,7 +342,10 @@ export function archiveInfo(ctx: AppContext): ArchiveInfo | null {
   if (!ctx.archiveConfigured()) return null;
   try {
     const backend = ctx.archive();
-    return { mode: backend.kind, label: backend.label, capabilities: backend.capabilities };
+    // Paperless-ngx (2.10+) keeps deleted documents in its trash: the menu links there.
+    const base = (ctx.cfg.paperless.publicUrl || ctx.cfg.paperless.url).replace(/\/+$/, '');
+    const trashUrl = backend.capabilities.trash === 'external' && base ? `${base}/trash` : null;
+    return { mode: backend.kind, label: backend.label, capabilities: backend.capabilities, trashUrl };
   } catch {
     return null;
   }

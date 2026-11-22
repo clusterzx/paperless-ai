@@ -439,6 +439,8 @@ export interface ArchiveInfo {
   mode: ArchiveMode;
   label: string;
   capabilities: BackendCapabilities;
+  /** The trash page of an external archive (Paperless-ngx), for the menu. */
+  trashUrl?: string | null;
 }
 
 export interface SessionInfo {

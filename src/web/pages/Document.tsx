@@ -308,8 +308,14 @@ export default function DocumentPage() {
     }
   };
   const remove = async () => {
-    const trash = archive?.capabilities.trash === 'native';
-    if (!(await confirm({ title: 'Delete this document?', message: trash ? 'It goes to the trash and can be restored there.' : `It is deleted in ${archive?.label ?? 'the archive'}.`, confirmLabel: 'Delete', danger: true }))) return;
+    const trash = archive?.capabilities.trash;
+    const message =
+      trash === 'native'
+        ? 'It goes to the trash and can be restored there.'
+        : trash === 'external'
+          ? `It goes to the trash of ${archive?.label ?? 'the archive'} and can be restored there (menu: Trash).`
+          : `It is deleted in ${archive?.label ?? 'the archive'}.`;
+    if (!(await confirm({ title: 'Delete this document?', message, confirmLabel: 'Delete', danger: true }))) return;
     try {
       await del(`/api/documents/${id}`);
       toast.success('Deleted');

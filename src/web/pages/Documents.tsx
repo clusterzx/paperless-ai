@@ -551,11 +551,16 @@ export default function DocumentsPage() {
             icon={<Trash2 className="size-3.5" />}
             disabled={busy}
             onClick={async () => {
-              const trash = archive?.capabilities.trash === 'native';
+              const trash = archive?.capabilities.trash;
               if (
                 !(await confirm({
                   title: `Delete ${formatNumber(targetCount)} document(s)?`,
-                  message: trash ? 'They go to the trash and can be restored there.' : `They are deleted in ${archive?.label ?? 'the archive'} (its trash keeps them for a while).`,
+                  message:
+                    trash === 'native'
+                      ? 'They go to the trash and can be restored there.'
+                      : trash === 'external'
+                        ? `They go to the trash of ${archive?.label ?? 'the archive'} and can be restored there (menu: Trash).`
+                        : `They are deleted in ${archive?.label ?? 'the archive'}.`,
                   confirmLabel: 'Delete',
                   danger: true,
                 }))

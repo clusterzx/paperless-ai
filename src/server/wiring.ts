@@ -32,6 +32,10 @@ export function wireDocumentEvents(ctx: AppContext, { rag, ocr, engine }: WiredS
         // Gone from the archive: out of the search index and the calendar right away.
         rag.invalidate(e.id);
         ctx.repos.calendar.removeDocument(e.id);
+        // Paperless-ngx keeps deleted documents in its own trash, which Paperless-AI does not see:
+        // forget the processing state now (the next scan would do it), so the statistics do not count
+        // more processed documents than there are. The built-in archive leaves trashed ones out itself.
+        if (e.type === 'document.deleted' && ctx.archiveMode() !== 'builtin') ctx.repos.documents.reset([e.id]);
         break;
       case 'document.added':
         // New documents of the built-in archive go straight into the processing queue (OCR when

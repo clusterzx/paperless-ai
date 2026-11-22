@@ -281,6 +281,8 @@ test('modals keep the focus while typing and trap Tab', async ({ page }) => {
 
 test('command menu jumps to pages and asks the archive', async ({ page }) => {
   await login(page);
+  // Deleted documents are in the trash of Paperless-ngx: the menu links there.
+  await expect(page.getByRole('link', { name: 'Trash (Paperless-ngx)' })).toHaveAttribute('href', /\/trash$/);
   await page.keyboard.press('Control+k');
   const menu = page.getByRole('dialog', { name: 'Command menu' });
   await expect(menu).toBeVisible();

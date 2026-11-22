@@ -107,8 +107,15 @@ describe('document detail and editing', () => {
 
     const failed = (await h.inject({ method: 'POST', url: '/api/documents/bulk', headers: { cookie }, payload: { ids: [999], action: 'delete' } })).json() as BulkEditResult;
     expect(failed.failed[0].id).toBe(999);
+    // Deleted (into the trash of Paperless-ngx): the processing state goes at once, so the
+    // statistics never count more processed documents than there are.
+    h.ctx.repos.documents.markProcessed(4, 'Doc 4', null);
     expect((await h.inject({ method: 'DELETE', url: '/api/documents/4', headers: { cookie } })).statusCode).toBe(200);
     expect(h.paperless.docs.has(4)).toBe(false);
+    expect(h.ctx.repos.documents.get(4)).toBeUndefined();
+    // The menu links to the trash of Paperless-ngx.
+    const session = (await h.inject({ method: 'GET', url: '/api/session', headers: { cookie } })).json() as { archive: { trashUrl: string | null } };
+    expect(session.archive.trashUrl).toMatch(/\/trash$/);
   });
 });
 

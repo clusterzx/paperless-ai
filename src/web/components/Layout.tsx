@@ -5,6 +5,7 @@ import {
   ChevronsUpDown,
   Bookmark,
   Trash2,
+  ExternalLink,
   Library,
   ArrowRightLeft,
   Workflow as WorkflowIcon,
@@ -50,6 +51,8 @@ interface NavItem {
   icon: ReactNode;
   hidden?: boolean;
   keywords?: string;
+  /** A page of another application (opens in a new tab). */
+  external?: boolean;
 }
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -287,7 +290,10 @@ export function Layout({ children }: { children: ReactNode }) {
     { href: '/ocr', label: 'OCR', icon: <ScanText />, hidden: !admin, keywords: 'text recognition scan paddleocr quality' },
     { href: '/calendar', label: 'Calendar', icon: <CalendarDays />, hidden: !session?.features.calendar, keywords: 'dates deadlines appointments due ical' },
     { href: '/metadata', label: 'Tags & metadata', icon: <Tags />, hidden: !session?.archive, keywords: 'tags correspondents document types custom fields merge rename' },
-    { href: '/trash', label: 'Trash', icon: <Trash2 />, hidden: session?.archive?.capabilities.trash !== 'native', keywords: 'deleted restore recycle bin' },
+    // The built-in archive has its own trash; Paperless-ngx keeps deleted documents in its trash.
+    session?.archive?.capabilities.trash === 'external'
+      ? { href: session.archive.trashUrl ?? '', label: `Trash (${session.archive.label})`, icon: <Trash2 />, hidden: !session.archive.trashUrl, external: true, keywords: 'deleted restore recycle bin' }
+      : { href: '/trash', label: 'Trash', icon: <Trash2 />, hidden: session?.archive?.capabilities.trash !== 'native', keywords: 'deleted restore recycle bin' },
     { href: '/workflows', label: 'Workflows', icon: <WorkflowIcon />, hidden: !session?.archive, keywords: 'automation rules triggers actions prompt rules' },
     { href: '/libraries', label: 'Libraries', icon: <Library />, hidden: !session?.archive?.capabilities.libraries, keywords: 'members roles share family collections watch folder' },
   ];
@@ -333,13 +339,27 @@ export function Layout({ children }: { children: ReactNode }) {
     () =>
       [...nav, ...secondary]
         .filter((n) => !n.hidden)
-        .map((n) => ({ id: `page-${n.href}`, group: 'Go to', label: n.label, icon: n.icon, keywords: n.keywords, run: () => void go(n.href) })),
+        .map((n) => ({
+          id: `page-${n.href}`,
+          group: 'Go to',
+          label: n.label,
+          icon: n.icon,
+          keywords: n.keywords,
+          run: () => (n.external ? void window.open(n.href, '_blank', 'noopener,noreferrer') : void go(n.href)),
+        })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rag, go],
   );
 
+  const navClass = 'group flex items-center gap-3 rounded-[10px] px-2.5 py-[7px] text-[13.5px] font-medium transition [&_svg]:size-[17px] text-muted hover:bg-surface/60 hover:text-fg';
   const renderItem = (item: NavItem) =>
-    item.hidden ? null : (
+    item.hidden ? null : item.external ? (
+      <a key={item.href} href={item.href} target="_blank" rel="noopener noreferrer" className={navClass}>
+        <span className="text-faint transition-colors group-hover:text-fg">{item.icon}</span>
+        {item.label}
+        <ExternalLink className="ml-auto !size-3.5 text-faint" aria-hidden />
+      </a>
+    ) : (
       <Link
         key={item.href}
         href={item.href}
