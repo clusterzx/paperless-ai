@@ -12,6 +12,15 @@ docker compose pull && docker compose up -d
 
 An installation that uses Paperless-ngx stays in that mode. Nothing changes until you choose to [move to the built-in archive](built-in-archive.md#moving-from-paperless-ngx).
 
+### To 4.5
+
+- **First start:** the database migrations move the search index of *Ask your archive* into `data/index.db` (a backup goes to `data/backups/`); with a large archive the first start takes a little longer.
+- **Accounts and roles:** existing accounts become administrators; accounts added later are members (their libraries, with their role there) unless you make them administrators (*Settings → Users & groups*).
+- **API keys:** a key of an administrator acts as administrator only with the *Administration* permission. Deleting documents and managing tags, correspondents, types and fields are permissions of their own now – existing keys that could change documents keep them, new keys need them ticked ([permissions](mcp.md#permissions-of-api-keys)).
+- **Document chat** is a tab of every document; the separate page is gone (old links open the tab).
+- **Watch folders** inside the data directory or the file storage are refused – use a folder of its own such as `/consume` or `/scans` ([watch folders](intake.md#watch-folders)).
+- **New, nothing to do unless you want them:** the [built-in archive](built-in-archive.md), the [mobile apps](mobile-apps.md) made for Paperless-ngx, the [MCP server for AI agents](mcp.md). The `docker-compose.yml` of the repository mounts a scanner folder as `/scans` (`PAPERLESS_AI_SCANS_DIR`).
+
 ## Upgrading from 3.x
 
 Keep your data volume and switch the image – everything else happens on the first start.

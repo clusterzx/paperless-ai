@@ -35,6 +35,8 @@ src/
     rag/                 chunker, SQLite store (FTS5), vector index (worker), local embedder (worker), service, document chat
     archive/             built-in archive: LocalBackend, blob store, intake (upload, folder, mail), maintenance, counters
     workflows/           triggers → conditions → actions, analysis.before (prompt rules), run log, notifications
+    ngx/                 Paperless-ngx compatible API (/ngx/api/, version 9) for the mobile apps (built-in archive)
+    mcp/                 MCP server (/mcp, Streamable HTTP): JSON-RPC, tools behind API key scopes, stdio bridge (bridge.mjs)
     ocr/                 PaddleOCR via ONNX Runtime (child process): rendering, detection post-processing, recognition,
                          reading order, text-quality heuristic, service (when to read, write-back, undo)
     http/ routes/        Fastify app, auth levels, SSE helper, route modules

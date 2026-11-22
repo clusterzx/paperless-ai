@@ -8,7 +8,11 @@
 - **Issuer URL:** the address in front of `/.well-known/openid-configuration` – *Test provider* checks it
 - **Behind a reverse proxy** the address comes from the proxy's `X-Forwarded-Proto` / `X-Forwarded-Host` headers (Traefik, Caddy and most others send them). If the settings warn that Paperless-AI sees another address than your browser, set `PAPERLESS_AI_URL` (or *Public address* in the settings) to the address your browser uses
 
-Who may sign in: everyone the provider lets through for this application, or – with *Allowed groups* – only members of these groups. All Paperless-AI accounts have the same rights (settings included), so restrict access at the provider or name the groups. New accounts are created on the first sign-in; with *Create accounts automatically* off, an existing user signs in with the password once and links the account in *Settings → Account*. Once your account is linked you can switch off the password login – on a fresh installation (`PASSWORD_LOGIN=false`) the first single sign-on creates the first account.
+Who may sign in: everyone the provider lets through for this application, or – with *Allowed groups* – only members of these groups.
+
+What they may do: accounts are *administrators* (settings, users, everything) or *members* (their libraries, with the role there). Accounts created by single sign-on start as members – the very first account of an installation as administrator. With `OIDC_ADMIN_GROUPS` the provider decides: members of these groups are administrators, everyone else members, checked at every sign-in (the last administrator is never demoted). The groups of the provider become groups of Paperless-AI (`OIDC_SYNC_GROUPS`, on by default), so a group can be member of a [library](built-in-archive.md#libraries-users-and-roles).
+
+New accounts are created on the first sign-in; with *Create accounts automatically* off, an existing user signs in with the password once and links the account in *Settings → Account*. Once your account is linked you can switch off the password login – on a fresh installation (`PASSWORD_LOGIN=false`) the first single sign-on creates the first account.
 
 | Provider | Notes |
 | --- | --- |

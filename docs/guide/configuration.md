@@ -8,6 +8,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | Variable | Setting |
 | --- | --- |
 | `PAPERLESS_AI_PORT` | HTTP port (default `3000`) |
+| `PAPERLESS_AI_HOST` | address the server listens on (default `0.0.0.0`, all interfaces) |
 | `PAPERLESS_AI_DATA_DIR` | data directory (default `./data`, `/app/data` in Docker) |
 | `PAPERLESS_AI_RESET_2FA` | username – switches off two-factor authentication of that account at the next start (phone lost and no recovery codes left); remove it afterwards |
 | `PAPERLESS_API_URL` (or `PAPERLESS_URL`), `PAPERLESS_API_TOKEN` | Paperless-ngx URL (with or without `/api`) and token – `PAPERLESS_API_URL` wins when both are set |
@@ -44,9 +45,12 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `PAPERLESS_AI_URL` | address of Paperless-AI as the browser opens it (e.g. `https://paperless-ai.example.com`) – used for the single sign-on redirect URI; default: the address of the request (behind a proxy from its `X-Forwarded-Proto`/`-Host`) |
 | `OIDC_ENABLED`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | [single sign-on](single-sign-on.md) with an OpenID Connect provider (the secret stays empty for a public client) |
 | `OIDC_ALLOWED_GROUPS`, `OIDC_GROUPS_CLAIM`, `OIDC_SCOPES` | only members of these groups may sign in (comma-separated, empty = everyone the provider lets through); claim with the groups (default `groups`); scopes (default `openid profile email`) |
+| `OIDC_ADMIN_GROUPS`, `OIDC_SYNC_GROUPS` | members of these groups are administrators, everyone else members – set at every sign-in (comma-separated, empty = the roles are set in Paperless-AI); take over the provider's groups as groups of Paperless-AI (default on) |
 | `OIDC_AUTO_CREATE`, `OIDC_USERNAME_CLAIM`, `OIDC_BUTTON_LABEL`, `OIDC_PROVIDER_LOGOUT` | create accounts on the first sign-in (default on), claim for their names (default `preferred_username`), label of the login button, sign out at the provider too (default on) |
 | `PASSWORD_LOGIN` | `false` = sign in with single sign-on only (takes effect only while single sign-on is set up) |
+| `PAPERLESS_AI_SMTP_HOST`, `_PORT`, `_SECURITY`, `_USER`, `_PASSWORD`, `_FROM` | e-mail server for notifications of workflows (both archives) |
+| `PAPERLESS_AI_READERS`, `PAPERLESS_AI_VECTOR_WORKER` | worker threads for database reads (default `min(4, CPUs)`, `0` = none); `0` runs the vector search of *Ask your archive* in the main thread (default: a worker) |
 
 Empty variables (e.g. `OPENAI_API_KEY=` left in a compose file) are ignored, so they never replace what you configured in the web interface.
 
-The variables of the [built-in archive](built-in-archive.md#environment-variables) (`PAPERLESS_AI_ARCHIVE`, `PAPERLESS_AI_STORAGE_DIR`, `PAPERLESS_AI_CONSUME_DIR` …) are listed in its guide.
+The variables of the [built-in archive](built-in-archive.md#environment-variables) (`PAPERLESS_AI_ARCHIVE`, `PAPERLESS_AI_STORAGE_DIR`, `PAPERLESS_AI_CONSUME_DIR`, `PAPERLESS_AI_SCANS_DIR`, `PAPERLESS_AI_EXPORT_DIR` …) are listed in its guide, those of the MCP bridge (`PAPERLESS_AI_URL`, `PAPERLESS_AI_API_KEY`) in [AI agents (MCP)](mcp.md).

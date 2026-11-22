@@ -5,7 +5,7 @@
 **Getting started**
 
 - [Installation](installation.md) – Docker Compose, image variants (CPU / NVIDIA), the Paperless-ngx API user, instant processing, reverse proxy
-- [Upgrading](upgrading.md) – within 4.x and from 3.x
+- [Upgrading](upgrading.md) – within 4.x (what changes with 4.5) and from 3.x
 - [Configuration](configuration.md) – all environment variables
 
 **Using it**
