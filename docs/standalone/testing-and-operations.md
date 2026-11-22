@@ -76,8 +76,20 @@ scanners that cannot use WebDAV or the REST upload.
 
 The `docker-compose.yml` of the repository mounts a host folder as `/scans` for this:
 `PAPERLESS_AI_SCANS_DIR=/srv/scans` (default `./scans` next to the file). Watch folders then point
-at `/scans` or at folders below it (`/scans/family`). Behind Coolify and other tools that deploy
-the compose file from the repository, set the variable in their environment settings.
+at `/scans` or at folders below it (`/scans/family`).
+
+Coolify (and similar tools that deploy the compose file from the repository) fill in volume paths
+themselves when they read the file: they take the default and ignore `PAPERLESS_AI_SCANS_DIR`. The
+folder is then `/data/coolify/applications/<app id>/scans` on the server. Use it, or replace it with
+a link to the folder you want and restart the container (Docker follows the link):
+
+```bash
+cd /data/coolify/applications/<app id>
+rmdir scans && ln -s /srv/scans scans
+```
+
+Whether a folder is visible in the container is shown with the watch folder (Libraries → Watch
+folders, Settings → Archive).
 
 ## 5. Configuration reference (new)
 

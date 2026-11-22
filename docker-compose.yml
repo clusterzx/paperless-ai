@@ -31,6 +31,7 @@ services:
       # Built-in archive: scanner shares and watch folders appear as /scans in the container
       # (Settings → Archive → Watch folder, Libraries → Watch folders, e.g. /scans or /scans/family).
       # Set PAPERLESS_AI_SCANS_DIR to a folder on the host, e.g. /srv/scans; default: ./scans next to this file.
+      # Coolify fills in the default itself (/data/coolify/applications/<app id>/scans) – see docs/standalone/testing-and-operations.md.
       - "${PAPERLESS_AI_SCANS_DIR:-./scans}:/scans"
     # Needed to reach Ollama running on the Docker host via host.docker.internal
     extra_hosts:
