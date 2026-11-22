@@ -85,11 +85,11 @@ function McpSetup({ apiKey }: { apiKey: string }) {
     <div className="space-y-2 text-xs">
       <div className="font-medium text-sm">Connect an AI agent</div>
       <p className="text-muted">
-        Clients that speak MCP over HTTP (Claude, Cursor, OpenCode …): the address <code className="kbd">{url}</code> with the key as Bearer token.
+        Clients that speak MCP over HTTP (Claude Code, Cursor, OpenCode …): the address <code className="kbd">{url}</code> with the key as Bearer token.
       </p>
       <Snippet text={http} />
       <p className="text-muted">
-        Clients that start a local program (stdio, e.g. Hermes): the bridge{' '}
+        Clients that start a local program (stdio – Claude Desktop, Hermes …): the bridge{' '}
         <a className="text-accent hover:underline" href="/mcp/bridge.mjs" download="paperless-ai-mcp.mjs">
           paperless-ai-mcp.mjs
         </a>{' '}

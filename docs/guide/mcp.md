@@ -10,7 +10,7 @@ Paperless-AI has an MCP server (Model Context Protocol): AI assistants and agent
 2. After *Create key*, the dialog shows the configuration for both kinds of clients, ready to copy.
 3. Put it into your client.
 
-### Clients that speak MCP over HTTP
+### Clients that speak MCP over HTTP (Claude Code, Cursor, OpenCode …)
 
 Address `https://paperless-ai.example.com/mcp`, the key as Bearer token:
 
@@ -28,7 +28,7 @@ Address `https://paperless-ai.example.com/mcp`, the key as Bearer token:
 
 Claude Code: `claude mcp add --transport http paperless-ai https://paperless-ai.example.com/mcp --header "Authorization: Bearer pai_…"`
 
-### Clients that start a local program (stdio, e.g. Hermes)
+### Clients that start a local program (stdio – Claude Desktop, Hermes …)
 
 Download the bridge from your instance – `https://paperless-ai.example.com/mcp/bridge.mjs`, also linked in the key dialog – and let the client start it (Node.js 18 or newer, nothing else):
 
