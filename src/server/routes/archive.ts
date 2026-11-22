@@ -3,7 +3,7 @@
  * the change log undo and an upload endpoint compatible with Paperless-ngx's post_document.
  */
 import path from 'node:path';
-import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { DocumentRow } from '../../shared/api.js';
@@ -13,9 +13,10 @@ import { canRead, isAdmin, roleIn, userIdOf, type AccessScope } from '../access/
 import { audit } from '../access/context.js';
 import { LocalBackend } from '../archive/backend.js';
 import { watchFolderProblemFor } from '../archive/folder.js';
+import { postDocumentHandler } from '../ngx/postDocument.js';
+import { receiveUploads } from './documentOps.js';
 import { notSupported, type ChangeOrigin } from '../backend/types.js';
 import { toRow } from '../http/documentQuery.js';
-import { receiveUploads } from './documentOps.js';
 import { diffLines } from '../archive/diff.js';
 
 import type { DocumentVersionInfo, LibraryCandidates, LibraryInfo, LibraryMember, MailAccountInfo, TextDiffLine, WatchFolder } from '../../shared/api.js';
@@ -424,31 +425,7 @@ export const archiveRoutes =
     app.post('/api/intake/:id/retry', { schema: { params: id } }, async (req) => local('The inbox').ingestService.retry(req.access!, req.params.id));
 
     // Paperless-ngx compatible upload: scanner apps and shortcuts made for Paperless-ngx can upload here.
-    const postDocument = async (req: FastifyRequest, reply: FastifyReply) => {
-      const b = local('post_document');
-      const results = await receiveUploads(ctx, req, 'api', {}, async (fields) => {
-        const meta = ctx.metadata(b.targetLibrary(req.access!));
-        await meta.snapshot();
-        const name = (kind: 'tag' | 'correspondent' | 'documentType', v: string) => {
-          const n = Number(v);
-          const list = kind === 'tag' ? meta.current.tags : kind === 'correspondent' ? meta.current.correspondents : meta.current.documentTypes;
-          return Number.isInteger(n) ? list.find((x) => x.id === n)?.name : v;
-        };
-        return {
-          title: fields.title?.[0],
-          created: fields.created?.[0]?.slice(0, 10),
-          correspondent: fields.correspondent?.[0] ? name('correspondent', fields.correspondent[0]) : undefined,
-          documentType: fields.document_type?.[0] ? name('documentType', fields.document_type[0]) : undefined,
-          tags: (fields.tags ?? []).map((t) => name('tag', t)).filter((t): t is string => Boolean(t)),
-          archiveSerialNumber: fields.archive_serial_number?.[0] ? Number(fields.archive_serial_number[0]) : undefined,
-        };
-      }, 'document');
-      const r = results[0];
-      if (r.status === 'rejected') throw badRequest(r.reason ?? 'The document was not accepted');
-      if (r.status === 'failed') throw new HttpProblem(503, r.reason ?? 'The document could not be stored – send it again');
-      // Paperless-ngx answers with the id of the consumption task as a JSON string.
-      return reply.type('application/json').send(JSON.stringify(`intake-${r.intakeId ?? r.documentId}`));
-    };
+    const postDocument = postDocumentHandler(ctx);
     app.post('/api/documents/post_document/', { schema: { hide: true, consumes: ['multipart/form-data'] } }, postDocument);
 
     // ---------------------------------------------------------------- trash

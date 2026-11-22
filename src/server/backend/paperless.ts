@@ -251,6 +251,7 @@ export class PaperlessBackend implements DocumentBackend {
     if (f.tagsAny?.length) q.tags__id__in = list(f.tagsAny);
     if (f.tagsAll?.length) q.tags__id__all = list(f.tagsAll);
     if (f.tagsNone?.length) q.tags__id__none = list(f.tagsNone);
+    if (f.tagged !== undefined) q.is_tagged = String(f.tagged);
     if (f.correspondent === null) q.correspondent__isnull = true;
     else if (f.correspondent !== undefined) q.correspondent__id = f.correspondent;
     if (f.correspondents?.length) q.correspondent__id__in = list(f.correspondents);

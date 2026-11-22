@@ -116,6 +116,8 @@ export interface DocumentFilter {
   documentTypesNone?: number[];
   /** Archive serial number. */
   asn?: number;
+  /** true: only documents with a tag; false: only documents without any tag. */
+  tagged?: boolean;
 }
 
 export type DocumentSort = 'created' | '-created' | 'added' | '-added' | 'title' | '-title' | 'modified' | '-modified' | 'relevance';

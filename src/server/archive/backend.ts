@@ -367,6 +367,7 @@ export class LocalBackend implements DocumentBackend {
       conds.push(viaIn ? 'd.id IN (SELECT document_id FROM lib_document_tags WHERE tag_id = ?)' : 'EXISTS (SELECT 1 FROM lib_document_tags t WHERE t.document_id = d.id AND t.tag_id = ?)');
       params.push(tag);
     }
+    if (f.tagged !== undefined) conds.push(`${f.tagged ? '' : 'NOT '}EXISTS (SELECT 1 FROM lib_document_tags t WHERE t.document_id = d.id)`);
     if (f.tagsNone?.length) {
       conds.push(`NOT EXISTS (SELECT 1 FROM lib_document_tags t WHERE t.document_id = d.id AND t.tag_id ${IN_IDS})`);
       params.push(json(f.tagsNone));

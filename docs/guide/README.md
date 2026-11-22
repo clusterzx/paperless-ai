@@ -12,6 +12,7 @@
 
 - [Built-in archive](built-in-archive.md) – without Paperless-ngx: libraries and roles, versions, trash, moving from Paperless-ngx, export
 - [Getting documents in](intake.md) – upload, REST, WebDAV, watch folders, e-mail, phone (built-in archive)
+- [Mobile apps](mobile-apps.md) – Swift Paperless, Paperless Mobile and other Paperless-ngx apps with the built-in archive
 - [Search, tags and metadata](search-and-metadata.md) – search syntax, find duplicates, sorting, custom fields
 - [Prompt rules](prompt-rules.md) – other prompts and settings per kind of document
 - [OCR](ocr.md) – reading scans locally with PaddleOCR

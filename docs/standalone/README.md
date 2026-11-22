@@ -79,7 +79,7 @@ back to Paperless-ngx.
 | --- | --- |
 | Postgres / MariaDB support | SQLite handles the target size (measured). A second database would double the test matrix and require making the whole repository layer async. Revisit only for multi-instance / HA needs. |
 | Switching the mode at runtime, or a hybrid of both | One source of truth per instance. Switching works through the migration assistant. |
-| Paperless-ngx REST API compatibility | Only an upload endpoint compatible with `post_document` is considered (scanner apps, shortcuts), see [ingest.md](ingest.md). |
+| Paperless-ngx REST API compatibility | A second API under `/ngx/api/` speaks the Paperless-ngx REST API (version 9) for the mobile apps made for Paperless-ngx; Paperless-AI's own API stays as it is – see [docs/guide/mobile-apps.md](../guide/mobile-apps.md) and `src/server/ngx/`. |
 | Office documents in the first release | PDF and images first, since the OCR pipeline already reads them. Office formats later via an optional Gotenberg sidecar. |
 | Horizontal scaling, several app instances | Self-hosted single-container product. |
 | Native mobile apps | PWA (install, share target, camera upload) plus the REST API for existing scanner apps. |

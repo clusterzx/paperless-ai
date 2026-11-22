@@ -9,3 +9,5 @@ The REST API is documented at `/api-docs` (OpenAPI) of your instance.
 **Kept from 3.x:** the endpoints used by the Paperless-AI browser extension and by scripts written for 3.x (`/chat/init/:id`, `/chat/message`, `/api/scan/now`, `/api/webhook/document`, `/api/rag/ask`, …).
 
 **Uploads:** `POST /api/documents/upload` and the Paperless-ngx compatible `POST /api/documents/post_document/` – see [Getting documents in](intake.md).
+
+**Paperless-ngx compatible API:** `/ngx/api/…` (built-in archive) – for the apps and scripts made for Paperless-ngx, see [Mobile apps](mobile-apps.md).

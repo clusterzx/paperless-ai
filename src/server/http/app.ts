@@ -36,6 +36,8 @@ import { twoFactorRoutes } from '../routes/twoFactor.js';
 import { archiveRoutes } from '../routes/archive.js';
 import { workflowRoutes } from '../routes/workflows.js';
 import { DAV_METHODS, davRoutes } from '../routes/dav.js';
+import { ngxRoutes } from '../ngx/routes.js';
+import { MAX_API_VERSION as NGX_MAX_API_VERSION, NGX_VERSION } from '../ngx/format.js';
 import { migrationRoutes } from '../routes/migration.js';
 import { metadataRoutes } from '../routes/metadata.js';
 import { accessRoutes } from '../routes/access.js';
@@ -175,6 +177,11 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     const resolved = await resolveAccess(ctx, req);
     req.principal = resolved.principal;
     req.access = resolved.access;
+    // The Paperless-ngx compatible API (/ngx/api/): its version headers on every answer (apps read
+    // them even from errors) and its error format.
+    const ngx = url.startsWith('/ngx');
+    if (ngx) reply.header('X-Api-Version', String(NGX_MAX_API_VERSION)).header('X-Version', NGX_VERSION);
+    const deny = (code: number, error: string, extra: Record<string, unknown> = {}) => reply.code(code).send(ngx ? { detail: error } : { error, ...extra });
     if (level === 'public') return;
     if (level === 'setup') {
       // Open only on a fresh installation (nobody could log in yet); afterwards a logged-in user is
@@ -185,15 +192,16 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     if (!req.principal || !req.access) {
       // WebDAV clients (scanners, file managers) ask for the credentials on this header.
       if (url.startsWith('/dav/')) reply.header('WWW-Authenticate', 'Basic realm="Paperless-AI inbox", charset="UTF-8"');
-      return reply.code(401).send({ error: 'Authentication required' });
+      if (ngx) return reply.code(401).header('WWW-Authenticate', 'Token').send({ detail: 'Invalid token.' });
+      return deny(401, 'Authentication required');
     }
     if (level === 'session' && !(req.principal.kind === 'user' && req.principal.via === 'session')) {
-      return reply.code(403).send({ error: 'This action requires a logged-in user (API keys are not allowed)' });
+      return deny(403, 'This action requires a logged-in user (API keys are not allowed)');
     }
     const policy = policyFor(req.method, url);
-    if (policy.admin && !isAdmin(req.access)) return reply.code(403).send({ error: 'Only administrators can do this', code: 'admin_required' });
+    if (policy.admin && !isAdmin(req.access)) return deny(403, 'Only administrators can do this', { code: 'admin_required' });
     if (!hasScope(req.access, policy.scope)) {
-      return reply.code(403).send({ error: `The API key does not have the "${policy.scope}" scope`, code: 'scope_missing' });
+      return deny(403, `The API key does not have the "${policy.scope}" scope`, { code: 'scope_missing' });
     }
   });
 
@@ -235,6 +243,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(workflowRoutes(services));
   await app.register(davRoutes(services));
   await app.register(migrationRoutes(services));
+  await app.register(ngxRoutes(services));
 
   // Web UI (single page app)
   const staticDir = opts.staticDir;

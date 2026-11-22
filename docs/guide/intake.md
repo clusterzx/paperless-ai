@@ -46,7 +46,7 @@ curl -H "Authorization: Token $KEY" -F document=@scan.pdf -F title="Letter" \
   https://paperless-ai.example.com/api/documents/post_document/
 ```
 
-The answer is a task id string as in Paperless-ngx (`"intake-123"`). Only this endpoint is provided – apps that need the whole Paperless-ngx API (tag lists, document views) do not work. The library is the default library of the key.
+The answer is the task id as in Paperless-ngx (a UUID string). The library is the default library of the key. Apps that need the whole Paperless-ngx API (tag lists, document views) connect to `https://paperless-ai.example.com/ngx` – see [Mobile apps](mobile-apps.md).
 
 ## WebDAV
 
