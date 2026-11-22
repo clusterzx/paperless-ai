@@ -168,18 +168,23 @@ function relativeDay(expr: string, today: Date): string | null {
 /** Takes `created:[a to b]` / `added:[a to b]` out of a full text query (and splits several queries joined with commas). */
 export function takeDateRanges(query: string, today = new Date()): { rest: string; created: { from?: string; to?: string }; added: { from?: string; to?: string } } {
   const out = { rest: query, created: {} as { from?: string; to?: string }, added: {} as { from?: string; to?: string } };
+  // The bracket's content is split with indexOf, not with a pattern: a pattern like `[^\]]*?\s+to\s+`
+  // takes quadratic time on long runs of spaces in a query (CodeQL js/polynomial-redos).
   out.rest = query
-    .replace(/(created|added|modified):\[([^\]]*?)\s+to\s+([^\]]*?)\]/gi, (_all, field: string, a: string, b: string) => {
+    .replace(/(created|added|modified):\[([^\]]*)\]/gi, (all: string, field: string, inner: string) => {
+      const text = inner.replace(/\s+/g, ' ');
+      const at = text.toLowerCase().indexOf(' to ');
+      if (at < 0) return all;
       const key = field.toLowerCase();
       if (key === 'created' || key === 'added') {
-        const from = relativeDay(a, today);
-        const to = relativeDay(b, today);
+        const from = relativeDay(text.slice(0, at), today);
+        const to = relativeDay(text.slice(at + 4), today);
         if (from) out[key].from = from;
         if (to) out[key].to = to;
       }
       return ' ';
     })
-    .replace(/\s*,\s*/g, ' ')
+    .replace(/,/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return out;
