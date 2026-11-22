@@ -278,7 +278,7 @@ test('shows a monetary field as amount and currency and saves it in the stored f
   await amount.fill('150,5'); // German notation is understood as well
   await page.getByLabel('Currency of Rechnungssumme').selectOption('USD');
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText('Saved')).toBeVisible();
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
   const saved = (await (await page.request.get(`/api/documents/${doc.id}`)).json()) as { custom_fields: { value: unknown }[] };
   expect(saved.custom_fields.map((f) => f.value)).toContain('USD150.50');
   await page.reload();
