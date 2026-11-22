@@ -50,5 +50,6 @@ Not available (empty lists or a clear message in the app): storage paths, saved 
 
 - Paths: `/ngx/api/…` with the trailing slash of Paperless-ngx; answers carry `X-Api-Version: 9` and `X-Version: 2.17.1`; versions above 9 are answered with 406, so apps fall back to 9.
 - Errors in the format of Paperless-ngx (`{"detail": …}`, `{"non_field_errors": […]}`).
+- A document without a document date shows the day it was added (Paperless-ngx always has a date, and the apps need one). That date is not saved when the app sends the document back; a date picked in the app is.
 - Changes made through the apps appear in the change log of the document with “ngx-api” as their source and can be undone in Paperless-AI.
 - With Paperless-ngx as the archive the compatible API is not there – connect the app to Paperless-ngx itself.

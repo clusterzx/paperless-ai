@@ -209,19 +209,31 @@ export function sortFromOrdering(ordering: string | undefined, hasQuery: boolean
 }
 
 /** A document as Paperless-ngx sends it (for the API version of the request). */
+/**
+ * The document date as the apps get it. Paperless-ngx always has one, and apps read it as a date
+ * that cannot be empty (Swift Paperless fails on the whole list otherwise); a document without a
+ * date shows the day it was added.
+ */
+export function shownCreated(d: Pick<ArchiveDocument, 'created' | 'created_date' | 'added' | 'modified'>, today = new Date()): string {
+  const own = d.created ?? d.created_date;
+  if (own) return own.slice(0, 10);
+  for (const v of [d.added, d.modified]) if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+  return today.toISOString().slice(0, 10);
+}
+
 export function ngxDocument(d: ArchiveDocument, version: number, opts: { content?: boolean; truncate?: boolean; fields?: string[] | null; perms?: boolean } = {}): Record<string, unknown> {
-  const created = d.created ?? d.created_date ?? null;
+  const created = shownCreated(d);
   const isPdf = /pdf/i.test(d.mime_type ?? '');
   const out: Record<string, unknown> = {
     id: d.id,
     correspondent: d.correspondent ?? null,
     document_type: d.document_type ?? null,
     storage_path: null,
-    title: d.title,
+    title: d.title ?? '',
     content: opts.content === false ? '' : opts.truncate ? (d.content ?? '').slice(0, 300) : (d.content ?? ''),
     tags: d.tags ?? [],
     // Version 9 made `created` a date; before it was a date and time.
-    created: created && version < 9 ? `${created}T12:00:00Z` : created,
+    created: version < 9 ? `${created}T12:00:00Z` : created,
     created_date: created,
     modified: d.modified ?? null,
     added: d.added ?? null,

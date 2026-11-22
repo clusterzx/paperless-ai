@@ -189,6 +189,26 @@ describe('documents', () => {
     expect((await get(`/ngx/api/tags/${tag.id}/`)).statusCode).toBe(404);
   });
 
+  it('always sends a document date – the apps cannot read a list with an empty one', async () => {
+    const id = await addDocument('Ohne Datum', 'Ein Schreiben ganz ohne Angabe eines Tages');
+    expect((await local().getDocument(SYSTEM_SCOPE, id)).created ?? null).toBeNull();
+    const listed = (await get('/ngx/api/documents/?ordering=-created,id')).json().results[0];
+    expect(listed.created).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(listed.created).toBe(String(listed.added).slice(0, 10));
+    expect(listed.created_date).toBe(listed.created);
+    expect(listed.title).toBe('Ohne Datum');
+
+    // Swift Paperless sends the whole document back when the title changes: the date shown is not saved.
+    const res = await h.inject({ method: 'PUT', url: `/ngx/api/documents/${id}/`, headers: auth(), payload: { ...listed, title: 'Schreiben' } });
+    expect(res.statusCode, res.body).toBe(200);
+    const doc = await local().getDocument(SYSTEM_SCOPE, id);
+    expect(doc.title).toBe('Schreiben');
+    expect(doc.created ?? null).toBeNull();
+    // A date picked in the app is.
+    await h.inject({ method: 'PATCH', url: `/ngx/api/documents/${id}/`, headers: auth(), payload: { created: '2023-07-14' } });
+    expect((await local().getDocument(SYSTEM_SCOPE, id)).created).toBe('2023-07-14');
+  });
+
   it('uploads like the apps and reports the task', async () => {
     const boundary = '----app';
     const body = Buffer.concat([

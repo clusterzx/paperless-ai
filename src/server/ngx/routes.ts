@@ -32,6 +32,7 @@ import {
   MAX_API_VERSION,
   MIN_API_VERSION,
   ngxDocument,
+  shownCreated,
   NGX_VERSION,
   pageParams,
   paginate,
@@ -515,7 +516,9 @@ export const ngxRoutes =
       if (body.document_type !== undefined) patch.document_type = body.document_type === null ? null : Number(body.document_type);
       if (Array.isArray(body.tags)) patch.tags = body.tags.map(Number);
       const created = (body.created_date ?? body.created) as string | null | undefined;
-      if (typeof created === 'string' && /^\d{4}-\d{2}-\d{2}/.test(created)) patch.created = created.slice(0, 10);
+      // Apps send the whole document back: the date shown for a document without one is not a change.
+      const hasDate = Boolean(doc.created ?? doc.created_date);
+      if (typeof created === 'string' && /^\d{4}-\d{2}-\d{2}/.test(created) && (hasDate || created.slice(0, 10) !== shownCreated(doc))) patch.created = created.slice(0, 10);
       if (body.archive_serial_number !== undefined) patch.archive_serial_number = body.archive_serial_number === null || body.archive_serial_number === '' ? null : Number(body.archive_serial_number);
       if (Array.isArray(body.custom_fields)) {
         patch.custom_fields = (body.custom_fields as { field: number; value?: unknown }[]).map((f) => ({ field: Number(f.field), value: f.value ?? null }));
