@@ -317,3 +317,16 @@ test('sorts tags by name and by number of documents', async ({ page }) => {
   await page.getByRole('checkbox', { name: 'Select all shown' }).check();
   await expect(page.getByRole('button', { name: 'Merge 3' })).toBeVisible();
 });
+
+test('names the libraries in the filter of the document list', async ({ page }) => {
+  await login(page);
+  const res = await page.request.post('/api/documents/upload', {
+    multipart: { file: { name: 'verein.pdf', mimeType: 'application/pdf', buffer: makePdf([['Protokoll der Mitgliederversammlung']]) }, library: 'Verein', skipAnalysis: 'true' },
+  });
+  expect(res.ok(), await res.text()).toBe(true);
+  await page.goto('/documents');
+  const filter = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Library' }) });
+  await expect(filter.getByText('Verein', { exact: true })).toBeVisible();
+  await expect(filter.getByText('Familie', { exact: true })).toBeVisible();
+  await expect(filter.getByText(/^Library \d+$/)).toHaveCount(0);
+});

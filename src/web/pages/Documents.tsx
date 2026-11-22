@@ -17,7 +17,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { BulkEditInput, BulkEditResult, DocumentFacetsResponse, DocumentListResponse, DocumentRow, SavedView, SearchInterpretation } from '@shared/api';
+import type { BulkEditInput, BulkEditResult, DocumentFacetsResponse, DocumentListResponse, DocumentRow, LibraryInfo, SavedView, SearchInterpretation } from '@shared/api';
 import { DocumentSearchBox } from '../components/searchBox';
 import { parseSearch } from '@shared/searchSyntax';
 import { Page } from '../components/Layout';
@@ -25,7 +25,7 @@ import { RunWorkflowModal } from '../components/workflowEditor';
 import { Alert, Badge, Button, EmptyState, Field, IconButton, Input, LinkButton, Modal, PageHeader, Select, SlideOver, Skeleton, TagInput, useConfirm, useToast } from '../components/ui';
 import { apiParams, DocumentThumb, idSet, searchFromState, SORT_OPTIONS, stateFromSearch, StatusIcon, TagChips, toggleId, useArchive, type ListState } from '../components/documents';
 import { errorMessage, get, post, qs } from '../lib/api';
-import { useDebounced } from '../lib/hooks';
+import { useAsync, useDebounced } from '../lib/hooks';
 import { cn, formatDate, formatNumber } from '../lib/format';
 import { useMetadata, type MetadataLookup } from '../lib/metadata';
 import { useLiveEvents } from '../lib/live';
@@ -92,7 +92,13 @@ function Filters({ state, set, facets, meta }: { state: ListState; set: (patch: 
   const count = (list: { id: number; count: number }[] | undefined, id: number) => list?.find((x) => x.id === id)?.count ?? 0;
   const withCounts = (items: { id: number; name: string }[], list: { id: number; count: number }[] | undefined, selected: number[]) =>
     items.filter((i) => count(list, i.id) > 0 || selected.includes(i.id)).map((i) => ({ id: i.id, name: i.name, count: count(list, i.id) }));
-  const libraries = useMemo(() => (facets?.libraries ?? []).map((l) => ({ id: l.id, name: `Library ${l.id}`, count: l.count })), [facets]);
+  // Names of the libraries (the facets only count by id).
+  const withLibraries = Boolean(archive?.capabilities.libraries);
+  const libraryList = useAsync((signal) => (withLibraries ? get<LibraryInfo[]>('/api/libraries', signal) : Promise.resolve([] as LibraryInfo[])), [withLibraries]);
+  const libraries = useMemo(() => {
+    const names = new Map((libraryList.data ?? []).map((l) => [l.id, l.name]));
+    return (facets?.libraries ?? []).map((l) => ({ id: l.id, name: names.get(l.id) ?? `Library ${l.id}`, count: l.count }));
+  }, [facets, libraryList.data]);
   return (
     <div className="space-y-5">
       {archive?.capabilities.libraries && libraries.length > 1 && (
