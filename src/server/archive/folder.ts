@@ -10,8 +10,8 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { systemScope, type AccessScope } from '../access/scope.js';
-import { userScope } from '../access/context.js';
 import type { IngestHints } from '../backend/types.js';
+import type { AppConfig } from '../config/schema.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
 import type { LocalBackend } from './backend.js';
@@ -22,6 +22,47 @@ const IGNORED = /^(\.|~\$)|\.(tmp|part|crdownload|download|swp)$|^(Thumbs\.db|de
 const SPECIAL_DIRS = new Set(['.done', '.failed', '@eaDir', '#recycle', '.Trash-1000', 'lost+found']);
 /** At most this many files per poll (the rest follows with the next one). */
 const PER_POLL = 50;
+/** Never watched: what is in there is no inbox, and it would be imported and removed. */
+const SYSTEM_DIRS = ['/bin', '/boot', '/dev', '/etc', '/lib', '/lib64', '/proc', '/sbin', '/sys', '/usr'];
+
+function realPath(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * Why a directory cannot be a watch folder, or null. A watch folder imports every file and then
+ * removes it – pointed at the data directory, the file storage or the program, it would move the
+ * database away and delete the stored originals.
+ */
+export function watchFolderProblem(dir: string, protectedDirs: string[], programDirs: string[] = [], followLinks = true): string | null {
+  if (!dir.trim()) return 'The folder is empty';
+  if (!path.isAbsolute(dir)) return 'Give the folder as an absolute path, e.g. /consume';
+  // Entered paths are checked as written (the watcher checks again with links resolved before every poll).
+  const target = followLinks ? realPath(dir) : path.resolve(dir);
+  if (target === path.parse(target).root) return 'The root directory cannot be a watch folder';
+  for (const sys of SYSTEM_DIRS) {
+    if (target === sys || target.startsWith(sys + path.sep)) return `${sys} is a system directory – use a folder of its own, e.g. /consume`;
+  }
+  for (const p of [...new Set(protectedDirs.filter(Boolean).map(realPath))]) {
+    if (target === p || target.startsWith(p + path.sep)) return `The folder is inside ${p}, which Paperless-AI uses itself – use a folder of its own, e.g. /consume`;
+    if (p.startsWith(target + path.sep)) return `The folder contains ${p}, which Paperless-AI uses itself – its files would be imported and removed`;
+  }
+  // The program directory: a folder of its own below it is fine (./consume), the directory itself or above is not.
+  for (const p of programDirs.filter(Boolean).map(realPath)) {
+    if (target === p || p.startsWith(target + path.sep)) return `The folder contains the program (${p}) – use a folder of its own, e.g. /consume`;
+  }
+  return null;
+}
+
+/** Why an entered directory cannot be a watch folder with this configuration (settings, setup, libraries), or null. */
+export function watchFolderProblemFor(dir: string, dataDir: string, cfg: AppConfig): string | null {
+  const b = cfg.archive.builtin;
+  return watchFolderProblem(dir, [dataDir, b.storageDir || path.join(dataDir, 'library'), path.join(dataDir, 'tmp'), path.join(dataDir, 'exports'), b.exportDir], [process.cwd()], false);
+}
 
 export interface FolderConfig {
   id: number | null;
@@ -68,12 +109,23 @@ export class FolderWatcher {
     this.timer = null;
   }
 
-  /** Configured folders: the environment/settings folder plus the ones of the libraries. */
+  /** Why a directory cannot be a watch folder of this instance, or null (see watchFolderProblem). */
+  problem(dir: string): string | null {
+    return watchFolderProblem(dir, [this.ctx.dataDir, this.backend.blobs.root, path.join(this.ctx.dataDir, 'tmp'), path.join(this.ctx.dataDir, 'exports'), this.ctx.cfg.archive.builtin.exportDir], [process.cwd()]);
+  }
+
+  /** Configured folders: the environment/settings folder plus the ones of the libraries (not deleted ones). */
   folders(): FolderConfig[] {
     const out: FolderConfig[] = [];
-    const main = this.ctx.cfg.archive.builtin.consumeDir.trim();
-    if (main) out.push({ id: null, path: main, libraryId: null, hints: {}, subfolders: 'tags', after: this.ctx.cfg.archive.builtin.consumeAfter, actAs: null });
-    const rows = this.ctx.db.prepare('SELECT * FROM intake_folders WHERE enabled = 1').all() as {
+    const b = this.ctx.cfg.archive.builtin;
+    const main = b.consumeDir.trim();
+    if (main) {
+      const lib = b.consumeLibrary ? this.ctx.repos.libraries.get(b.consumeLibrary) : undefined;
+      out.push({ id: null, path: main, libraryId: lib && !lib.deleted_at ? lib.id : null, hints: {}, subfolders: b.consumeSubfolders, after: b.consumeAfter, actAs: null });
+    }
+    const rows = this.ctx.db
+      .prepare('SELECT f.* FROM intake_folders f JOIN libraries l ON l.id = f.library_id AND l.deleted_at IS NULL WHERE f.enabled = 1')
+      .all() as {
       id: number;
       library_id: number;
       path: string;
@@ -83,7 +135,8 @@ export class FolderWatcher {
       act_as: number | null;
     }[];
     for (const r of rows) {
-      out.push({ id: r.id, path: r.path, libraryId: r.library_id, hints: JSON.parse(r.hints || '{}') as IngestHints, subfolders: r.subfolders, after: r.after, actAs: r.act_as });
+      // A library's folder stores into that library only ("library" subfolders are for the main folder).
+      out.push({ id: r.id, path: r.path, libraryId: r.library_id, hints: JSON.parse(r.hints || '{}') as IngestHints, subfolders: r.subfolders === 'library' ? 'tags' : r.subfolders, after: r.after, actAs: r.act_as });
     }
     return out;
   }
@@ -98,36 +151,48 @@ export class FolderWatcher {
 
   private async doPoll(): Promise<number> {
     let taken = 0;
-    for (const folder of this.folders()) {
+    const folders = this.folders();
+    const problems: string[] = [];
+    // A folder inside another watch folder belongs to the inner one only (not taken twice).
+    const roots = folders.map((f) => realPath(f.path));
+    for (const folder of folders) {
+      const problem = this.problem(folder.path);
+      if (problem) {
+        problems.push(`${folder.path}: ${problem}`);
+        continue;
+      }
       if (!fs.existsSync(folder.path)) {
-        this.lastError = `The watch folder ${folder.path} does not exist`;
+        problems.push(`The watch folder ${folder.path} does not exist`);
         continue;
       }
       try {
-        taken += await this.pollFolder(folder);
-        this.lastError = null;
+        const own = realPath(folder.path);
+        taken += await this.pollFolder(folder, new Set(roots.filter((r) => r !== own && r.startsWith(own + path.sep))));
       } catch (err) {
-        this.lastError = `${folder.path}: ${describeError(err)}`;
+        problems.push(`${folder.path}: ${describeError(err)}`);
         log.warn(`Watch folder ${folder.path}: ${describeError(err)}`);
       }
     }
+    if (problems.length && problems.join('\n') !== this.lastError) log.warn(`Watch folders: ${problems.join('; ')}`);
+    this.lastError = problems.length ? problems.join('\n') : null;
     return taken;
   }
 
-  private async *files(root: string, dir = root, depth = 0): AsyncGenerator<string> {
+  private async *files(root: string, skip: Set<string>, dir = root, depth = 0): AsyncGenerator<string> {
     if (depth > 5) return;
     for (const entry of await fsp.readdir(dir, { withFileTypes: true })) {
       if (entry.isDirectory()) {
-        if (!SPECIAL_DIRS.has(entry.name) && !entry.name.startsWith('.')) yield* this.files(root, path.join(dir, entry.name), depth + 1);
+        const sub = path.join(dir, entry.name);
+        if (!SPECIAL_DIRS.has(entry.name) && !entry.name.startsWith('.') && !skip.has(realPath(sub))) yield* this.files(root, skip, sub, depth + 1);
       } else if (entry.isFile() && !IGNORED.test(entry.name)) yield path.join(dir, entry.name);
     }
   }
 
-  private async pollFolder(folder: FolderConfig): Promise<number> {
+  private async pollFolder(folder: FolderConfig, skip: Set<string>): Promise<number> {
     const now = Date.now();
     const present = new Set<string>();
     const ready: string[] = [];
-    for await (const file of this.files(folder.path)) {
+    for await (const file of this.files(folder.path, skip)) {
       present.add(file);
       const st = await fsp.stat(file).catch(() => null);
       if (!st) continue;
@@ -140,7 +205,12 @@ export class FolderWatcher {
       if (st.size > 0 && (await this.exclusive(file))) ready.push(file);
       if (ready.length >= PER_POLL) break;
     }
-    for (const k of this.seen.keys()) if (k.startsWith(folder.path) && !present.has(k)) this.seen.delete(k);
+    // Forget files that are gone – but not those of a nested watch folder (they were not listed here).
+    const prefix = folder.path.endsWith(path.sep) ? folder.path : folder.path + path.sep;
+    const nested = [...skip].map((d) => d + path.sep);
+    for (const k of this.seen.keys()) {
+      if (k.startsWith(prefix) && !present.has(k) && !nested.some((n) => realPath(path.dirname(k)).concat(path.sep).startsWith(n))) this.seen.delete(k);
+    }
     let taken = 0;
     for (const file of ready) {
       if (this.stopped) break;
@@ -160,12 +230,14 @@ export class FolderWatcher {
     }
   }
 
+  /**
+   * The rights the intake of a folder has: a library's folder adds to its library only – whoever set
+   * it up (administrators need not be members of the library); the main folder adds to any library.
+   */
   private scopeFor(folder: FolderConfig): AccessScope {
-    if (folder.actAs) {
-      const s = userScope(this.ctx, folder.actAs);
-      if (s) return s;
-    }
-    return systemScope(folder.id ? `folder:${folder.id}` : 'folder');
+    const task = folder.id ? `folder:${folder.id}` : 'folder';
+    if (folder.id && folder.libraryId) return { principal: { kind: 'system', task }, libraries: new Map([[folder.libraryId, 'editor' as const]]), scopes: null };
+    return systemScope(task);
   }
 
   private async take(folder: FolderConfig, file: string): Promise<boolean> {
@@ -181,12 +253,15 @@ export class FolderWatcher {
     if (folder.libraryId) hints.libraryId = folder.libraryId;
     if (parts.length && folder.subfolders === 'tags') hints.tags = [...(hints.tags ?? []), ...parts];
     if (parts.length && folder.subfolders === 'library') {
+      // Family/Taxes/scan.pdf → library "Family", tag "Taxes"; an unknown first folder is a tag as well.
       const lib = this.ctx.repos.libraries.list().find((l) => l.name.toLowerCase() === parts[0].toLowerCase());
       if (lib) hints.libraryId = lib.id;
+      const tags = lib ? parts.slice(1) : parts;
+      if (tags.length) hints.tags = [...(hints.tags ?? []), ...tags];
     }
     try {
       const res = await this.backend.ingest(this.scopeFor(folder), { path: file, filename: path.basename(file) }, 'folder', hints);
-      if (res.status === 'rejected') await this.moveTo(folder, file, '.failed', res.reason ?? 'refused');
+      if (res.status === 'rejected' || res.status === 'failed') await this.moveTo(folder, file, '.failed', res.reason ?? 'refused');
       else if (folder.after === 'move') await this.moveTo(folder, file, path.join('.done', new Date().toISOString().slice(0, 10)));
       else await fsp.rm(file, { force: true });
       this.seen.delete(file);

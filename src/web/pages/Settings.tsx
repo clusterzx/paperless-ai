@@ -20,6 +20,7 @@ import {
   UserCog,
   Users,
   Archive as ArchiveIcon,
+  Inbox as InboxIcon,
   ScrollText,
   Webhook,
   Workflow,
@@ -50,14 +51,15 @@ import {
   Field,
   Input,
   PageHeader,
+  Select,
   Skeleton,
   Tabs,
   tabPanelProps,
   useConfirm,
   useToast,
 } from '../components/ui';
-import type { AccountInfo } from '@shared/api';
-import { ApiError, errorMessage, get, post, put } from '../lib/api';
+import type { AccountInfo, LibraryInfo } from '@shared/api';
+import { ApiError, errorMessage, get, patch, post, put } from '../lib/api';
 import { changedPaths, useDraft } from '../lib/draft';
 import { useAsync, useUnsavedChanges } from '../lib/hooks';
 import { useMetadata } from '../lib/metadata';
@@ -249,12 +251,51 @@ function PasswordCard() {
   );
 }
 
+/** Built-in archive: where the user's uploads go without a chosen library (share, WebDAV, apps, API). */
+function UploadsCard({ account, onChange }: { account: AccountInfo; onChange: () => void }) {
+  const toast = useToast();
+  const libraries = useAsync((signal) => get<LibraryInfo[]>('/api/libraries', signal), []);
+  const writable = (libraries.data ?? []).filter((l) => l.role === 'owner' || l.role === 'editor').sort((a, b) => a.id - b.id);
+  const [busy, setBusy] = useState(false);
+  const save = async (value: string) => {
+    setBusy(true);
+    try {
+      await patch('/api/account/profile', { defaultLibraryId: value ? Number(value) : null });
+      toast.success('Default library saved');
+      onChange();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (libraries.data && writable.length < 2) return null;
+  return (
+    <Card title="Uploads" icon={<InboxIcon className="size-4" />} className="max-w-xl">
+      <Field
+        label="Default library"
+        hint="Where your documents go when no library is chosen: sharing from the phone, the WebDAV inbox root, scanner apps and API uploads without a library. An API key limited to libraries uses its own."
+      >
+        <Select value={account.defaultLibraryId ?? ''} disabled={busy || !libraries.data} onChange={(e) => void save(e.target.value)}>
+          <option value="">{writable[0] ? `The oldest one I can add to (${writable[0].name})` : 'The oldest one I can add to'}</option>
+          {writable.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </Card>
+  );
+}
+
 /** Settings → Account: password, single sign-on, two-factor authentication. */
 function AccountTab() {
   const toast = useToast();
   const search = useSearch();
   const [, navigate] = useLocation();
   const account = useAsync((signal) => get<AccountInfo>('/api/account', signal), []);
+  const { session } = useSession();
   // Back from linking at the provider: ?sso=linked or ?sso_error=…
   const [ssoError] = useState(() => new URLSearchParams(search).get('sso_error'));
   useEffect(() => {
@@ -278,6 +319,7 @@ function AccountTab() {
           <p className="mt-1 text-sm text-muted">This account was created by single sign-on – it has no password; the provider takes care of it (including multi-factor authentication).</p>
         </Card>
       )}
+      {session?.archive?.capabilities.libraries && <UploadsCard account={a} onChange={() => void account.reload()} />}
       {(a.sso.available || a.sso.linked || ssoError) && <SingleSignOnCard account={a} error={ssoError} onChange={() => void account.reload()} />}
       {a.hasPassword && <TwoFactorCard />}
     </div>

@@ -274,6 +274,11 @@ export class LibrariesRepo {
     return (this.db.prepare('SELECT COUNT(*) AS c FROM libraries WHERE deleted_at IS NULL').get() as { c: number }).c;
   }
 
+  /** A library (not deleted) with this name, case ignored – names are unique, they address libraries in paths (WebDAV, watch folders). */
+  byName(name: string, exceptId?: number): LibraryRow | undefined {
+    return this.list().find((l) => l.name.trim().toLowerCase() === name.trim().toLowerCase() && l.id !== exceptId);
+  }
+
   create(name: string, createdBy: number | null, settings: LibrarySettings = {}, description = ''): number {
     const id = Number(
       this.db
@@ -338,6 +343,32 @@ export class LibrariesRepo {
         principal_id: number;
       }[]
     ).map((r) => r.principal_id);
+  }
+
+  /** Active users who own a library with these members – directly or through a group – optionally without one user. */
+  activeOwnerIds(members: { type: 'user' | 'group'; id: number; role: LibraryRole }[], withoutUser?: number): number[] {
+    const active = this.db.prepare('SELECT 1 FROM users WHERE id = ? AND disabled_at IS NULL');
+    const inGroup = this.db.prepare('SELECT gm.user_id FROM group_members gm JOIN users u ON u.id = gm.user_id AND u.disabled_at IS NULL WHERE gm.group_id = ?');
+    const out = new Set<number>();
+    for (const m of members) {
+      if (m.role !== 'owner') continue;
+      if (m.type === 'user') {
+        if (m.id !== withoutUser && active.get(m.id)) out.add(m.id);
+      } else {
+        for (const r of inGroup.all(m.id) as { user_id: number }[]) if (r.user_id !== withoutUser) out.add(r.user_id);
+      }
+    }
+    return [...out];
+  }
+
+  /** Libraries that have an active owner now and would have none without this user or group. */
+  orphanedWithout(principal: { type: 'user' | 'group'; id: number }): LibraryRow[] {
+    return this.list().filter((l) => {
+      const members = this.members(l.id).map((m) => ({ type: m.principal_type, id: m.principal_id, role: m.role }));
+      if (!this.activeOwnerIds(members).length) return false;
+      const rest = principal.type === 'user' ? this.activeOwnerIds(members, principal.id) : this.activeOwnerIds(members.filter((m) => !(m.type === 'group' && m.id === principal.id)));
+      return rest.length === 0;
+    });
   }
 
   /** The effective role of a user in each library: the highest of direct and group memberships. */

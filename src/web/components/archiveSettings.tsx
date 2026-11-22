@@ -6,6 +6,7 @@ import { Archive, Download, HardDrive, Mail, ShieldCheck, Wrench } from 'lucide-
 import { Alert, Badge, Button, Card, Field, Input, NumberInput, Select, Skeleton, Switch, useToast } from './ui';
 import type { Config, Locked } from './settingsForms';
 import type { ExportResult } from '@shared/migration';
+import type { LibraryInfo } from '@shared/api';
 import { errorMessage, get, post } from '../lib/api';
 import { useAsync } from '../lib/hooks';
 import { formatDate, formatNumber } from '../lib/format';
@@ -38,6 +39,8 @@ export function ArchiveSection({ draft, set, locked }: { draft: Config; set: (pa
   const toast = useToast();
   const b = draft.archive.builtin;
   const status = useAsync((signal) => get<ArchiveStatus>('/api/archive/status', signal), []);
+  const libraries = useAsync((signal) => get<LibraryInfo[]>('/api/libraries', signal), []);
+  const libraryList = [...(libraries.data ?? [])].sort((x, y) => x.id - y.id);
   const [running, setRunning] = useState(false);
   const runMaintenance = async () => {
     setRunning(true);
@@ -72,9 +75,32 @@ export function ArchiveSection({ draft, set, locked }: { draft: Config; set: (pa
 
       <Card title="Watch folder" icon={<Archive className="size-4" />} description="Files dropped into this folder – by a scanner, an SMB/FTP share or by hand – are imported. Libraries can have folders of their own.">
         <div className="space-y-4">
-          <Field label="Folder" hint="Empty: off. Subfolders become tags (e.g. /consume/Taxes/scan.pdf → tag “Taxes”)." locked={locked['archive.builtin.consumeDir']}>
+          <Field
+            label="Folder"
+            hint="Empty: off. A folder of its own (e.g. a mounted /consume) – not the data directory or the file storage: everything in the folder is imported and removed."
+            locked={locked['archive.builtin.consumeDir']}
+          >
             <Input value={b.consumeDir} onChange={(e) => set('archive.builtin.consumeDir', e.target.value)} placeholder="/consume" disabled={Boolean(locked['archive.builtin.consumeDir'])} />
           </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Library" hint="Where the files go (unless a subfolder names another library).">
+              <Select value={b.consumeLibrary} onChange={(e) => set('archive.builtin.consumeLibrary', Number(e.target.value))}>
+                <option value={0}>{libraryList[0] ? `The oldest library (${libraryList[0].name})` : 'The oldest library'}</option>
+                {libraryList.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Subfolders" hint={b.consumeSubfolders === 'library' ? 'Family/Taxes/scan.pdf → library “Family”, tag “Taxes”' : b.consumeSubfolders === 'tags' ? 'Taxes/scan.pdf → tag “Taxes”' : 'Files in subfolders are taken, the folder names are not used'}>
+              <Select value={b.consumeSubfolders} onChange={(e) => set('archive.builtin.consumeSubfolders', e.target.value)}>
+                <option value="tags">Become tags</option>
+                <option value="library">First one is the library, the rest tags</option>
+                <option value="ignore">Ignored</option>
+              </Select>
+            </Field>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Check every (seconds)">
               <NumberInput value={b.consumePollSeconds} min={2} max={3600} onChange={(v) => set('archive.builtin.consumePollSeconds', v)} />

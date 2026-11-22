@@ -11,7 +11,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { ActivityItem, BulkEditInput, BulkEditResult, UploadResult } from '../../shared/api.js';
 import type { AppContext } from '../context.js';
 import type { ProcessingEngine } from '../processing/engine.js';
-import { canEdit, userIdOf, type AccessScope } from '../access/scope.js';
+import { canEdit, canRead, userIdOf, type AccessScope } from '../access/scope.js';
 import { actorName } from '../access/context.js';
 import { notSupported, type ArchiveDocument, type ChangeOrigin, type DocumentPatch, type IngestChannel, type IngestHints } from '../backend/types.js';
 import { convertCustomFieldValue } from '../processing/applier.js';
@@ -240,8 +240,12 @@ export async function receiveUploads(
     }
     const one = (k: string) => fields[k]?.[0]?.trim() || undefined;
     const tags = (fields.tags ?? []).flatMap((t) => t.split(',')).map((t) => t.trim()).filter(Boolean);
-    const libraryId = one('libraryId') ? Number(one('libraryId')) : undefined;
-    const idempotency = req.headers['idempotency-key'];
+    // The library by id (libraryId) or by name (library=Family).
+    const libraryId = one('libraryId') ? Number(one('libraryId')) : one('library') ? libraryByName(ctx, req.access!, one('library')!) : undefined;
+    // The client's Idempotency-Key counts per user: two users (or apps) may send the same one.
+    const idempotencyHeader = req.headers['idempotency-key'];
+    const caller = userIdOf(req.access!);
+    const idempotency = typeof idempotencyHeader === 'string' && idempotencyHeader ? `${caller !== null ? `user:${caller}` : req.access!.principal.kind}:${idempotencyHeader}` : undefined;
     const custom = hintsFrom ? await hintsFrom(fields) : null;
     const hints: IngestHints = custom ? { ...extraHints, ...stripUndefined(custom) } : {
       ...extraHints,
@@ -264,7 +268,7 @@ export async function receiveUploads(
         const res = await backend.ingest(
           { path: f.path, filename: f.filename, mimeType: f.mimeType },
           channel,
-          { ...hints, ...(typeof idempotency === 'string' && idempotency ? { channelRef: files.length > 1 ? `${idempotency}#${i}` : idempotency } : {}) },
+          { ...hints, ...(idempotency ? { channelRef: files.length > 1 ? `${idempotency}#${i}` : idempotency } : {}) },
         );
         results.push({ filename: f.filename, ...res });
       } catch (err) {
@@ -277,6 +281,14 @@ export async function receiveUploads(
   } finally {
     for (const f of files) fs.rmSync(f.path, { force: true });
   }
+}
+
+/** The id of a library the scope can see, by its name (case ignored); 400 when there is none. */
+export function libraryByName(ctx: AppContext, scope: AccessScope, name: string): number {
+  if (!ctx.archive().capabilities.libraries) throw badRequest('Libraries exist in the built-in archive only');
+  const lib = ctx.repos.libraries.list().find((l) => l.name.toLowerCase() === name.trim().toLowerCase() && canRead(scope, l.id));
+  if (!lib) throw badRequest(`No library “${name}”`);
+  return lib.id;
 }
 
 function stripUndefined<T extends object>(o: T): T {

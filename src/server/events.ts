@@ -36,6 +36,8 @@ export interface IntakeEvent {
   documentId?: number | null;
   filename?: string | null;
   libraryId?: number | null;
+  /** The user who sent the file (an attempt without a library is shown to them and administrators). */
+  createdBy?: number | null;
 }
 
 export class DocumentEvents {

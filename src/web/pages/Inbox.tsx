@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { Link } from 'wouter';
 import { CheckCircle2, CircleAlert, FileUp, Loader2, RotateCcw, UploadCloud } from 'lucide-react';
-import type { UploadResult } from '@shared/api';
+import type { AccountInfo, UploadResult } from '@shared/api';
 import { Page } from '../components/Layout';
 import { Alert, Badge, Button, Card, EmptyState, Field, PageHeader, Select, Switch, TagInput, useToast } from '../components/ui';
 import { useArchive } from '../components/documents';
@@ -32,7 +32,7 @@ interface IntakeRow {
 interface LibraryOption {
   id: number;
   name: string;
-  role: string;
+  role: string | null;
 }
 
 /** Upload with progress (fetch cannot report upload progress). */
@@ -93,7 +93,11 @@ export default function InboxPage() {
     if (e.type === 'intake' || e.type === 'document.processed') void intake.reload();
   }, native);
 
-  const writable = (libraries.data ?? []).filter((l) => l.role !== 'viewer');
+  // Libraries the user can add to (administrators are not members of every library: role null).
+  const writable = (libraries.data ?? []).filter((l) => l.role === 'owner' || l.role === 'editor');
+  const account = useAsync((signal) => (archive?.capabilities.libraries ? get<AccountInfo>('/api/account', signal) : Promise.resolve(null)), [archive?.capabilities.libraries]);
+  // Where "Default" goes: the user's default library, else the oldest one they can add to.
+  const defaultLibrary = writable.find((l) => l.id === account.data?.defaultLibraryId) ?? [...writable].sort((a, b) => a.id - b.id)[0];
   const start = async (files: File[]) => {
     const fresh = files.map((file) => ({ key: `${file.name}-${file.size}-${Math.random()}`, file, progress: 0 }));
     setItems((x) => [...fresh, ...x]);
@@ -175,7 +179,7 @@ export default function InboxPage() {
                   const status = it.error ? 'failed' : (it.result?.status ?? 'uploading');
                   return (
                     <li key={it.key} className="flex items-center gap-3 px-5 py-3 text-sm">
-                      {it.error || status === 'rejected' ? (
+                      {it.error || status === 'rejected' || status === 'failed' ? (
                         <CircleAlert className="size-4 shrink-0 text-danger" />
                       ) : it.result ? (
                         <CheckCircle2 className="size-4 shrink-0 text-success" />
@@ -212,7 +216,7 @@ export default function InboxPage() {
               {writable.length > 1 && (
                 <Field label="Library">
                   <Select value={library} onChange={(e) => setLibrary(e.target.value)}>
-                    <option value="">Default</option>
+                    <option value="">{defaultLibrary ? `Default (${defaultLibrary.name})` : 'Default'}</option>
                     {writable.map((l) => (
                       <option key={l.id} value={l.id}>
                         {l.name}

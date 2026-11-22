@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { LiveEvent, MetadataItem, SavedView, SimilarMetadataGroup } from '../../shared/api.js';
 import type { Services } from '../http/app.js';
 import { badRequest, notFound, sendEventStream } from '../http/helpers.js';
-import { canEdit, canRead, readableLibraries, userIdOf, type AccessScope } from '../access/scope.js';
+import { canEdit, canRead, isAdmin, readableLibraries, userIdOf, type AccessScope } from '../access/scope.js';
 import { CUSTOM_FIELD_TYPES } from '../config/schema.js';
 import type { ArchiveDocument, ChangeOrigin, CustomFieldType, DocumentFilter, DocumentPatch, MetadataKind } from '../backend/types.js';
 import type { DocumentEvent } from '../events.js';
@@ -380,7 +380,8 @@ export const metadataRoutes =
         const onJob = (documentId: number, outcome: string) => push({ type: 'processing', documentId, outcome });
         engine.on('job', onJob);
         const offIntake = ctx.events.onIntake((e) => {
-          if (e.libraryId != null && !canRead(scope, e.libraryId)) return;
+          // An attempt without a library (refused before one was chosen): only for its sender and administrators.
+          if (e.libraryId != null ? !canRead(scope, e.libraryId) : !(isAdmin(scope) || (e.createdBy != null && e.createdBy === userIdOf(scope)))) return;
           push({ type: 'intake', intakeId: e.intakeId, status: e.status, documentId: e.documentId ?? null, filename: e.filename ?? null });
         });
         try {

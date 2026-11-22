@@ -10,6 +10,7 @@ import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
 import { newApiKey } from '../auth.js';
 import { audit } from '../access/context.js';
 import { validateCron } from '../processing/engine.js';
+import { watchFolderProblemFor } from '../archive/folder.js';
 import { clearExternalApiCache, fetchExternalData } from '../processing/externalApi.js';
 import { localEmbeddingsAvailable } from '../rag/localEmbedder.js';
 import { cudaProviderInstalled } from '../ocr/pipeline.js';
@@ -51,6 +52,11 @@ export const settingsRoutes =
         const next = configSchema.parse(deepMerge(structuredClone(ctx.cfg), patch));
         const cronProblem = validateCron(next.processing.scanInterval);
         if (cronProblem) throw badRequest(`Invalid scan interval: ${cronProblem}`);
+        const consumeDir = next.archive.builtin.consumeDir.trim();
+        if (consumeDir && consumeDir !== ctx.cfg.archive.builtin.consumeDir.trim()) {
+          const problem = watchFolderProblemFor(consumeDir, ctx.dataDir, next);
+          if (problem) throw badRequest(`Watch folder: ${problem}`);
+        }
         if (next.externalApi.enabled) {
           for (const [label, value] of [
             ['headers', next.externalApi.headers],

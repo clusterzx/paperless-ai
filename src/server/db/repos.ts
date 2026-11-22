@@ -33,6 +33,8 @@ export interface UserRow {
   display_name: string | null;
   email: string | null;
   disabled_at: number | null;
+  /** Library of uploads without a chosen one (built-in archive); null = the oldest one they can add to. */
+  default_library_id: number | null;
 }
 
 /** A user as listed in the user management (no secrets). */
@@ -94,6 +96,10 @@ export class UsersRepo {
     this.db
       .prepare('UPDATE users SET display_name = ?, email = ?, updated_at = ? WHERE id = ?')
       .run(profile.displayName !== undefined ? profile.displayName : u.display_name, profile.email !== undefined ? profile.email : u.email, Date.now(), id);
+  }
+
+  setDefaultLibrary(id: number, libraryId: number | null): void {
+    this.db.prepare('UPDATE users SET default_library_id = ?, updated_at = ? WHERE id = ?').run(libraryId, Date.now(), id);
   }
 
   byUsername(username: string): UserRow | undefined {

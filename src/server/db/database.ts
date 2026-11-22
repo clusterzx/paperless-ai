@@ -442,6 +442,22 @@ const MIGRATIONS: Migration[] = [
     // (an import into an archive with documents of its own); NULL = the same id.
     up: (db) => db.exec('ALTER TABLE migration_items ADD COLUMN local_id INTEGER; CREATE UNIQUE INDEX migration_items_local ON migration_items(local_id) WHERE local_id IS NOT NULL;'),
   },
+  {
+    version: 17,
+    name: 'intake: default library, retry hints, only new e-mails',
+    up: (db) =>
+      db.exec(`
+        -- The library a user's uploads go to when they do not choose one (NULL: the oldest one they can add to).
+        ALTER TABLE users ADD COLUMN default_library_id INTEGER;
+        -- The hints of an intake attempt (tags, title, mail sender …), so "Try again" keeps them.
+        ALTER TABLE lib_intake ADD COLUMN hints TEXT;
+        -- 1 = the first check skips the messages already in the folders (only new ones are read).
+        ALTER TABLE intake_mail_accounts ADD COLUMN skip_existing INTEGER NOT NULL DEFAULT 0;
+        -- Watch folders and mail accounts of libraries deleted before: they kept running.
+        DELETE FROM intake_folders WHERE library_id IN (SELECT id FROM libraries WHERE deleted_at IS NOT NULL);
+        DELETE FROM intake_mail_accounts WHERE library_id IN (SELECT id FROM libraries WHERE deleted_at IS NOT NULL);
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {

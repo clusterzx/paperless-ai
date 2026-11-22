@@ -9,7 +9,7 @@ import type { ApiKeyInfo, AuditEntryInfo, GroupInfo, NotificationInfo, UserInfo 
 import type { Services } from '../http/app.js';
 import { badRequest, HttpProblem, notFound } from '../http/helpers.js';
 import { hashPassword, validatePassword } from '../auth.js';
-import { API_SCOPES, isAdmin, type AccessScope } from '../access/scope.js';
+import { API_SCOPES, canEdit, isAdmin, type AccessScope } from '../access/scope.js';
 import { allowedScopes, audit } from '../access/context.js';
 import type { ApiKeyRow } from '../db/accessRepo.js';
 import { logger } from '../logger.js';
@@ -156,6 +156,10 @@ export const accessRoutes =
       if (!user) throw notFound('User not found');
       if (req.principal?.kind === 'user' && req.principal.userId === user.id) throw badRequest('You cannot delete your own account');
       if (user.role === 'admin' && !otherActiveAdmins(user.id)) throw badRequest('The last administrator cannot be deleted');
+      const orphaned = ctx.repos.libraries.orphanedWithout({ type: 'user', id: user.id });
+      if (orphaned.length) {
+        throw badRequest(`${user.username} is the only owner of ${orphaned.map((l) => `“${l.name}”`).join(', ')} – give ${orphaned.length > 1 ? 'these libraries' : 'this library'} another owner first (Libraries → Members)`);
+      }
       ctx.db.transaction(() => {
         ctx.db.prepare("DELETE FROM library_members WHERE principal_type = 'user' AND principal_id = ?").run(user.id);
         users.delete(user.id);
@@ -213,6 +217,10 @@ export const accessRoutes =
     app.delete('/api/groups/:id', { schema: { params: id } }, async (req) => {
       const g = groups.get(req.params.id);
       if (!g) throw notFound('Group not found');
+      const orphaned = ctx.repos.libraries.orphanedWithout({ type: 'group', id: g.id });
+      if (orphaned.length) {
+        throw badRequest(`The group “${g.name}” is the only owner of ${orphaned.map((l) => `“${l.name}”`).join(', ')} – give ${orphaned.length > 1 ? 'these libraries' : 'this library'} another owner first (Libraries → Members)`);
+      }
       groups.delete(g.id);
       ctx.repos.libraries.invalidate();
       audit(ctx, req.access, 'group.deleted', `group:${g.id}`, { name: g.name });
@@ -287,9 +295,21 @@ export const accessRoutes =
 
     app.patch(
       '/api/account/profile',
-      { config: { auth: 'session' }, schema: { body: z.object({ displayName: optionalText(200), email: optionalText(200) }) } },
+      {
+        config: { auth: 'session' },
+        schema: { body: z.object({ displayName: optionalText(200), email: optionalText(200), defaultLibraryId: z.number().int().positive().nullable().optional() }) },
+      },
       async (req) => {
-        users.setProfile(me(req).userId, { displayName: req.body.displayName, email: req.body.email });
+        const userId = me(req).userId;
+        users.setProfile(userId, { displayName: req.body.displayName, email: req.body.email });
+        if (req.body.defaultLibraryId !== undefined) {
+          const libId = req.body.defaultLibraryId;
+          if (libId !== null) {
+            const lib = ctx.repos.libraries.get(libId);
+            if (!lib || lib.deleted_at || !canEdit(req.access!, libId)) throw badRequest('Choose a library you can add documents to');
+          }
+          users.setDefaultLibrary(userId, libId);
+        }
         return { ok: true };
       },
     );

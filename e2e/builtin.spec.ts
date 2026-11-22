@@ -127,6 +127,31 @@ test('creates a library and adds a member with a role', async ({ page }) => {
   await expect(page.getByLabel('Role of kim')).toHaveValue('editor');
 });
 
+test('sets the default library for uploads and limits an API key to a library', async ({ page }) => {
+  await login(page);
+  await page.goto('/settings?tab=account');
+  await page.getByLabel('Default library').selectOption({ label: 'Verein' });
+  await expect(page.getByText('Default library saved')).toBeVisible();
+  await page.goto('/inbox');
+  await expect(page.getByLabel('Library').locator('option').first()).toHaveText('Default (Verein)');
+
+  await page.goto('/settings?tab=keys');
+  await page.getByRole('button', { name: 'New key' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Name').fill('Scanner');
+  await dialog.getByLabel('Upload documents').check();
+  await dialog.getByLabel('Familie').check();
+  await dialog.getByRole('button', { name: 'Create key' }).click();
+  await expect(dialog.getByText('Copy the key now')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  const row = page.getByRole('listitem').filter({ hasText: 'Scanner' });
+  await expect(row.getByText('Familie')).toBeVisible();
+  // Back to the oldest library, so the following tests upload where they expect.
+  await page.goto('/settings?tab=account');
+  await page.getByLabel('Default library').selectOption({ index: 0 });
+  await expect(page.getByText('Default library saved')).toBeVisible();
+});
+
 test('builds a workflow, tests it and runs it on a document', async ({ page }) => {
   await login(page);
   await page.goto('/workflows/new');

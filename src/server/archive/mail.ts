@@ -26,6 +26,8 @@ export interface MailRule {
   skipAnalysis?: boolean;
   /** Ignore matching messages. */
   ignore?: boolean;
+  /** Store into this library instead of the account's (one mailbox for several libraries). */
+  libraryId?: number;
 }
 
 export interface MailAccountRow {
@@ -45,12 +47,14 @@ export interface MailAccountRow {
   last_error: string | null;
   last_checked_at: number | null;
   enabled: number;
+  /** 1: the first check of a folder skips the messages already there. */
+  skip_existing: number;
 }
 
 /** The part of an IMAP client the watcher needs (imapflow; a fake in tests). */
 export interface MailClient {
   connect(): Promise<void>;
-  mailboxOpen(path: string): Promise<{ uidValidity: bigint | number; exists: number }>;
+  mailboxOpen(path: string): Promise<{ uidValidity: bigint | number; exists: number; uidNext?: number }>;
   search(query: { uid: string }, options: { uid: true }): Promise<number[] | false | undefined>;
   fetchOne(uid: string, query: { source: true }, options: { uid: true }): Promise<{ source?: Buffer } | false>;
   messageFlagsAdd(uid: string, flags: string[], options: { uid: true }): Promise<boolean>;
@@ -159,8 +163,11 @@ export class MailWatcher {
     return seal(password, this.ctx.cfg.security.jwtSecret, 'mail');
   }
 
+  /** Enabled accounts of libraries that exist (not deleted). */
   accounts(): MailAccountRow[] {
-    return this.ctx.db.prepare('SELECT * FROM intake_mail_accounts WHERE enabled = 1 ORDER BY id').all() as MailAccountRow[];
+    return this.ctx.db
+      .prepare('SELECT a.* FROM intake_mail_accounts a JOIN libraries l ON l.id = a.library_id AND l.deleted_at IS NULL WHERE a.enabled = 1 ORDER BY a.id')
+      .all() as MailAccountRow[];
   }
 
   /** Check all enabled accounts (one run at a time). */
@@ -207,6 +214,12 @@ export class MailWatcher {
         const box = await client.mailboxOpen(folder);
         const validity = String(box.uidValidity);
         const prev = state[folder];
+        // "Only new e-mails": the first look at a folder remembers where it ends and reads nothing.
+        if (!prev && row.skip_existing) {
+          const last = box.uidNext ? box.uidNext - 1 : Math.max(0, ...(((await client.search({ uid: '1:*' }, { uid: true })) || []) as number[]));
+          state[folder] = { uidValidity: validity, lastUid: last };
+          continue;
+        }
         // A new UIDVALIDITY means the folder was rebuilt: start over (the intake references prevent duplicates).
         const after = prev && prev.uidValidity === validity ? prev.lastUid : 0;
         const uids = ((await client.search({ uid: `${after + 1}:*` }, { uid: true })) || []).filter((u) => u > after).sort((x, y) => x - y).slice(0, MAX_PER_RUN);
@@ -219,8 +232,13 @@ export class MailWatcher {
             result.stored += outcome.stored;
             result.duplicates += outcome.duplicates;
             if (outcome.ignored) result.ignored++;
-            // Done with the message: only when something was stored (others stay as they are).
-            if (outcome.stored + outcome.duplicates > 0) {
+            // A refused attachment (too large, a type that is not accepted): the message stays as it
+            // is – unread, in its folder – so nothing of it is lost; the account shows why.
+            if (outcome.refused.length) {
+              result.errors.push(`Message ${uid}: ${outcome.refused.join('; ')} – the message was left in the mailbox`);
+            }
+            // Done with the message: only when something was stored and nothing was refused (others stay as they are).
+            else if (outcome.stored + outcome.duplicates > 0) {
               // Only this message is ever changed: without UIDPLUS a deletion is just the \Deleted
               // flag (the mail client purges it later) and a move falls back to marking it read.
               if (row.after === 'delete' && safe.delete) await client.messageDelete(String(uid), { uid: true });
@@ -252,20 +270,30 @@ export class MailWatcher {
     return result;
   }
 
-  private async storeMessage(row: MailAccountRow, rules: MailRule[], mail: ParsedMail, ref: string): Promise<{ stored: number; duplicates: number; ignored: boolean }> {
+  /**
+   * Store the attachments of a message. A passing failure of one attachment throws (the message is
+   * read again next time; attachments stored already are not stored twice); refused attachments are
+   * returned, so the message is left in the mailbox.
+   */
+  private async storeMessage(row: MailAccountRow, rules: MailRule[], mail: ParsedMail, ref: string): Promise<{ stored: number; duplicates: number; refused: string[]; ignored: boolean }> {
     const from = mail.from?.text ?? '';
     const subject = mail.subject ?? '';
     const rule = rules.find((r) => (!r.from || from.toLowerCase().includes(r.from.toLowerCase())) && (!r.subject || subject.toLowerCase().includes(r.subject.toLowerCase())));
-    if (rule?.ignore) return { stored: 0, duplicates: 0, ignored: true };
+    if (rule?.ignore) return { stored: 0, duplicates: 0, refused: [], ignored: true };
+    // The library of the rule, as long as it exists; else the account's.
+    const ruleLibrary = rule?.libraryId ? this.ctx.repos.libraries.get(rule.libraryId) : undefined;
+    const libraryId = ruleLibrary && !ruleLibrary.deleted_at ? ruleLibrary.id : row.library_id;
     let stored = 0;
     let duplicates = 0;
+    const refused: string[] = [];
     for (const [i, att] of mail.attachments.entries()) {
       const type = sniffType(att.content);
       if (!type) continue;
       // Logos, icons and signatures are no documents.
       if (type.startsWith('image/') && (await isMailDecoration(att))) continue;
-      const res = await this.backend.ingest(SYSTEM_SCOPE, { data: att.content, filename: att.filename || `attachment-${i + 1}.${type.split('/')[1]}` }, 'mail', {
-        libraryId: row.library_id,
+      const filename = att.filename || `attachment-${i + 1}.${type.split('/')[1]}`;
+      const res = await this.backend.ingest(SYSTEM_SCOPE, { data: att.content, filename }, 'mail', {
+        libraryId,
         tags: rule?.tags,
         skipAnalysis: rule?.skipAnalysis,
         channelRef: `${ref}:${i}`,
@@ -273,7 +301,9 @@ export class MailWatcher {
       });
       if (res.status === 'stored') stored++;
       else if (res.status === 'duplicate') duplicates++;
+      else if (res.status === 'failed') throw new Error(`"${filename}" could not be stored (${res.reason ?? 'unknown error'}) – tried again with the next check`);
+      else refused.push(`"${filename}" was refused (${res.reason ?? 'not accepted'})`);
     }
-    return { stored, duplicates, ignored: false };
+    return { stored, duplicates, refused, ignored: false };
   }
 }

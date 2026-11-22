@@ -282,3 +282,98 @@ describe('e-mail intake', () => {
     expect(list[0].lastError).toContain('Authentication failed');
   });
 });
+
+describe('e-mail intake: failures, only new mails, several libraries', () => {
+  const createAccount = async (lib: number, extra: Record<string, unknown> = {}) => {
+    const res = await h.inject({ method: 'POST', url: `/api/libraries/${lib}/intake/mail`, headers: { cookie }, payload: { name: 'M', host: 'h', username: 'u', password: 'imap-secret', after: 'delete', ...extra } });
+    expect(res.statusCode, res.body).toBe(200);
+    return res.json() as MailAccountInfo;
+  };
+  const check = async (id: number) => (await h.inject({ method: 'POST', url: `/api/intake/mail/${id}/check`, headers: { cookie } })).json() as { messages: number; stored: number; errors: string[] };
+  const two = (a: Buffer, b: Buffer) =>
+    message({
+      from: 'x@example.com',
+      subject: 'Zwei Anhänge',
+      attachments: [
+        { name: 'one.pdf', data: a, type: 'application/pdf' },
+        { name: 'two.pdf', data: b, type: 'application/pdf' },
+      ],
+    });
+
+  it('keeps a message whose attachment failed and reads it again next time', async () => {
+    const lib = local().ensureDefaultLibrary();
+    const uid = imap.add(two(makePdf([['Erster Anhang']]), makePdf([['Zweiter Anhang']])));
+    const account = await createAccount(lib);
+    // The second attachment fails for a passing reason (e.g. the disk was full).
+    const refresh = local().refreshFts.bind(local());
+    let failed = false;
+    local().refreshFts = (id: number) => {
+      if (!failed && local().row(id)?.original_filename === 'two.pdf') {
+        failed = true;
+        throw new Error('disk full');
+      }
+      refresh(id);
+    };
+    const first = await check(account.id);
+    local().refreshFts = refresh;
+    expect(first.errors[0]).toMatch(/two\.pdf.*could not be stored/);
+    expect(h.ctx.db.prepare("SELECT COUNT(*) AS c FROM lib_documents WHERE source = 'mail'").get()).toEqual({ c: 1 });
+    expect(imap.folders.get('INBOX')!.messages.has(uid)).toBe(true); // not deleted
+    // Next check: the message is read again, the first attachment is not stored twice.
+    const second = await check(account.id);
+    expect(second.errors).toEqual([]);
+    expect(imap.folders.get('INBOX')!.messages.has(uid)).toBe(false);
+    const files = (h.ctx.db.prepare("SELECT original_filename FROM lib_documents WHERE source = 'mail' ORDER BY original_filename").all() as { original_filename: string }[]).map((d) => d.original_filename);
+    expect(files).toEqual(['one.pdf', 'two.pdf']);
+  });
+
+  it('leaves a message with a refused attachment in the mailbox', async () => {
+    const lib = local().ensureDefaultLibrary();
+    h.ctx.config.update({ archive: { builtin: { maxUploadMb: 1 } } });
+    const tooLarge = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(1_200_000, 32)]);
+    const uid = imap.add(two(makePdf([['Kleiner Anhang']]), tooLarge));
+    const account = await createAccount(lib);
+    const res = await check(account.id);
+    expect(res.stored).toBe(1);
+    expect(res.errors[0]).toMatch(/two\.pdf.*refused.*left in the mailbox/);
+    const msg = imap.folders.get('INBOX')!.messages.get(uid)!;
+    expect(msg).toBeDefined();
+    expect([...msg.flags]).toEqual([]); // untouched: still unread
+    expect((h.ctx.db.prepare('SELECT last_error FROM intake_mail_accounts WHERE id = ?').get(account.id) as { last_error: string }).last_error).toMatch(/left in the mailbox/);
+  });
+
+  it('reads only messages that arrive later with "only new e-mails"', async () => {
+    const lib = local().ensureDefaultLibrary();
+    const old = imap.add(message({ from: 'a@example.com', subject: 'Alt', attachments: [{ name: 'old.pdf', data: makePdf([['Alte Rechnung']]), type: 'application/pdf' }] }));
+    const account = await createAccount(lib, { skipExisting: true });
+    expect(account.skipExisting).toBe(true);
+    expect(await check(account.id)).toMatchObject({ messages: 0, stored: 0 });
+    expect(imap.folders.get('INBOX')!.messages.has(old)).toBe(true);
+    imap.add(message({ from: 'a@example.com', subject: 'Neu', attachments: [{ name: 'new.pdf', data: makePdf([['Neue Rechnung']]), type: 'application/pdf' }] }));
+    expect(await check(account.id)).toMatchObject({ messages: 1, stored: 1 });
+    const files = (h.ctx.db.prepare("SELECT original_filename FROM lib_documents WHERE source = 'mail'").all() as { original_filename: string }[]).map((d) => d.original_filename);
+    expect(files).toEqual(['new.pdf']);
+  });
+
+  it('sends messages to other libraries by rule, with one account per mailbox', async () => {
+    const lib = local().ensureDefaultLibrary();
+    const family = (await h.inject({ method: 'POST', url: '/api/libraries', headers: { cookie }, payload: { name: 'Family' } })).json() as { id: number };
+    imap.add(message({ from: 'kita@example.com', subject: 'Elternbrief', attachments: [{ name: 'kita.pdf', data: makePdf([['Elternbrief der Kita']]), type: 'application/pdf' }] }));
+    imap.add(message({ from: 'shop@example.com', subject: 'Rechnung', attachments: [{ name: 'shop.pdf', data: makePdf([['Rechnung vom Shop']]), type: 'application/pdf' }] }));
+    const account = await createAccount(lib, { after: 'seen', rules: [{ from: 'kita@', libraryId: family.id }] });
+    expect(account.rules[0].libraryId).toBe(family.id);
+    expect(await check(account.id)).toMatchObject({ stored: 2, errors: [] });
+    const rows = h.ctx.db.prepare("SELECT original_filename AS file, library_id FROM lib_documents WHERE source = 'mail' ORDER BY original_filename").all();
+    expect(rows).toEqual([
+      { file: 'kita.pdf', library_id: family.id },
+      { file: 'shop.pdf', library_id: lib },
+    ]);
+    // A second account on the same mailbox would take the messages away from the first one.
+    const dup = await h.inject({ method: 'POST', url: `/api/libraries/${family.id}/intake/mail`, headers: { cookie }, payload: { name: 'Dup', host: 'H', username: 'U', password: 'imap-secret' } });
+    expect(dup.statusCode).toBe(400);
+    expect(dup.json().error).toMatch(/connected already/);
+    // A rule naming a library that does not exist is refused.
+    const bad = await h.inject({ method: 'PUT', url: `/api/intake/mail/${account.id}`, headers: { cookie }, payload: { name: 'M', host: 'h', username: 'u', rules: [{ from: 'x', libraryId: 999 }] } });
+    expect(bad.statusCode).toBe(400);
+  });
+});

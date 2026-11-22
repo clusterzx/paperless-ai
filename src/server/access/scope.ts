@@ -77,9 +77,14 @@ export function hasScope(scope: AccessScope, needed: ApiScope): boolean {
   return !scope.scopes || scope.scopes.has(needed);
 }
 
+/**
+ * Administrator powers: system tasks, the legacy key, and admin users – through an API key only
+ * when the key has the `admin` scope (a document key of an admin must not manage libraries, watch
+ * folders or mail accounts).
+ */
 export function isAdmin(scope: AccessScope): boolean {
   const p = scope.principal;
-  return p.kind === 'system' || p.kind === 'legacyApiKey' || (p.kind === 'user' && p.role === 'admin');
+  return p.kind === 'system' || p.kind === 'legacyApiKey' || (p.kind === 'user' && p.role === 'admin' && hasScope(scope, 'admin'));
 }
 
 export function userIdOf(scope: AccessScope): number | null {

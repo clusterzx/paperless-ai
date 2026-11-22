@@ -226,7 +226,7 @@ export const documentRoutes =
 
     app.post(
       '/api/documents/upload',
-      { schema: { description: 'Upload one or more files (multipart/form-data, field `file`). Other fields: libraryId, title, created, tags (comma-separated), correspondent, documentType, skipAnalysis, prompt.', consumes: ['multipart/form-data'] } },
+      { schema: { description: 'Upload one or more files (multipart/form-data, field `file`). Other fields: libraryId or library (name), title, created, tags (comma-separated), correspondent, documentType, skipAnalysis, prompt. Header Idempotency-Key (per user). Without a library: the default library of the user.', consumes: ['multipart/form-data'] } },
       async (req): Promise<{ results: UploadResult[] }> => ({ results: await receiveUploads(ctx, req, 'upload') }),
     );
 

@@ -162,6 +162,10 @@ export const configSchema = z.object({
           consumePollSeconds: z.coerce.number().int().min(2).max(3600).default(10),
           /** After intake: delete the file from the watch folder or move it to <consumeDir>/.done */
           consumeAfter: z.enum(['delete', 'move']).default('delete'),
+          /** Library of the watch folder; 0 = the oldest library. */
+          consumeLibrary: z.coerce.number().int().min(0).default(0),
+          /** Subfolders of the watch folder: tags (Taxes/scan.pdf → tag "Taxes") or the library (Family/Taxes/scan.pdf → library "Family", tag "Taxes"). */
+          consumeSubfolders: z.enum(['tags', 'library', 'ignore']).default('tags'),
           maxUploadMb: z.coerce.number().int().min(1).max(4096).default(200),
           /** Members (not only admins) may create libraries. */
           membersCreateLibraries: bool(true),

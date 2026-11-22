@@ -81,6 +81,40 @@ channel ─▶ lib_intake (pending) ─▶ stream to tmp + SHA-256 + size limit
   name). The AI fills in the remaining fields, using the existing processing functions and
   restrictions.
 
+### Which library a file goes to
+
+| Channel | Choice |
+| --- | --- |
+| Web upload | the "Library" field (only libraries the user can add to) |
+| REST `POST /api/documents/upload` | `libraryId=<id>` or `library=<name>` |
+| WebDAV | the first folder: `/dav/inbox/<library>/<tag>/file.pdf`. A library the user can only read is refused (403) instead of becoming a tag in another library |
+| Watch folder of a library | always that library – with the rights of the folder, not of the administrator who set it up |
+| Main watch folder | Settings → Archive → Watch folder → Library; with "Subfolders: first one is the library", `/consume/Family/Taxes/x.pdf` goes to "Family" with the tag "Taxes" |
+| E-mail | the account's library, or the library of the matching rule |
+| Everything else (sharing from the phone, `post_document`, the WebDAV root, REST without a library) | the **default library** |
+
+The default library is, in this order: one of the libraries of the API key, if the key is limited
+to libraries; the user's default library (Settings → Account → Uploads), if they can still add to
+it; the oldest library (lowest id) they can add to. Unrestricted callers (the main watch folder
+without a library) get the oldest library – never the alphabetically first, so renaming changes
+nothing. Library names are unique (case ignored), as they address libraries in paths.
+
+### Failures and retries
+
+* A refusal (type, size, rights, a deleted library) has the status `rejected`; any other error is
+  `failed` – sending the file again can work. Uploads answer per file; WebDAV answers 415 or 503,
+  `post_document` 400 or 503.
+* Every attempt is recorded before its library is chosen, so refused ones are in the Inbox too:
+  attempts are shown to members of their library, to their sender, and – when they have no
+  library – to administrators.
+* "Try again" keeps the hints of the first attempt (tags, title, mail sender and subject,
+  "store only"). It is offered to those who can see the attempt and checks the target library
+  before the attempt is replaced.
+* Attempts still `pending` when the process stopped count as `failed` after the next start (they
+  never finish otherwise, and the same channel reference must be storable again).
+* `Idempotency-Key` counts per user: two users or apps sending the same key do not get each
+  other's result. A refused or failed attempt with the same reference is tried again.
+
 ## 3. File types
 
 | Phase | Types | How |
@@ -146,8 +180,16 @@ CREATE TABLE intake_folders (
   enabled INTEGER NOT NULL DEFAULT 1
 );
 ```
-* The user the folder intake acts as is configured per folder (default: the library owner). It
-  appears in the change log as `actor_type = 'system'` with `ref = 'folder:<id>'`.
+* The intake of a library's folder acts as `system` with `ref = 'folder:<id>'` and may only add to
+  that library (whoever set the folder up – administrators need not be members). "library"
+  subfolders are for the main watch folder only.
+* **Guards:** a watch folder imports every file and removes it. The data directory, the file
+  storage, `tmp/`, the export directories, the program directory and system directories (`/etc`,
+  `/usr` …) – and every folder containing one of them – are refused in the settings, for library
+  folders and again before every poll (with links resolved), so a wrong path cannot move the
+  database away or delete stored originals.
+* A folder inside another watch folder belongs to the inner one only; its files are not taken
+  twice. Watch folders and mail accounts of a deleted library are removed with the library.
 
 ## 6. E-mail (IMAP)
 
@@ -193,10 +235,19 @@ Behaviour:
   idempotency reference of an attachment is `account:folder:uidvalidity:uid:part` (more robust than
   the Message-ID, which is missing or reused by some senders); a rebuilt folder is read again
   without duplicates.
-* Rules: sender / subject contains → tags, "store only" (no analysis) or ignore. Library mapping
-  per rule and the mail date as fallback document date are not there yet.
+* Rules: sender / subject contains → tags, "store only" (no analysis), ignore, and another
+  library ("into Family") – one mailbox for several libraries. One account per mailbox (server +
+  user name): a second account would take the messages away from the first. The mail date as
+  fallback document date is not there yet.
+* "Only e-mails that arrive from now on": the first check of a folder remembers where it ends and
+  reads nothing. Without it, all messages already in the folders are imported – read or not – and
+  then marked, moved or deleted. A changed server or user name starts over the same way.
 * Sender and subject go into the intake context (workflow conditions `mail_from` / `mail_subject`).
-* A message whose processing fails is read again on the next check (the state stops before it).
+* A message is only marked, moved or deleted when all its attachments were stored (or were
+  duplicates). An attachment that failed for a passing reason stops the check before the message:
+  it is read again next time, attachments stored already are not stored twice. A refused
+  attachment (too large, not accepted) leaves the message untouched – unread, in its folder – and
+  the account shows why.
 * Pictures that are decoration (logos, icons, avatars, signatures, banners, tracking pixels) are
   not stored. Mail clients do not mark them reliably – Outlook turns embedded pictures into
   "Unnamed attachment 00044.png" attachments – so the size decides (`isMailDecoration`): smaller

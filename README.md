@@ -220,12 +220,13 @@ Choose *Built-in archive* in the setup (or set `PAPERLESS_AI_ARCHIVE=builtin`). 
 | --- | --- |
 | `PAPERLESS_AI_ARCHIVE` | `builtin` or `paperless` |
 | `PAPERLESS_AI_STORAGE_DIR` | where the files go (default `data/library`) |
-| `PAPERLESS_AI_CONSUME_DIR` | watch folder (subfolders become tags) |
+| `PAPERLESS_AI_CONSUME_DIR` | watch folder (subfolders become tags – or choose the library, Settings → Archive); not inside the data directory or the file storage |
 | `PAPERLESS_AI_EXPORT_DIR` | another directory exports may be written to (e.g. a mounted volume); default: only below `data/exports` |
 | `PAPERLESS_AI_SMTP_HOST`, `_PORT`, `_SECURITY`, `_USER`, `_PASSWORD`, `_FROM` | e-mail for workflow notifications |
 | `PAPERLESS_AI_URL` | public address, used in links of e-mails and webhooks |
 
 - **Scanners / WebDAV:** `http(s)://<host>/dav/inbox/` with any user name and an API key with the *upload* permission as the password; `/dav/inbox/<library>/<tag>/` stores into that library with that tag.
+- **Which library:** uploads without a chosen library go to the user's *default library* (Settings → Account) – or, with an API key limited to a library, to that one. E-mail rules can send messages to other libraries.
 - **Phone:** install the web app (“Add to home screen”) and share PDFs or photos to *Paperless-AI*.
 - **Moving from Paperless-ngx:** *Move to built-in archive* (admins) – analyse, choose how permissions become libraries, import (repeatable), switch. Paperless-ngx is only read.
 - **Export:** *Settings → Archive → Export* or `npm run cli -- export --format plain|ngx --out <dir>`.

@@ -593,7 +593,7 @@ function FoldersTab({ library, admin }: { library: LibraryInfo; admin: boolean }
   );
 }
 
-const EMPTY_ACCOUNT = { name: '', host: '', port: 993, security: 'tls' as MailAccountInfo['security'], username: '', password: '', folders: ['INBOX'], rules: [] as MailRuleInfo[], after: 'seen' as MailAccountInfo['after'], afterFolder: null as string | null, enabled: true };
+const EMPTY_ACCOUNT = { name: '', host: '', port: 993, security: 'tls' as MailAccountInfo['security'], username: '', password: '', folders: ['INBOX'], rules: [] as MailRuleInfo[], after: 'seen' as MailAccountInfo['after'], afterFolder: null as string | null, enabled: true, skipExisting: false };
 
 function MailTab({ library, admin }: { library: LibraryInfo; admin: boolean }) {
   const toast = useToast();
@@ -602,6 +602,9 @@ function MailTab({ library, admin }: { library: LibraryInfo; admin: boolean }) {
   const [editing, setEditing] = useState<(typeof EMPTY_ACCOUNT & { id?: number }) | null>(null);
   const [busy, setBusy] = useState(false);
   const [folders, setFolders] = useState<string[] | null>(null);
+  // Libraries a rule can send messages to (administrators set accounts up and see all of them).
+  const allLibraries = useAsync((signal) => (admin ? get<LibraryInfo[]>('/api/libraries', signal) : Promise.resolve([] as LibraryInfo[])), [admin]);
+  const otherLibraries = (allLibraries.data ?? []).filter((l) => l.id !== library.id);
 
   const check = async (a: MailAccountInfo) => {
     setBusy(true);
@@ -743,7 +746,7 @@ function MailTab({ library, admin }: { library: LibraryInfo; admin: boolean }) {
             </div>
             <div className="space-y-2">
               <div className="text-sm font-medium text-fg">Rules</div>
-              <p className="text-xs text-muted">The first rule whose sender and subject match applies.</p>
+              <p className="text-xs text-muted">The first rule whose sender and subject match applies. A rule can store into another library – one mailbox for several libraries.</p>
               {editing.rules.map((r, i) => (
                 <div key={i} className="grid gap-2 rounded-lg bg-surface-2 p-2 ring-1 ring-border sm:grid-cols-[1fr_1fr_1fr_auto]">
                   <Input aria-label="Sender contains" placeholder="Sender contains" value={r.from ?? ''} onChange={(e) => setRule(i, { from: e.target.value || undefined })} />
@@ -757,8 +760,18 @@ function MailTab({ library, admin }: { library: LibraryInfo; admin: boolean }) {
                     <Trash2 className="size-4" />
                   </IconButton>
                   {!r.ignore && (
-                    <div className="sm:col-span-4">
+                    <div className="grid gap-2 sm:col-span-4 sm:grid-cols-[2fr_1fr]">
                       <TagInput value={r.tags ?? []} onChange={(tags) => setRule(i, { tags })} placeholder="Tags for these documents" />
+                      {otherLibraries.length > 0 && (
+                        <Select aria-label="Library" value={r.libraryId ?? ''} onChange={(e) => setRule(i, { libraryId: e.target.value ? Number(e.target.value) : undefined })}>
+                          <option value="">into this library</option>
+                          {otherLibraries.map((l) => (
+                            <option key={l.id} value={l.id}>
+                              into “{l.name}”
+                            </option>
+                          ))}
+                        </Select>
+                      )}
                     </div>
                   )}
                 </div>
@@ -767,6 +780,18 @@ function MailTab({ library, admin }: { library: LibraryInfo; admin: boolean }) {
                 Add rule
               </Button>
             </div>
+            <Switch
+              checked={editing.skipExisting}
+              onChange={(skipExisting) => setEditing({ ...editing, skipExisting })}
+              label="Only e-mails that arrive from now on"
+              description="The first check skips the messages already in the folders (read or not). Off: all of them are imported."
+            />
+            {!editing.id && !editing.skipExisting && editing.after !== 'seen' && (
+              <Alert tone="warn">
+                All messages already in {editing.folders.join(', ') || 'the folders'} are imported first – and then {editing.after === 'delete' ? 'deleted' : 'moved'}. Switch on “Only e-mails
+                that arrive from now on” to leave them alone.
+              </Alert>
+            )}
             <Switch checked={editing.enabled} onChange={(enabled) => setEditing({ ...editing, enabled })} label="Check this account" />
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="ghost" onClick={() => setEditing(null)}>

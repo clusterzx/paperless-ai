@@ -378,7 +378,7 @@ describe('crash safety', () => {
     };
     const [r] = await upload([{ name: 'boom.pdf', data: makePdf([['boom']]) }], { skipAnalysis: 'true' });
     local().refreshFts = spy;
-    expect(r.status).toBe('rejected');
+    expect(r.status).toBe('failed'); // a passing failure: sending the file again can work
     expect((h.ctx.db.prepare('SELECT COUNT(*) AS c FROM lib_documents').get() as { c: number }).c).toBe(before);
     expect((h.ctx.db.prepare("SELECT status FROM lib_intake ORDER BY id DESC LIMIT 1").get() as { status: string }).status).toBe('failed');
     // the stored file has no row and is collected

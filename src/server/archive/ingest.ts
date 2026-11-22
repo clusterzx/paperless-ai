@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { AccessScope } from '../access/scope.js';
-import { userIdOf } from '../access/scope.js';
+import { canRead, isAdmin, userIdOf } from '../access/scope.js';
 import { ArchiveError, statusOf, type ChangeOrigin, type IngestChannel, type IngestFile, type IngestHints, type IngestResult } from '../backend/types.js';
 import { assessText } from '../ocr/quality.js';
 import { normalizeDate } from '../processing/dates.js';
@@ -67,31 +67,47 @@ export class IngestService {
     // The same channel reference (mail id, Idempotency-Key, file path + mtime) is stored once.
     if (hints.channelRef) {
       const prev = this.db.prepare('SELECT * FROM lib_intake WHERE channel = ? AND channel_ref = ?').get(channel, hints.channelRef) as IntakeRow | undefined;
-      if (prev && prev.status !== 'failed') {
-        return { status: prev.status === 'stored' ? 'stored' : prev.status === 'duplicate' ? 'duplicate' : 'rejected', documentId: prev.document_id ?? undefined, intakeId: prev.id, reason: prev.error ?? undefined };
+      if (prev?.status === 'stored' || prev?.status === 'duplicate') {
+        return { status: prev.status, documentId: prev.document_id ?? undefined, intakeId: prev.id, reason: prev.error ?? undefined };
       }
+      // The same reference in progress right now (a request sent twice): the second one can come again.
+      if (prev?.status === 'pending') return { status: 'failed', intakeId: prev.id, reason: 'This file is being stored right now – send it again in a moment' };
+      // Failed or refused before: try again (the rights or the file may have changed).
       if (prev) this.db.prepare('DELETE FROM lib_intake WHERE id = ?').run(prev.id);
     }
-    const replaced = hints.replaces ? this.backend.editableRow(scope, hints.replaces) : null;
-    const libraryId = replaced ? replaced.library_id : this.backend.targetLibrary(scope, hints.libraryId);
+    const userId = userIdOf(scope);
+    // The attempt is recorded first, so a refused target (no rights, a deleted library) shows in the inbox too.
     const intakeId = Number(
       this.db
-        .prepare('INSERT INTO lib_intake (channel, channel_ref, filename, status, library_id, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(channel, hints.channelRef ?? null, file.filename, 'pending', libraryId, userIdOf(scope), Date.now()).lastInsertRowid,
+        .prepare('INSERT INTO lib_intake (channel, channel_ref, filename, status, library_id, created_by, created_at, hints) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(channel, hints.channelRef ?? null, file.filename, 'pending', null, userId, Date.now(), JSON.stringify(hints)).lastInsertRowid,
     );
-    this.ctx.events.emitIntake({ intakeId, status: 'pending', filename: file.filename, libraryId });
+    let replaced: { id: number; library_id: number } | null;
+    let libraryId: number;
+    try {
+      replaced = hints.replaces ? this.backend.editableRow(scope, hints.replaces) : null;
+      libraryId = replaced ? replaced.library_id : this.backend.targetLibrary(scope, hints.libraryId);
+    } catch (err) {
+      this.setIntake(intakeId, { status: 'rejected', error: describeError(err) });
+      this.ctx.events.emitIntake({ intakeId, status: 'rejected', filename: file.filename, libraryId: null, createdBy: userId });
+      log.warn(`Intake of "${file.filename}" (${channel}) refused: ${describeError(err)}`);
+      throw err;
+    }
+    this.db.prepare('UPDATE lib_intake SET library_id = ? WHERE id = ?').run(libraryId, intakeId);
+    this.ctx.events.emitIntake({ intakeId, status: 'pending', filename: file.filename, libraryId, createdBy: userId });
     try {
       const result = await this.store(scope, file, channel, hints, libraryId, intakeId, replaced?.id ?? null);
-      this.ctx.events.emitIntake({ intakeId, status: result.status === 'stored' ? 'stored' : result.status === 'duplicate' ? 'duplicate' : 'rejected', documentId: result.documentId ?? null, filename: file.filename, libraryId });
+      this.ctx.events.emitIntake({ intakeId, status: result.status === 'stored' ? 'stored' : result.status === 'duplicate' ? 'duplicate' : 'rejected', documentId: result.documentId ?? null, filename: file.filename, libraryId, createdBy: userId });
       return result;
     } catch (err) {
       const status = statusOf(err);
+      // A refusal (type, size, rights) stays one; anything else is a passing failure that can be retried.
       const rejected = status !== undefined && status < 500;
       this.setIntake(intakeId, { status: rejected ? 'rejected' : 'failed', error: describeError(err) });
-      this.ctx.events.emitIntake({ intakeId, status: rejected ? 'rejected' : 'failed', filename: file.filename, libraryId });
+      this.ctx.events.emitIntake({ intakeId, status: rejected ? 'rejected' : 'failed', filename: file.filename, libraryId, createdBy: userId });
       log.warn(`Intake of "${file.filename}" (${channel}) failed: ${describeError(err)}`);
       if (status === 403 || status === 404) throw err;
-      return { status: 'rejected', intakeId, reason: describeError(err) };
+      return { status: rejected ? 'rejected' : 'failed', intakeId, reason: describeError(err) };
     }
   }
 
@@ -212,12 +228,35 @@ export class IngestService {
     return { status: 'stored', documentId: id, intakeId };
   }
 
-  /** Try a failed intake again (the file must still exist in the blob store). */
+  /**
+   * Try a failed intake again (the file must still exist in the blob store), with the hints of the
+   * first attempt (tags, title, mail sender …). Only attempts the caller can see: their own, those of
+   * their libraries, and – for administrators – those without a library.
+   */
   async retry(scope: AccessScope, intakeId: number): Promise<IngestResult> {
-    const row = this.db.prepare('SELECT * FROM lib_intake WHERE id = ?').get(intakeId) as (IntakeRow & { channel: IngestChannel; filename: string; sha256: string | null; library_id: number | null }) | undefined;
-    if (!row || row.status !== 'failed') throw new ArchiveError('Only failed intake attempts can be retried', 409, 'not_failed');
+    const row = this.db.prepare('SELECT * FROM lib_intake WHERE id = ?').get(intakeId) as
+      | (IntakeRow & { channel: IngestChannel; filename: string; sha256: string | null; library_id: number | null; created_by: number | null; hints: string | null })
+      | undefined;
+    const visible = row && (row.created_by === userIdOf(scope) || (row.library_id != null ? canRead(scope, row.library_id) : isAdmin(scope)));
+    if (!row || !visible) throw new ArchiveError('Intake attempt not found', 404, 'not_found');
+    if (row.status !== 'failed') throw new ArchiveError('Only failed intake attempts can be retried', 409, 'not_failed');
     if (!row.sha256 || !this.backend.blobs.has(row.sha256)) throw new ArchiveError('The file of this attempt was not kept – send it again', 410, 'gone');
+    let hints: IngestHints;
+    try {
+      hints = row.hints ? (JSON.parse(row.hints) as IngestHints) : {};
+    } catch {
+      hints = {};
+    }
+    if (row.library_id != null && !hints.replaces) hints.libraryId = row.library_id;
+    // Checked before the attempt is replaced: a refused retry leaves it as it was.
+    if (hints.replaces) this.backend.editableRow(scope, hints.replaces);
+    else this.backend.targetLibrary(scope, hints.libraryId);
     this.db.prepare('DELETE FROM lib_intake WHERE id = ?').run(intakeId);
-    return this.ingest(scope, { path: this.backend.blobs.pathOf(row.sha256), filename: row.filename }, row.channel, { libraryId: row.library_id ?? undefined });
+    return this.ingest(scope, { path: this.backend.blobs.pathOf(row.sha256), filename: row.filename }, row.channel, hints);
+  }
+
+  /** Attempts that were running when the process stopped never finish: they count as failed (retryable). */
+  recoverInterrupted(): void {
+    this.db.prepare("UPDATE lib_intake SET status = 'failed', error = 'Interrupted by a restart', finished_at = ? WHERE status = 'pending'").run(Date.now());
   }
 }

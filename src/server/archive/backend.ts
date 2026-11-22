@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import type { ActivityItem } from '../../shared/api.js';
 import type { AppContext } from '../context.js';
 import type { AppConfig } from '../config/schema.js';
-import { canEdit, canRead, readableLibraries, roleIn, type AccessScope } from '../access/scope.js';
+import { canEdit, canRead, readableLibraries, roleIn, userIdOf, type AccessScope } from '../access/scope.js';
 import {
   ArchiveError,
   forbidden,
@@ -135,6 +135,7 @@ export class LocalBackend implements DocumentBackend {
     this.folders = new FolderWatcher(this);
     this.mail = new MailWatcher(this);
     if (opts.passive) return;
+    this.ingestService.recoverInterrupted();
     this.ensureDefaultLibrary();
     if (ctx.cfg.archive.builtin.consumeDir || ctx.db.prepare('SELECT 1 FROM intake_folders WHERE enabled = 1 LIMIT 1').get()) this.startIntake();
     if (ctx.db.prepare('SELECT 1 FROM intake_mail_accounts WHERE enabled = 1 LIMIT 1').get()) this.mail.start();
@@ -197,10 +198,10 @@ export class LocalBackend implements DocumentBackend {
 
   // ---------------------------------------------------------------- libraries
 
-  /** The first library; created (owned by the first admin) when there is none. */
+  /** The oldest library; created (owned by the first admin) when there is none. */
   ensureDefaultLibrary(): number {
     const libs = this.ctx.repos.libraries.list();
-    if (libs.length) return libs[0].id;
+    if (libs.length) return Math.min(...libs.map((l) => l.id));
     const admin = this.ctx.repos.users.list().find((u) => u.role === 'admin' && !u.disabled_at);
     const id = this.ctx.repos.libraries.create('Archive', admin?.id ?? null, { trashDays: this.ctx.cfg.archive.builtin.trashDays });
     log.info(`Created the library "Archive"${admin ? ` (owner: ${admin.username})` : ''}`);
@@ -212,18 +213,36 @@ export class LocalBackend implements DocumentBackend {
     return readableLibraries(scope);
   }
 
-  /** The library new documents of the scope go to: the given one, else the first it can edit. */
+  /** Ids of the libraries the scope can add documents to (oldest first); null = all. */
+  writableLibraries(scope: AccessScope): number[] | null {
+    if (!scope.libraries) return null;
+    return [...scope.libraries.entries()]
+      .filter(([, role]) => role !== 'viewer')
+      .map(([id]) => id)
+      .sort((a, b) => a - b);
+  }
+
+  /**
+   * The library a new document goes to: the requested one (the caller must be allowed to add to it,
+   * and it must not be deleted), else the caller's default library, else the oldest one they can add
+   * to. An API key limited to libraries only offers those. Unrestricted callers (system tasks such as
+   * the main watch folder) get the oldest library.
+   */
   targetLibrary(scope: AccessScope, requested?: number): number {
     if (requested !== undefined) {
-      if (!this.ctx.repos.libraries.get(requested) || this.ctx.repos.libraries.get(requested)!.deleted_at) throw notFound('Library');
-      if (!canEdit(scope, requested)) throw forbidden('You cannot add documents to this library');
+      const lib = this.ctx.repos.libraries.get(requested);
+      if (!lib || lib.deleted_at) throw notFound('Library');
+      if (!canEdit(scope, requested)) throw forbidden(canRead(scope, requested) ? `You cannot add documents to the library “${lib.name}”` : 'You cannot add documents to this library');
       return requested;
     }
-    if (!scope.libraries) return this.ensureDefaultLibrary();
-    const editable = [...scope.libraries.entries()].filter(([, role]) => role !== 'viewer').map(([id]) => id).sort((a, b) => a - b);
-    if (!editable.length) throw forbidden('You are not an editor of any library');
-    return editable[0];
+    const writable = this.writableLibraries(scope);
+    if (!writable) return this.ensureDefaultLibrary();
+    if (!writable.length) throw forbidden('You are not an editor of any library');
+    const userId = userIdOf(scope);
+    const preferred = userId != null ? (this.ctx.repos.users.byId(userId)?.default_library_id ?? null) : null;
+    return preferred != null && writable.includes(preferred) ? preferred : writable[0];
   }
+
 
   // ---------------------------------------------------------------- reading documents
 
@@ -748,7 +767,9 @@ export class LocalBackend implements DocumentBackend {
     let p: DocumentPatch = { ...patch };
     let lib = row.library_id;
     if (p.library_id !== undefined && p.library_id !== row.library_id) {
-      if (!this.ctx.repos.libraries.get(p.library_id) || !canEdit(scope, p.library_id)) throw forbidden('You cannot move documents into this library');
+      const target = this.ctx.repos.libraries.get(p.library_id);
+      // Never into a deleted library (a workflow may still name it): the documents would vanish.
+      if (!target || target.deleted_at || !canEdit(scope, p.library_id)) throw forbidden('You cannot move documents into this library');
       const current = this.toDocuments([row], scope, false)[0];
       p = { ...p, ...(await this.remap({ ...current, ...pick(p) }, row.library_id, p.library_id)) };
       lib = p.library_id!;

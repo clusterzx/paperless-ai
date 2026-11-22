@@ -2,6 +2,7 @@
  * Routes of the built-in archive: libraries and their members, intake (inbox), trash, file versions,
  * the change log undo and an upload endpoint compatible with Paperless-ngx's post_document.
  */
+import path from 'node:path';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -11,6 +12,7 @@ import { badRequest, HttpProblem, notFound } from '../http/helpers.js';
 import { canRead, isAdmin, roleIn, userIdOf, type AccessScope } from '../access/scope.js';
 import { audit } from '../access/context.js';
 import { LocalBackend } from '../archive/backend.js';
+import { watchFolderProblemFor } from '../archive/folder.js';
 import { notSupported, type ChangeOrigin } from '../backend/types.js';
 import { toRow } from '../http/documentQuery.js';
 import { receiveUploads } from './documentOps.js';
@@ -78,6 +80,7 @@ export const archiveRoutes =
         const scope = req.access!;
         const userId = userIdOf(scope);
         if (!isAdmin(scope) && !ctx.cfg.archive.builtin.membersCreateLibraries) throw new HttpProblem(403, 'Only administrators can create libraries');
+        if (ctx.repos.libraries.byName(req.body.name)) throw new HttpProblem(409, `A library named “${req.body.name}” exists already`);
         const libId = ctx.repos.libraries.create(req.body.name, userId, { trashDays: ctx.cfg.archive.builtin.trashDays, ...(req.body.settings ?? {}) }, req.body.description);
         audit(ctx, scope, 'library.created', `library:${libId}`, { name: req.body.name }, libId);
         // The creator's own scope learns about the new library with the next request.
@@ -96,6 +99,7 @@ export const archiveRoutes =
       async (req) => {
         local('Libraries');
         ownerOrAdmin(req.access!, req.params.id);
+        if (req.body.name && ctx.repos.libraries.byName(req.body.name, req.params.id)) throw new HttpProblem(409, `A library named “${req.body.name}” exists already`);
         ctx.repos.libraries.update(req.params.id, req.body);
         audit(ctx, req.access, 'library.changed', `library:${req.params.id}`, { name: req.body.name, settings: req.body.settings }, req.params.id);
         return { ok: true };
@@ -108,7 +112,15 @@ export const archiveRoutes =
       const docs = (ctx.db.prepare('SELECT COUNT(*) AS c FROM lib_documents WHERE library_id = ?').get(req.params.id) as { c: number }).c;
       if (docs) throw badRequest(`The library still has ${docs} document(s) (including the trash) – move or delete them first`);
       if (ctx.repos.libraries.count() <= 1) throw badRequest('The last library cannot be deleted');
-      ctx.repos.libraries.markDeleted(req.params.id);
+      // The library is only marked as deleted (its id stays reserved): what feeds or uses it stops here,
+      // instead of failing on every watch folder poll, mail check or workflow run.
+      ctx.db.transaction(() => {
+        ctx.repos.libraries.markDeleted(req.params.id);
+        ctx.db.prepare('DELETE FROM intake_folders WHERE library_id = ?').run(req.params.id);
+        ctx.db.prepare('DELETE FROM intake_mail_accounts WHERE library_id = ?').run(req.params.id);
+        ctx.db.prepare("UPDATE workflows SET enabled = 0, suspended_reason = 'The library was deleted' WHERE library_id = ?").run(req.params.id);
+        ctx.db.prepare('UPDATE users SET default_library_id = NULL WHERE default_library_id = ?').run(req.params.id);
+      })();
       audit(ctx, req.access, 'library.deleted', `library:${req.params.id}`, {}, req.params.id);
       return { ok: true };
     });
@@ -145,7 +157,8 @@ export const archiveRoutes =
         local('Libraries');
         ownerOrAdmin(req.access!, req.params.id);
         const members = req.body.members.filter((m) => (m.type === 'user' ? ctx.repos.users.byId(m.id) : ctx.repos.groups.get(m.id)));
-        if (!members.some((m) => m.role === 'owner')) throw badRequest('A library needs at least one owner');
+        // An owner who can sign in: an active user, or a group with active members (an empty group owns nothing).
+        if (!ctx.repos.libraries.activeOwnerIds(members).length) throw badRequest('A library needs at least one owner who can sign in – an active user, or a group with active members');
         ctx.repos.libraries.setMembers(req.params.id, members);
         audit(ctx, req.access, 'library.members_changed', `library:${req.params.id}`, { members: members.map((m) => `${m.type}:${m.id}=${m.role}`) }, req.params.id);
         return { ok: true };
@@ -156,7 +169,8 @@ export const archiveRoutes =
 
     const folderBody = z.object({
       path: z.string().trim().min(1).max(1000),
-      subfolders: z.enum(['ignore', 'tags', 'library']).default('tags'),
+      // A library's folder stores into that library ("library" subfolders are for the main watch folder).
+      subfolders: z.enum(['ignore', 'tags']).default('tags'),
       after: z.enum(['delete', 'move']).default('delete'),
       tags: z.array(z.string().max(128)).max(50).default([]),
       skipAnalysis: z.boolean().default(false),
@@ -178,11 +192,15 @@ export const archiveRoutes =
       // Folders are paths on the server: only administrators may point the archive at one.
       if (!isAdmin(req.access!)) throw new HttpProblem(403, 'Only administrators can add watch folders');
       ownerOrAdmin(req.access!, req.params.id);
+      const problem = watchFolderProblemFor(req.body.path, ctx.dataDir, ctx.cfg);
+      if (problem) throw badRequest(problem);
+      // One spelling per folder ("/scans/x/" and "/scans/x" are the same).
+      const folderPath = path.resolve(req.body.path);
       const hints = JSON.stringify({ ...(req.body.tags.length ? { tags: req.body.tags } : {}), ...(req.body.skipAnalysis ? { skipAnalysis: true } : {}) });
       try {
         ctx.db
           .prepare('INSERT INTO intake_folders (library_id, path, hints, subfolders, after, act_as, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)')
-          .run(req.params.id, req.body.path, hints, req.body.subfolders, req.body.after, userIdOf(req.access!), req.body.enabled ? 1 : 0);
+          .run(req.params.id, folderPath, hints, req.body.subfolders, req.body.after, userIdOf(req.access!), req.body.enabled ? 1 : 0);
       } catch (err) {
         if (err instanceof Error && /UNIQUE/.test(err.message)) throw badRequest('This folder is watched already');
         throw err;
@@ -209,6 +227,7 @@ export const archiveRoutes =
       tags: z.array(z.string().trim().min(1).max(128)).max(50).optional(),
       skipAnalysis: z.boolean().optional(),
       ignore: z.boolean().optional(),
+      libraryId: z.number().int().positive().optional(),
     });
     const mailBody = z.object({
       name: z.string().trim().min(1).max(100),
@@ -223,6 +242,7 @@ export const archiveRoutes =
       after: z.enum(['seen', 'move', 'delete']).default('seen'),
       afterFolder: z.string().trim().max(300).nullable().default(null),
       enabled: z.boolean().default(true),
+      skipExisting: z.boolean().default(false),
     });
     const mailDto = (r: MailAccountRow): MailAccountInfo => ({
       id: r.id,
@@ -237,6 +257,7 @@ export const archiveRoutes =
       after: r.after,
       afterFolder: r.after_folder,
       enabled: Boolean(r.enabled),
+      skipExisting: Boolean(r.skip_existing),
       lastError: r.last_error,
       lastCheckedAt: r.last_checked_at,
     });
@@ -248,6 +269,24 @@ export const archiveRoutes =
     // Mail servers are hosts on the network: only administrators connect the archive to one.
     const adminOnly = (scope: AccessScope) => {
       if (!isAdmin(scope)) throw new HttpProblem(403, 'Only administrators can set up e-mail accounts');
+    };
+    /**
+     * One account per mailbox: two accounts on the same mailbox would take each other's messages away
+     * (moving or deleting them). Rules send messages to other libraries instead.
+     */
+    const checkMailAccount = (m: z.infer<typeof mailBody>, accountId: number | null) => {
+      const same = (ctx.db.prepare('SELECT * FROM intake_mail_accounts WHERE id IS NOT ?').all(accountId) as MailAccountRow[]).find(
+        (a) => a.host.toLowerCase() === m.host.toLowerCase() && a.username.toLowerCase() === m.username.toLowerCase() && !ctx.repos.libraries.get(a.library_id)?.deleted_at,
+      );
+      if (same) {
+        const lib = ctx.repos.libraries.get(same.library_id);
+        throw badRequest(`This mailbox is connected already (account “${same.name}” of the library “${lib?.name ?? same.library_id}”) – a rule of that account can send messages to another library`);
+      }
+      for (const r of m.rules) {
+        if (r.libraryId === undefined) continue;
+        const lib = ctx.repos.libraries.get(r.libraryId);
+        if (!lib || lib.deleted_at) throw badRequest(`A rule names a library that does not exist (${r.libraryId})`);
+      }
     };
 
     app.get('/api/libraries/:id/intake/mail', { schema: { params: id } }, async (req): Promise<MailAccountInfo[]> => {
@@ -262,13 +301,14 @@ export const archiveRoutes =
       ownerOrAdmin(req.access!, req.params.id);
       if (!req.body.password) throw badRequest('The password is missing');
       const m = req.body;
+      checkMailAccount(m, null);
       const accountId = Number(
         ctx.db
           .prepare(
-            `INSERT INTO intake_mail_accounts (library_id, name, host, port, security, username, password_enc, folders, rules, after, after_folder, enabled)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO intake_mail_accounts (library_id, name, host, port, security, username, password_enc, folders, rules, after, after_folder, enabled, skip_existing)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
-          .run(req.params.id, m.name, m.host, m.port, m.security, m.username, b.mail.sealPassword(m.password), JSON.stringify(m.folders), JSON.stringify(m.rules), m.after, m.afterFolder, m.enabled ? 1 : 0).lastInsertRowid,
+          .run(req.params.id, m.name, m.host, m.port, m.security, m.username, b.mail.sealPassword(m.password), JSON.stringify(m.folders), JSON.stringify(m.rules), m.after, m.afterFolder, m.enabled ? 1 : 0, m.skipExisting ? 1 : 0).lastInsertRowid,
       );
       audit(ctx, req.access, 'library.changed', `library:${req.params.id}`, { mailAccount: `${m.username}@${m.host}` }, req.params.id);
       b.mail.start();
@@ -280,9 +320,10 @@ export const archiveRoutes =
       adminOnly(req.access!);
       const row = mailRow(req.params.id);
       const m = req.body;
+      checkMailAccount(m, row.id);
       ctx.db
         .prepare(
-          `UPDATE intake_mail_accounts SET name = ?, host = ?, port = ?, security = ?, username = ?, password_enc = ?, folders = ?, rules = ?, after = ?, after_folder = ?, enabled = ?,
+          `UPDATE intake_mail_accounts SET name = ?, host = ?, port = ?, security = ?, username = ?, password_enc = ?, folders = ?, rules = ?, after = ?, after_folder = ?, enabled = ?, skip_existing = ?,
              state = CASE WHEN host = ? AND username = ? THEN state ELSE '{}' END WHERE id = ?`,
         )
         .run(
@@ -297,6 +338,7 @@ export const archiveRoutes =
           m.after,
           m.afterFolder,
           m.enabled ? 1 : 0,
+          m.skipExisting ? 1 : 0,
           m.host,
           m.username,
           row.id,
@@ -344,11 +386,16 @@ export const archiveRoutes =
         local('The inbox');
         const scope = req.access!;
         const libs = scope.libraries ? [...scope.libraries.keys()] : null;
+        // Attempts of the caller's libraries, their own (also refused ones without a library) and –
+        // for administrators – those without a library (watch folders, mail) or of deleted libraries.
         const rows = ctx.db
           .prepare(
-            `SELECT * FROM lib_intake WHERE (? IS NULL OR library_id IN (SELECT value FROM json_each(?))) AND (? IS NULL OR status = ?) ORDER BY id DESC LIMIT ?`,
+            `SELECT * FROM lib_intake
+             WHERE (? IS NULL OR library_id IN (SELECT value FROM json_each(?)) OR created_by = ?
+                    OR (? = 1 AND (library_id IS NULL OR library_id IN (SELECT id FROM libraries WHERE deleted_at IS NOT NULL))))
+               AND (? IS NULL OR status = ?) ORDER BY id DESC LIMIT ?`,
           )
-          .all(libs ? 1 : null, JSON.stringify(libs ?? []), req.query.status ?? null, req.query.status ?? null, req.query.limit) as {
+          .all(libs ? 1 : null, JSON.stringify(libs ?? []), userIdOf(scope), isAdmin(scope) ? 1 : 0, req.query.status ?? null, req.query.status ?? null, req.query.limit) as {
           id: number;
           channel: string;
           filename: string | null;
@@ -386,6 +433,7 @@ export const archiveRoutes =
       }, 'document');
       const r = results[0];
       if (r.status === 'rejected') throw badRequest(r.reason ?? 'The document was not accepted');
+      if (r.status === 'failed') throw new HttpProblem(503, r.reason ?? 'The document could not be stored – send it again');
       // Paperless-ngx answers with the id of the consumption task as a JSON string.
       return reply.type('application/json').send(JSON.stringify(`intake-${r.intakeId ?? r.documentId}`));
     };

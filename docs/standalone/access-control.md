@@ -124,6 +124,10 @@ feed, and neither responses nor AI prompts may contain a marker of the other lib
   `api_keys`, see [data-model.md](data-model.md#31-users-groups-api-keys-both-modes-m1)).
 * Scopes: `read` (list, search, download), `write` (metadata, versions), `upload`, `chat`
   (Ask / document chat), `webhook` (enqueue processing), `admin` (settings; only for admin users).
+* An admin's key acts as an administrator only with the `admin` scope: without it, it cannot manage
+  libraries it does not own, watch folders (paths on the server) or mail accounts.
+* A key limited to libraries (Settings → API keys → Libraries) only sees those, and uploads without
+  a library go to one of them – a key per scanner or phone decides where its documents go.
 * Format `pai_<prefix8>_<secret>` (256 random bits). Only the SHA-256 of the key is stored: the
   keys are random, so a slow password hash would add nothing. The prefix is used for lookup and
   display, the comparison is constant-time. Keys are accepted in `x-api-key`,
@@ -132,6 +136,12 @@ feed, and neither responses nor AI prompts may contain a marker of the other lib
   so the browser extension and existing webhooks keep working. The UI marks it as legacy and offers
   to replace it. A setting can switch it off.
 * The Paperless-ngx webhook (`/api/webhook/document`) accepts a key with the `webhook` scope.
+
+### Owners
+
+A library always keeps an owner who can sign in: saving members needs an active user or a group
+with active members as owner, and a user or group that is the only owner of a library cannot be
+deleted until the library has another one. Library names are unique (case ignored).
 
 ## 6. Workflows and access
 

@@ -17,7 +17,8 @@ import { pipeline } from 'node:stream/promises';
 import { Transform, type Readable } from 'node:stream';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { Services } from '../http/app.js';
-import { canEdit, readableLibraries } from '../access/scope.js';
+import { canEdit, canRead, readableLibraries } from '../access/scope.js';
+import { forbidden } from '../backend/types.js';
 import { statusOf } from '../backend/types.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
@@ -81,7 +82,11 @@ export const davRoutes =
       const libs = libraries(req);
       if (!libs || !segs.length) return { libraryId: undefined, tags: segs };
       const lib = libs.find((l) => l.name.toLowerCase() === segs[0].toLowerCase());
-      return lib ? { libraryId: lib.id, tags: segs.slice(1) } : { libraryId: undefined, tags: segs };
+      if (lib) return { libraryId: lib.id, tags: segs.slice(1) };
+      // A library the caller sees but cannot add to: refused, instead of a tag "<library>" in another library.
+      const readOnly = ctx.repos.libraries.list().find((l) => l.name.toLowerCase() === segs[0].toLowerCase() && canRead(req.access!, l.id));
+      if (readOnly) throw forbidden(`You cannot add documents to the library “${readOnly.name}”`);
+      return { libraryId: undefined, tags: segs };
     };
     const notFound = (reply: FastifyReply) => reply.code(404).type('text/plain').send('Not found');
     const drain = async (body: unknown) => {
@@ -137,10 +142,11 @@ export const davRoutes =
             remember(href, 0);
             return reply.code(201).send();
           }
-          const { libraryId, tags } = target(req, segs.slice(0, -1));
           try {
+            const { libraryId, tags } = target(req, segs.slice(0, -1));
             const res = await ctx.backend(req.access!).ingest({ path: tmp, filename: name }, 'webdav', { libraryId, tags: tags.length ? tags : undefined, context: { folder: segs.slice(0, -1).join('/') } });
             if (res.status === 'rejected') return reply.code(415).type('text/plain').send(res.reason ?? 'Not accepted');
+            if (res.status === 'failed') return reply.code(503).header('Retry-After', '60').type('text/plain').send(res.reason ?? 'Could not be stored – try again');
             remember(href, size);
             log.info(`WebDAV: "${name}" ${res.status}${res.documentId ? ` (document ${res.documentId})` : ''}`);
             return reply.code(201).send();

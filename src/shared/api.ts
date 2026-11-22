@@ -261,7 +261,7 @@ export interface BulkEditResult {
 
 export interface UploadResult {
   filename: string;
-  status: 'stored' | 'duplicate' | 'rejected' | 'forwarded';
+  status: 'stored' | 'duplicate' | 'rejected' | 'failed' | 'forwarded';
   documentId?: number;
   taskId?: string;
   intakeId?: number;
@@ -571,6 +571,8 @@ export interface AccountInfo {
   /** Accounts created by single sign-on have no password (and no local two-factor authentication). */
   hasPassword: boolean;
   sso: { available: boolean; linked: boolean; passwordLogin: boolean };
+  /** Built-in archive: the library of uploads without a chosen one (null = the oldest one the user can add to). */
+  defaultLibraryId: number | null;
 }
 
 export interface TwoFactorSetup {
@@ -795,6 +797,8 @@ export interface MailRuleInfo {
   tags?: string[];
   skipAnalysis?: boolean;
   ignore?: boolean;
+  /** Store into this library instead of the account's. */
+  libraryId?: number;
 }
 
 export interface MailAccountInfo {
@@ -810,6 +814,8 @@ export interface MailAccountInfo {
   after: 'seen' | 'move' | 'delete';
   afterFolder: string | null;
   enabled: boolean;
+  /** The first check skips the messages already in the folders. */
+  skipExisting: boolean;
   lastError: string | null;
   lastCheckedAt: number | null;
 }

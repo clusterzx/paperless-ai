@@ -3,7 +3,7 @@
  */
 import { useState } from 'react';
 import { Ban, Check, Copy, KeyRound, Plus, ScrollText, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react';
-import { API_SCOPES, type ApiKeyInfo, type ApiScope, type AuditEntryInfo, type GroupInfo, type UserInfo } from '@shared/api';
+import { API_SCOPES, type ApiKeyInfo, type ApiScope, type AuditEntryInfo, type GroupInfo, type LibraryInfo, type UserInfo } from '@shared/api';
 import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Input, Modal, Select, Skeleton, useConfirm, useToast } from './ui';
 import { del, errorMessage, get, patch, post } from '../lib/api';
 import { useAsync } from '../lib/hooks';
@@ -324,10 +324,11 @@ export function UsersTab() {
 
 // ---------------------------------------------------------------- API keys
 
-function NewKeyModal({ onClose, onCreated, isAdmin }: { onClose: () => void; onCreated: () => void; isAdmin: boolean }) {
+function NewKeyModal({ onClose, onCreated, isAdmin, libraries }: { onClose: () => void; onCreated: () => void; isAdmin: boolean; libraries: LibraryInfo[] }) {
   const toast = useToast();
   const [name, setName] = useState('');
   const [scopes, setScopes] = useState<ApiScope[]>(['read']);
+  const [libraryIds, setLibraryIds] = useState<number[]>([]);
   const [days, setDays] = useState('');
   const [key, setKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -335,7 +336,7 @@ function NewKeyModal({ onClose, onCreated, isAdmin }: { onClose: () => void; onC
   const create = async () => {
     setBusy(true);
     try {
-      const res = await post<{ key: string }>('/api/me/api-keys', { name: name.trim(), scopes, expiresInDays: days ? Number(days) : null });
+      const res = await post<{ key: string }>('/api/me/api-keys', { name: name.trim(), scopes, libraryIds: libraryIds.length ? libraryIds : null, expiresInDays: days ? Number(days) : null });
       setKey(res.key);
       onCreated();
     } catch (err) {
@@ -404,6 +405,21 @@ function NewKeyModal({ onClose, onCreated, isAdmin }: { onClose: () => void; onC
               ))}
             </div>
           </Field>
+          {libraries.length > 1 && (
+            <Field
+              label="Libraries"
+              hint="None ticked: all your libraries. Ticked: the key only sees these – and uploads without a library (scanner, phone, WebDAV root) go to the first of them, or to your default library if it is one of them."
+            >
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {libraries.map((l) => (
+                  <label key={l.id} className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={libraryIds.includes(l.id)} onChange={(e) => setLibraryIds((x) => (e.target.checked ? [...x, l.id] : x.filter((y) => y !== l.id)))} />
+                    {l.name}
+                  </label>
+                ))}
+              </div>
+            </Field>
+          )}
           <Field label="Expires after (days)" hint="Empty: never.">
             <Input type="number" min={1} value={days} onChange={(e) => setDays(e.target.value)} />
           </Field>
@@ -418,6 +434,11 @@ export function ApiKeysCard() {
   const confirm = useConfirm();
   const { session } = useSession();
   const keys = useAsync((signal) => get<ApiKeyInfo[]>('/api/me/api-keys', signal), []);
+  // Built-in archive: the libraries the user belongs to (a key can be limited to some of them).
+  const withLibraries = Boolean(session?.archive?.capabilities.libraries);
+  const libraries = useAsync((signal) => (withLibraries ? get<LibraryInfo[]>('/api/libraries', signal) : Promise.resolve([] as LibraryInfo[])), [withLibraries]);
+  const memberOf = (libraries.data ?? []).filter((l) => l.role !== null).sort((a, b) => a.id - b.id);
+  const libraryName = (id: number) => memberOf.find((l) => l.id === id)?.name ?? `#${id}`;
   const [creating, setCreating] = useState(false);
   const revoke = async (k: ApiKeyInfo) => {
     if (!(await confirm({ title: `Revoke “${k.name}”?`, message: 'Everything using the key loses access at once.', confirmLabel: 'Revoke', danger: true }))) return;
@@ -462,6 +483,11 @@ export function ApiKeysCard() {
                       {SCOPE_LABEL[s]}
                     </Badge>
                   ))}
+                  {k.libraryIds?.map((id) => (
+                    <Badge key={`lib-${id}`} tone="info">
+                      {libraryName(id)}
+                    </Badge>
+                  ))}
                 </div>
               </div>
               <Button size="sm" variant="ghost" onClick={() => revoke(k)}>
@@ -471,7 +497,7 @@ export function ApiKeysCard() {
           ))}
         </ul>
       )}
-      {creating && <NewKeyModal isAdmin={session?.user?.role === 'admin'} onClose={() => setCreating(false)} onCreated={() => void keys.reload()} />}
+      {creating && <NewKeyModal isAdmin={session?.user?.role === 'admin'} libraries={memberOf} onClose={() => setCreating(false)} onCreated={() => void keys.reload()} />}
     </Card>
   );
 }

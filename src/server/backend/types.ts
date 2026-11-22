@@ -228,7 +228,8 @@ export interface IngestHints {
 }
 
 export interface IngestResult {
-  status: 'stored' | 'duplicate' | 'rejected' | 'forwarded';
+  /** rejected: refused for good (type, size, rights); failed: a passing error – sending it again can work. */
+  status: 'stored' | 'duplicate' | 'rejected' | 'failed' | 'forwarded';
   documentId?: number;
   intakeId?: number;
   /** Paperless-ngx consumption task (forwarded uploads). */

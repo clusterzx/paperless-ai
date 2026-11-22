@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { networkFsWarning } from '../archive/fsinfo.js';
+import { watchFolderProblemFor } from '../archive/folder.js';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -157,6 +158,10 @@ export const systemRoutes =
       const patch = req.body.config as DeepPartial<AppConfig>;
       // Validate the merged configuration before testing anything.
       const merged = configSchema.parse(deepMerge(structuredClone(ctx.cfg), withoutMaskedSecrets(patch)));
+      if (merged.archive.mode === 'builtin' && merged.archive.builtin.consumeDir.trim()) {
+        const problem = watchFolderProblemFor(merged.archive.builtin.consumeDir.trim(), ctx.dataDir, merged);
+        if (problem) return reply.code(400).send({ error: `Watch folder: ${problem}`, step: 'archive' });
+      }
 
       // The built-in archive needs no connection; companion mode needs a working Paperless-ngx.
       if (merged.archive.mode !== 'builtin') {
@@ -214,6 +219,7 @@ export const systemRoutes =
         /** Accounts created by single sign-on have no password (and no local two-factor authentication). */
         hasPassword: Boolean(me?.password_hash),
         sso: { available: oidcUsable(ctx.cfg), linked: Boolean(me?.oidc_subject), passwordLogin: passwordLoginAllowed(ctx.cfg) },
+        defaultLibraryId: me?.default_library_id ?? null,
       };
     });
 

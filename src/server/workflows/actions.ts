@@ -39,7 +39,10 @@ export function workflowScope(ctx: AppContext, wf: Pick<Workflow, 'id' | 'librar
   const libraries =
     wf.libraryId === null || !ctx.archive().capabilities.libraries
       ? null
-      : new Map<number, LibraryRole>([[wf.libraryId, 'editor'], ...wf.allowedLibraries.map((l) => [l, 'editor'] as [number, LibraryRole])]);
+      : new Map<number, LibraryRole>(
+          // Deleted libraries are no targets any more (moving into one would hide the documents).
+          [wf.libraryId, ...wf.allowedLibraries].filter((l) => !ctx.repos.libraries.get(l)?.deleted_at).map((l) => [l, 'editor'] as [number, LibraryRole]),
+        );
   return { principal: { kind: 'workflow', workflowId: wf.id, libraryId: wf.libraryId }, libraries, scopes: null };
 }
 
