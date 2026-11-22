@@ -377,13 +377,17 @@ describe('helpers', () => {
     const f = filterFromQuery({ query: 'rechnung,added:[-1 month to now]' }, today);
     expect(f).toMatchObject({ query: 'rechnung', addedFrom: '2026-10-22', addedTo: '2026-11-22' });
     expect(takeDateRanges('created:[  20240101   TO   20241231 ] strom', today)).toEqual({ rest: 'strom', created: { from: '2024-01-01', to: '2024-12-31' }, added: {} });
-    // Without " to " the bracket stays text.
+    // Without " to " the bracket stays text; other fields too; several ranges at once.
     expect(takeDateRanges('added:[2024]', today).rest).toBe('added:[2024]');
+    expect(takeDateRanges('title:[a to b] modified:[-1 day to now] x', today)).toEqual({ rest: 'title:[a to b] x', created: {}, added: {} });
+    expect(takeDateRanges('created:[20240101 to 20240131],added:[-1 week to now]', today)).toEqual({ rest: '', created: { from: '2024-01-01', to: '2024-01-31' }, added: { from: '2026-11-15', to: '2026-11-22' } });
     // Long runs of spaces (CodeQL: polynomial regular expression) take no time.
     const started = Date.now();
     takeDateRanges(`added:[${' '.repeat(50_000)}x`, today);
     takeDateRanges(`added:[ to ${'  '.repeat(50_000)}`, today);
     takeDateRanges(`a${' '.repeat(50_000)},b`, today);
+    takeDateRanges('added:['.repeat(50_000), today);
+    takeDateRanges(`${'x:['.repeat(50_000)}]`, today);
     expect(Date.now() - started).toBeLessThan(500);
   });
 });

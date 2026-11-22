@@ -168,25 +168,42 @@ function relativeDay(expr: string, today: Date): string | null {
 /** Takes `created:[a to b]` / `added:[a to b]` out of a full text query (and splits several queries joined with commas). */
 export function takeDateRanges(query: string, today = new Date()): { rest: string; created: { from?: string; to?: string }; added: { from?: string; to?: string } } {
   const out = { rest: query, created: {} as { from?: string; to?: string }, added: {} as { from?: string; to?: string } };
-  // The bracket's content is split with indexOf, not with a pattern: a pattern like `[^\]]*?\s+to\s+`
-  // takes quadratic time on long runs of spaces in a query (CodeQL js/polynomial-redos).
-  out.rest = query
-    .replace(/(created|added|modified):\[([^\]]*)\]/gi, (all: string, field: string, inner: string) => {
-      const text = inner.replace(/\s+/g, ' ');
+  // A plain scan instead of a pattern: patterns for `field:[ … ]` take quadratic time on queries
+  // built to hit them – long runs of spaces, or many `added:[` without a closing bracket
+  // (CodeQL js/polynomial-redos). Every character is looked at a bounded number of times.
+  const lower = query.toLowerCase();
+  let rest = '';
+  let i = 0;
+  let close = -1;
+  while (i < query.length) {
+    const open = lower.indexOf(':[', i);
+    if (open < 0) break;
+    // The first `]` after the bracket – the same for every bracket before it, so searched once.
+    if (close < open + 2) close = query.indexOf(']', open + 2);
+    if (close < 0) break;
+    let start = open;
+    while (start > i && lower.charCodeAt(start - 1) >= 97 && lower.charCodeAt(start - 1) <= 122) start--;
+    const field = lower.slice(start, open);
+    if (field === 'created' || field === 'added' || field === 'modified') {
+      const text = query.slice(open + 2, close).replace(/\s+/g, ' ');
       const at = text.toLowerCase().indexOf(' to ');
-      if (at < 0) return all;
-      const key = field.toLowerCase();
-      if (key === 'created' || key === 'added') {
-        const from = relativeDay(text.slice(0, at), today);
-        const to = relativeDay(text.slice(at + 4), today);
-        if (from) out[key].from = from;
-        if (to) out[key].to = to;
+      if (at >= 0) {
+        if (field !== 'modified') {
+          const from = relativeDay(text.slice(0, at), today);
+          const to = relativeDay(text.slice(at + 4), today);
+          if (from) out[field].from = from;
+          if (to) out[field].to = to;
+        }
+        rest += `${query.slice(i, start)} `;
+        i = close + 1;
+        continue;
       }
-      return ' ';
-    })
-    .replace(/,/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+    }
+    rest += query.slice(i, open + 2);
+    i = open + 2;
+  }
+  rest += query.slice(i);
+  out.rest = rest.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
   return out;
 }
 
