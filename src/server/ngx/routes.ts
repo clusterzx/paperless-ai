@@ -9,12 +9,13 @@
  * uploads go to the user's default library.
  */
 import { randomUUID } from 'node:crypto';
+import { statfs } from 'node:fs/promises';
 import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import sharp from 'sharp';
 import type { Services } from '../http/app.js';
 import { LocalBackend } from '../archive/backend.js';
 import { canEdit, canRead, isAdmin, userIdOf, type AccessScope } from '../access/scope.js';
-import type { ArchiveDocument, ChangeOrigin, CustomFieldType, DocumentFilter, DocumentPatch, MetadataKind } from '../backend/types.js';
+import type { ArchiveDocument, ChangeOrigin, CustomFieldType, DocumentFilter, DocumentPatch, MetadataKind, MetadataUpdate } from '../backend/types.js';
 import { statusOf } from '../backend/types.js';
 import { HttpProblem } from '../http/helpers.js';
 import { sendFile } from '../routes/documentOps.js';
@@ -27,6 +28,7 @@ import { logger } from '../logger.js';
 import {
   apiVersion,
   baseUrl,
+  documentDateOf,
   filterFromQuery,
   matchesNothing,
   ngxDocument,
@@ -211,6 +213,8 @@ export const ngxRoutes =
           trash_delay: ctx.cfg.archive.builtin.trashDays,
           auditlog_enabled: true,
           email_enabled: false,
+          // No notes here: apps that read it hide them.
+          notes_enabled: false,
           version: NGX_VERSION,
         },
         permissions: permissions(req),
@@ -225,6 +229,13 @@ export const ngxRoutes =
 
     // The application configuration of Paperless-ngx (OCR, barcodes …): apps read it; nothing of it applies here.
     app.get('/ngx/api/logs/', auth, async () => []);
+    // The lines of a log (Paperparrot reads mail and paperless): none here – the logs are in Paperless-AI.
+    app.get('/ngx/api/logs/:name/', auth, async (req) => {
+      if (!['paperless', 'mail', 'celery'].includes((req.params as { name: string }).name)) throw notFoundError();
+      return [];
+    });
+    // Sign-in with other accounts (single sign-on of Paperless-ngx): none for the apps.
+    app.get('/ngx/api/profile/social_account_providers/', auth, async () => []);
     app.get('/ngx/api/config/', auth, async () => [{ id: 1, app_title: 'Paperless-AI', app_logo: null, barcode_asn_prefix: null, barcodes_enabled: false }]);
 
     app.get('/ngx/api/profile/', auth, async (req) => {
@@ -292,18 +303,47 @@ export const ngxRoutes =
         correspondent_count: labels.correspondent.length,
         document_type_count: labels.documentType.length,
         storage_path_count: 0,
-        current_asn: libs?.length ? Math.max(0, (await b.nextAsn(libs[0])) - 1) : null,
+        // Always a number, as in Paperless-ngx (Paperparrot cannot read null here).
+        current_asn: libs?.length ? Math.max(0, (await b.nextAsn(libs[0])) - 1) : 0,
       };
     });
 
-    app.get('/ngx/api/status/', auth, async () => ({
-      pngx_version: NGX_VERSION,
-      server_os: process.platform,
-      install_type: 'docker',
-      storage: { total: 0, available: 0 },
-      database: { type: 'sqlite', url: '', status: 'OK', error: null },
-      tasks: { redis_status: 'OK', celery_status: 'OK', index_status: 'OK', classifier_status: 'OK' },
-    }));
+    // Every field of Paperless-ngx: Paperparrot decodes them all (dates included) or fails.
+    app.get('/ngx/api/status/', auth, async () => {
+      local();
+      const now = new Date().toISOString();
+      let storage = { total: 0, available: 0 };
+      try {
+        const fs = await statfs(ctx.dataDir);
+        storage = { total: fs.blocks * fs.bsize, available: fs.bavail * fs.bsize };
+      } catch {
+        // not available on this system – zeros
+      }
+      return {
+        pngx_version: NGX_VERSION,
+        server_os: `${process.platform} (Paperless-AI)`,
+        install_type: 'docker',
+        storage,
+        database: { type: 'sqlite', url: 'paperless-ai.db', status: 'OK', error: null, migration_status: { latest_migration: 'paperless-ai', unapplied_migrations: [] } },
+        tasks: {
+          redis_url: '',
+          redis_status: 'OK',
+          redis_error: null,
+          celery_status: 'OK',
+          celery_url: null,
+          celery_error: null,
+          index_status: 'OK',
+          index_last_modified: now,
+          index_error: null,
+          classifier_status: 'OK',
+          classifier_last_trained: now,
+          classifier_error: null,
+          sanity_check_status: 'OK',
+          sanity_check_last_run: now,
+          sanity_check_error: null,
+        },
+      };
+    });
 
     // ---------------------------------------------------------------- labels
 
@@ -372,6 +412,23 @@ export const ngxRoutes =
       return entry;
     };
 
+    /** Colour and parent of a tag, select options of a custom field – as the apps send them. */
+    const labelUpdate = (kind: MetadataKind, body: Body, dataType?: unknown): MetadataUpdate => {
+      const out: MetadataUpdate = {};
+      if (kind === 'tag' && typeof body.color === 'string') out.color = body.color;
+      if (kind === 'tag' && body.parent !== undefined) out.parent = body.parent === null || body.parent === '' ? null : Number(body.parent);
+      const options = (body.extra_data as { select_options?: unknown } | null | undefined)?.select_options;
+      if (kind === 'customField' && Array.isArray(options)) {
+        // Options as {id, label} (Paperless-ngx 2.x) or as plain labels (before).
+        const labels = options
+          .map((o) => (typeof o === 'string' ? o : (o as { label?: unknown } | null)?.label))
+          .filter((l): l is string => typeof l === 'string' && l.trim() !== '')
+          .map((l) => l.trim());
+        if (labels.length || dataType === 'select') out.selectOptions = labels;
+      }
+      return out;
+    };
+
     for (const [path, kind] of Object.entries(LABELS)) {
       app.get(`/ngx/api/${path}/`, auth, async (req) => {
         const scope = scopeOf(req);
@@ -407,7 +464,8 @@ export const ngxRoutes =
                 : await meta.resolveCustomField(name, true, (String(body.data_type ?? 'string') as CustomFieldType) || 'string', (body.extra_data as { default_currency?: string } | undefined)?.default_currency ?? undefined);
         if (res.id == null) throw new NgxError(400, 'Could not create it');
         if (!res.created) throw new NgxError(400, `${name} exists already`, { name: [`${kind} with this name already exists.`] });
-        if (kind === 'tag' && typeof body.color === 'string') await ctx.backend(scope).updateMetadata(kind, res.id, { color: body.color });
+        const extras = labelUpdate(kind, body, body.data_type);
+        if (Object.keys(extras).length) await ctx.backend(scope).updateMetadata(kind, res.id, extras);
         meta.invalidate();
         reply.code(201);
         return labelJson(kind, scope, await labelOf(scope, kind, res.id, false));
@@ -418,10 +476,8 @@ export const ngxRoutes =
         const id = Number((req.params as { id: string }).id);
         const entry = await labelOf(scope, kind, id, true);
         const body = (req.body ?? {}) as Body;
-        const patch: { name?: string; color?: string | null; parent?: number | null } = {};
+        const patch = labelUpdate(kind, body, entry.item.data_type);
         if (typeof body.name === 'string' && body.name.trim() && body.name.trim() !== entry.item.name) patch.name = body.name.trim();
-        if (kind === 'tag' && typeof body.color === 'string') patch.color = body.color;
-        if (kind === 'tag' && body.parent !== undefined) patch.parent = body.parent === null ? null : Number(body.parent);
         if (Object.keys(patch).length) await ctx.backend(scope).updateMetadata(kind, id, patch);
         ctx.metadata(entry.lib).invalidate();
         return labelJson(kind, scope, await labelOf(scope, kind, id, false));
@@ -528,10 +584,12 @@ export const ngxRoutes =
       if (body.correspondent !== undefined) patch.correspondent = body.correspondent === null ? null : Number(body.correspondent);
       if (body.document_type !== undefined) patch.document_type = body.document_type === null ? null : Number(body.document_type);
       if (Array.isArray(body.tags)) patch.tags = body.tags.map(Number);
-      const created = (body.created_date ?? body.created) as string | null | undefined;
-      // Apps send the whole document back: the date shown for a document without one is not a change.
-      const hasDate = Boolean(doc.created ?? doc.created_date);
-      if (typeof created === 'string' && /^\d{4}-\d{2}-\d{2}/.test(created) && (hasDate || created.slice(0, 10) !== shownCreated(doc))) patch.created = created.slice(0, 10);
+      // Apps send the whole document back, some with both `created` and `created_date`: the one that
+      // differs from the date shown is the change. The date shown for a document without one is none.
+      const shown = shownCreated(doc);
+      const dates = [body.created, body.created_date].map(documentDateOf).filter((d): d is string => d !== null);
+      const created = dates.find((d) => d !== shown) ?? dates[0];
+      if (created && (Boolean(doc.created ?? doc.created_date) || created !== shown)) patch.created = created;
       if (body.archive_serial_number !== undefined) patch.archive_serial_number = body.archive_serial_number === null || body.archive_serial_number === '' ? null : Number(body.archive_serial_number);
       if (Array.isArray(body.custom_fields)) {
         patch.custom_fields = (body.custom_fields as { field: number; value?: unknown }[]).map((f) => ({ field: Number(f.field), value: f.value ?? null }));

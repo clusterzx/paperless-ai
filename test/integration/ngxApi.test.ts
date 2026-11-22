@@ -11,7 +11,7 @@ import { LocalBackend } from '../../src/server/archive/backend.js';
 import { SYSTEM_SCOPE } from '../../src/server/access/scope.js';
 import { PaperlessClient } from '../../src/server/paperless/client.js';
 import { newTotpSecret, timeStep, totpCode } from '../../src/server/totp.js';
-import { filterFromQuery, intakeIdOf, taskIdOf, takeDateRanges } from '../../src/server/ngx/format.js';
+import { documentDateOf, filterFromQuery, intakeIdOf, taskIdOf, takeDateRanges } from '../../src/server/ngx/format.js';
 
 let h: Harness;
 let token: string;
@@ -83,6 +83,44 @@ describe('signing in like the apps', () => {
     const broken = await h.inject({ method: 'POST', url: '/ngx/api/tags/', headers: auth({ 'content-type': 'application/json' }), payload: '{"name":' });
     expect(broken.statusCode).toBe(400);
     expect(broken.json().detail).toMatch(/^JSON parse error/);
+  });
+
+  it('gives Paperparrot every field it decodes and takes what it sends', async () => {
+    const pp = (extra: Record<string, string> = {}) => auth({ accept: 'application/json; Version=9', 'content-type': 'application/json', ...extra });
+    // Status: Paperparrot decodes every field, dates included.
+    const status = (await get('/ngx/api/status/', pp())).json();
+    expect(status.database.migration_status).toEqual({ latest_migration: expect.any(String), unapplied_migrations: [] });
+    expect(typeof status.tasks.redis_url).toBe('string');
+    expect(new Date(status.tasks.index_last_modified).getTime()).not.toBeNaN();
+    expect(new Date(status.tasks.classifier_last_trained).getTime()).not.toBeNaN();
+    expect(typeof status.storage.total).toBe('number');
+    // Statistics: the current ASN is a number; logs and sign-in providers are (empty) lists.
+    expect(typeof (await get('/ngx/api/statistics/', pp())).json().current_asn).toBe('number');
+    expect((await get('/ngx/api/logs/mail/', pp())).json()).toEqual([]);
+    expect((await get('/ngx/api/logs/paperless/', pp())).json()).toEqual([]);
+    expect((await get('/ngx/api/logs/other/', pp())).statusCode).toBe(404);
+    expect((await get('/ngx/api/profile/social_account_providers/', pp())).json()).toEqual([]);
+    expect((await get('/ngx/api/ui_settings/', pp())).json().settings.notes_enabled).toBe(false);
+
+    // New tags with their parent, new select fields with their options.
+    const parent = (await h.inject({ method: 'POST', url: '/ngx/api/tags/', headers: pp(), payload: { name: 'Finanzen', color: '#00ff00' } })).json();
+    const child = await h.inject({ method: 'POST', url: '/ngx/api/tags/', headers: pp(), payload: { name: 'Steuer', color: '#0000ff', parent: parent.id, match: '', matching_algorithm: 0, is_insensitive: true, is_inbox_tag: false } });
+    expect(child.statusCode, child.body).toBe(201);
+    expect(child.json()).toMatchObject({ name: 'Steuer', color: '#0000ff', parent: parent.id });
+    const select = await h.inject({ method: 'POST', url: '/ngx/api/custom_fields/', headers: pp(), payload: { name: 'Status', data_type: 'select', extra_data: { select_options: [{ id: null, label: 'Offen' }, { id: null, label: 'Bezahlt' }], default_currency: null } } });
+    expect(select.statusCode, select.body).toBe(201);
+    expect(select.json().extra_data.select_options.map((o: { label: string }) => o.label)).toEqual(['Offen', 'Bezahlt']);
+    const renamed = await h.inject({ method: 'PATCH', url: `/ngx/api/custom_fields/${select.json().id}/`, headers: pp(), payload: { name: 'Status', data_type: 'select', extra_data: { select_options: [...select.json().extra_data.select_options, { id: null, label: 'Storniert' }] } } });
+    expect(renamed.json().extra_data.select_options.map((o: { label: string }) => o.label)).toEqual(['Offen', 'Bezahlt', 'Storniert']);
+    expect(renamed.json().extra_data.select_options[0].id).toBe(select.json().extra_data.select_options[0].id);
+
+    // A document changed with Swift's default JSONEncoder: the date as seconds since 2001.
+    const id = await addDocument('Rechnung', 'Eine Rechnung über einen Betrag');
+    const doc = (await get(`/ngx/api/documents/${id}/`, pp())).json();
+    const midnightBerlin = Date.UTC(2024, 2, 30, 23, 0, 0) / 1000 - 978_307_200; // 2024-03-31 00:00 in UTC+1
+    const changed = await h.inject({ method: 'PATCH', url: `/ngx/api/documents/${id}/`, headers: pp(), payload: { ...doc, title: 'Rechnung März', created: midnightBerlin, set_permissions: null } });
+    expect(changed.statusCode, changed.body).toBe(200);
+    expect(changed.json()).toMatchObject({ title: 'Rechnung März', created: '2024-03-31' });
   });
 
   it('gives a token for user name and password, and asks for the code with two-factor authentication', async () => {
@@ -317,6 +355,20 @@ describe('helpers', () => {
     expect(intakeIdOf(taskIdOf(4711))).toBe(4711);
     expect(intakeIdOf('intake-12')).toBe(12);
     expect(intakeIdOf('nonsense')).toBeNull();
+  });
+
+  it('reads document dates in the forms the apps send', () => {
+    expect(documentDateOf('2024-03-31')).toBe('2024-03-31');
+    expect(documentDateOf('2024-03-31T00:00:00')).toBe('2024-03-31');
+    expect(documentDateOf('2024-03-31T00:00:00.000')).toBe('2024-03-31');
+    expect(documentDateOf('2024-03-31T12:00:00Z')).toBe('2024-03-31');
+    expect(documentDateOf('2024-03-31T12:00:00+02:00')).toBe('2024-03-31');
+    // Swift's default: seconds since 2001 – midnight on the phone, east or west of UTC.
+    expect(documentDateOf(733_536_000)).toBe('2024-03-31'); // 00:00 UTC
+    expect(documentDateOf(733_536_000 - 2 * 3600)).toBe('2024-03-31'); // 00:00 in UTC+2
+    expect(documentDateOf(733_536_000 + 5 * 3600)).toBe('2024-03-31'); // 00:00 in UTC-5
+    expect(documentDateOf('31.03.2024')).toBeNull();
+    expect(documentDateOf(null)).toBeNull();
   });
 
   it('reads the relative date ranges of Paperless Mobile', () => {

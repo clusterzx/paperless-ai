@@ -9,7 +9,7 @@ import { LocalBackend } from '../archive/backend.js';
 import { notSupported } from '../backend/types.js';
 import { badRequest, HttpProblem } from '../http/helpers.js';
 import { receiveUploads } from '../routes/documentOps.js';
-import { taskIdOf } from './format.js';
+import { documentDateOf, taskIdOf } from './format.js';
 
 export function postDocumentHandler(ctx: AppContext) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
@@ -36,7 +36,7 @@ export function postDocumentHandler(ctx: AppContext) {
         };
         return {
           title: fields.title?.[0],
-          created: fields.created?.[0]?.slice(0, 10),
+          created: documentDateOf(fields.created?.[0]) ?? undefined,
           correspondent: fields.correspondent?.[0] ? name('correspondent', fields.correspondent[0]) : undefined,
           documentType: fields.document_type?.[0] ? name('documentType', fields.document_type[0]) : undefined,
           tags: (fields.tags ?? []).map((t) => name('tag', t)).filter((t): t is string => Boolean(t)),

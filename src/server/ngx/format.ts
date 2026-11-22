@@ -210,6 +210,32 @@ export function sortFromOrdering(ordering: string | undefined, hasQuery: boolean
 }
 
 /** A document as Paperless-ngx sends it (for the API version of the request). */
+/** Seconds from 1970 to 2001-01-01, the reference date of Apple's platforms. */
+const APPLE_EPOCH_SECONDS = 978_307_200;
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * A document date as the apps send it, as a day (YYYY-MM-DD), or null when it is none:
+ * - "2024-03-31", or a date and time without a time zone: the day as written;
+ * - a date and time with a time zone: the day in the server's time zone (as Paperless-ngx does);
+ * - a number: seconds since 2001 – how Swift's JSONEncoder writes a date unless told otherwise
+ *   (Paperparrot). A day picked in the app is midnight on the phone, so the nearest midnight counts.
+ */
+export function documentDateOf(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date((APPLE_EPOCH_SECONDS + value + 12 * 3600) * 1000).toISOString().slice(0, 10);
+  }
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  const m = /^(\d{4}-\d{2}-\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/i.exec(text);
+  if (!m) return null;
+  if (!m[2]) return m[1];
+  const d = new Date(text);
+  if (Number.isNaN(d.getTime())) return m[1];
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 /**
  * The document date as the apps get it. Paperless-ngx always has one, and apps read it as a date
  * that cannot be empty (Swift Paperless fails on the whole list otherwise); a document without a
