@@ -325,3 +325,24 @@ describe('interrupted intake', () => {
     expect(res.status).toBe('stored');
   });
 });
+
+describe('watch folder problems', () => {
+  it('takes files that are readable but not writable, and shows why a folder does nothing', async () => {
+    const lib = local().ensureDefaultLibrary();
+    // A folder that is not there (e.g. the host folder is not mounted) – shown with the folder.
+    const missing = path.join(makeTempDir('pai-gone-'), 'not-mounted');
+    expect((await h.inject({ method: 'POST', url: `/api/libraries/${lib}/intake/folders`, headers: { cookie }, payload: { path: missing } })).statusCode).toBe(200);
+    const folders = (await h.inject({ method: 'GET', url: `/api/libraries/${lib}/intake/folders`, headers: { cookie } })).json() as { path: string; problem: string | null }[];
+    expect(folders[0].problem).toMatch(/does not exist in the container/);
+
+    // A file copied by another user (read-only for Paperless-AI) is taken all the same.
+    const dir = makeTempDir('pai-readonly-');
+    expect((await h.inject({ method: 'POST', url: `/api/libraries/${lib}/intake/folders`, headers: { cookie }, payload: { path: dir } })).statusCode).toBe(200);
+    const file = path.join(dir, 'scan.pdf');
+    fs.writeFileSync(file, pdf('read only scan'));
+    fs.chmodSync(file, 0o444);
+    await local().folders.poll();
+    expect(await local().folders.poll()).toBe(1);
+    expect(fs.existsSync(file)).toBe(false);
+  });
+});

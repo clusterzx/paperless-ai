@@ -21,6 +21,7 @@ interface ArchiveStatus {
   quickCheck: string | null;
   quickCheckAt: number | null;
   corruptFiles: string[];
+  watchFolderProblem: string | null;
 }
 
 function bytes(n: number): string {
@@ -82,6 +83,7 @@ export function ArchiveSection({ draft, set, locked }: { draft: Config; set: (pa
           >
             <Input value={b.consumeDir} onChange={(e) => set('archive.builtin.consumeDir', e.target.value)} placeholder="/consume" disabled={Boolean(locked['archive.builtin.consumeDir'])} />
           </Field>
+          {s?.watchFolderProblem && <Alert tone="danger">{s.watchFolderProblem}</Alert>}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Library" hint="Where the files go (unless a subfolder names another library).">
               <Select value={b.consumeLibrary} onChange={(e) => set('archive.builtin.consumeLibrary', Number(e.target.value))}>

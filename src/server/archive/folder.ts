@@ -86,6 +86,13 @@ export class FolderWatcher {
   private polling: Promise<number> | null = null;
   private stopped = false;
   lastError: string | null = null;
+  /** What keeps each folder (by its configured path) from working – shown with the folder. */
+  private readonly problems = new Map<string, string>();
+
+  /** The problem of a watch folder (missing, refused, unreadable files …), or null. */
+  problemOf(folderPath: string): string | null {
+    return this.problems.get(folderPath) ?? null;
+  }
 
   constructor(private readonly backend: LocalBackend) {}
 
@@ -152,29 +159,33 @@ export class FolderWatcher {
   private async doPoll(): Promise<number> {
     let taken = 0;
     const folders = this.folders();
-    const problems: string[] = [];
+    const problems = new Map<string, string>();
     // A folder inside another watch folder belongs to the inner one only (not taken twice).
     const roots = folders.map((f) => realPath(f.path));
     for (const folder of folders) {
       const problem = this.problem(folder.path);
       if (problem) {
-        problems.push(`${folder.path}: ${problem}`);
+        problems.set(folder.path, problem);
         continue;
       }
       if (!fs.existsSync(folder.path)) {
-        problems.push(`The watch folder ${folder.path} does not exist`);
+        problems.set(folder.path, `The folder ${folder.path} does not exist in the container – is the host folder mounted (docker-compose volumes)?`);
         continue;
       }
       try {
         const own = realPath(folder.path);
-        taken += await this.pollFolder(folder, new Set(roots.filter((r) => r !== own && r.startsWith(own + path.sep))));
+        const res = await this.pollFolder(folder, new Set(roots.filter((r) => r !== own && r.startsWith(own + path.sep))));
+        taken += res.taken;
+        if (res.problem) problems.set(folder.path, res.problem);
       } catch (err) {
-        problems.push(`${folder.path}: ${describeError(err)}`);
-        log.warn(`Watch folder ${folder.path}: ${describeError(err)}`);
+        problems.set(folder.path, describeError(err));
       }
     }
-    if (problems.length && problems.join('\n') !== this.lastError) log.warn(`Watch folders: ${problems.join('; ')}`);
-    this.lastError = problems.length ? problems.join('\n') : null;
+    const text = [...problems].map(([p, m]) => `${p}: ${m}`).join('\n');
+    if (text && text !== this.lastError) log.warn(`Watch folders: ${text.replace(/\n/g, '; ')}`);
+    this.lastError = text || null;
+    this.problems.clear();
+    for (const [p, m] of problems) this.problems.set(p, m);
     return taken;
   }
 
@@ -188,10 +199,11 @@ export class FolderWatcher {
     }
   }
 
-  private async pollFolder(folder: FolderConfig, skip: Set<string>): Promise<number> {
+  private async pollFolder(folder: FolderConfig, skip: Set<string>): Promise<{ taken: number; problem: string | null }> {
     const now = Date.now();
     const present = new Set<string>();
     const ready: string[] = [];
+    const unreadable: string[] = [];
     for await (const file of this.files(folder.path, skip)) {
       present.add(file);
       const st = await fsp.stat(file).catch(() => null);
@@ -202,7 +214,9 @@ export class FolderWatcher {
         this.seen.set(file, { size: st.size, mtimeMs: st.mtimeMs, stableSince: now });
         continue;
       }
-      if (st.size > 0 && (await this.exclusive(file))) ready.push(file);
+      if (st.size === 0) continue;
+      if (await this.readable(file)) ready.push(file);
+      else unreadable.push(path.relative(folder.path, file));
       if (ready.length >= PER_POLL) break;
     }
     // Forget files that are gone – but not those of a nested watch folder (they were not listed here).
@@ -212,17 +226,28 @@ export class FolderWatcher {
       if (k.startsWith(prefix) && !present.has(k) && !nested.some((n) => realPath(path.dirname(k)).concat(path.sep).startsWith(n))) this.seen.delete(k);
     }
     let taken = 0;
+    const kept: string[] = [];
     for (const file of ready) {
       if (this.stopped) break;
-      if (await this.take(folder, file)) taken++;
+      const r = await this.take(folder, file);
+      if (r.stored) taken++;
+      if (r.problem) kept.push(r.problem);
     }
-    return taken;
+    // Paperless-AI runs without the right to override file permissions (cap_drop: ALL): a file of
+    // another user that is not readable for others stays where it is – say so instead of waiting.
+    const problem = unreadable.length
+      ? `${unreadable.length} file(s) cannot be read (${unreadable.slice(0, 3).join(', ')}${unreadable.length > 3 ? ' …' : ''}) – make them readable and the folder writable, e.g. chmod -R a+rwX on the host folder`
+      : (kept[0] ?? null);
+    return { taken, problem };
   }
 
-  /** The file can be opened for writing (no scanner writes to it any more). */
-  private async exclusive(file: string): Promise<boolean> {
+  /**
+   * The file can be read. (Being written is told by size and mtime, which must not change between two
+   * polls – opening for writing would refuse files of another user, which only need to be readable.)
+   */
+  private async readable(file: string): Promise<boolean> {
     try {
-      const fh = await fsp.open(file, 'r+');
+      const fh = await fsp.open(file, 'r');
       await fh.close();
       return true;
     } catch {
@@ -240,7 +265,7 @@ export class FolderWatcher {
     return systemScope(task);
   }
 
-  private async take(folder: FolderConfig, file: string): Promise<boolean> {
+  private async take(folder: FolderConfig, file: string): Promise<{ stored: boolean; problem: string | null }> {
     const st = await fsp.stat(file);
     const rel = path.relative(folder.path, file);
     const parts = rel.split(path.sep).slice(0, -1);
@@ -259,20 +284,24 @@ export class FolderWatcher {
       const tags = lib ? parts.slice(1) : parts;
       if (tags.length) hints.tags = [...(hints.tags ?? []), ...tags];
     }
+    let res: Awaited<ReturnType<LocalBackend['ingest']>>;
     try {
-      const res = await this.backend.ingest(this.scopeFor(folder), { path: file, filename: path.basename(file) }, 'folder', hints);
+      res = await this.backend.ingest(this.scopeFor(folder), { path: file, filename: path.basename(file) }, 'folder', hints);
+    } catch (err) {
+      res = { status: 'rejected', reason: describeError(err) };
+    }
+    log.info(`Watch folder: "${rel}" → ${res.status}${res.documentId ? ` (document ${res.documentId})` : ''}${res.reason ? ` (${res.reason})` : ''}`);
+    try {
       if (res.status === 'rejected' || res.status === 'failed') await this.moveTo(folder, file, '.failed', res.reason ?? 'refused');
       else if (folder.after === 'move') await this.moveTo(folder, file, path.join('.done', new Date().toISOString().slice(0, 10)));
       else await fsp.rm(file, { force: true });
       this.seen.delete(file);
-      log.info(`Watch folder: "${rel}" → ${res.status}${res.documentId ? ` (document ${res.documentId})` : ''}`);
-      return res.status === 'stored';
     } catch (err) {
-      await this.moveTo(folder, file, '.failed', describeError(err)).catch(() => undefined);
-      this.seen.delete(file);
-      log.warn(`Watch folder: "${rel}" failed: ${describeError(err)}`);
-      return false;
+      // Stored, but the file stays (the folder is not writable): it is not stored twice (same
+      // reference), but the folder shows why it does not empty.
+      return { stored: res.status === 'stored', problem: `"${rel}" ${res.status === 'stored' || res.status === 'duplicate' ? 'was stored but' : 'was refused and'} cannot be removed from the folder (${describeError(err)}) – make the folder writable, e.g. chmod -R a+rwX on the host folder` };
     }
+    return { stored: res.status === 'stored', problem: null };
   }
 
   private async moveTo(folder: FolderConfig, file: string, sub: string, error?: string): Promise<void> {

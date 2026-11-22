@@ -545,6 +545,7 @@ function FoldersTab({ library, admin }: { library: LibraryInfo; admin: boolean }
                   {f.skipAnalysis ? ' · no AI analysis' : ''}
                   {!f.enabled ? ' · paused' : ''}
                 </div>
+                {f.problem && <div className="mt-0.5 text-xs text-danger">{f.problem}</div>}
               </div>
               <IconButton label={`Remove ${f.path}`} onClick={() => remove(f)}>
                 <Trash2 className="size-4" />

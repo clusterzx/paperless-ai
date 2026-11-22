@@ -769,6 +769,8 @@ export interface WatchFolder {
   tags: string[];
   skipAnalysis: boolean;
   enabled: boolean;
+  /** What keeps the folder from working (missing, not mounted, files not readable …), from the last poll. */
+  problem: string | null;
 }
 
 export interface DocumentVersionInfo {

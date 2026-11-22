@@ -178,7 +178,17 @@ export const archiveRoutes =
     });
     const folderDto = (r: { id: number; library_id: number; path: string; hints: string; subfolders: WatchFolder['subfolders']; after: WatchFolder['after']; enabled: number }): WatchFolder => {
       const hints = JSON.parse(r.hints || '{}') as { tags?: string[]; skipAnalysis?: boolean };
-      return { id: r.id, libraryId: r.library_id, path: r.path, subfolders: r.subfolders, after: r.after, tags: hints.tags ?? [], skipAnalysis: Boolean(hints.skipAnalysis), enabled: Boolean(r.enabled) };
+      return {
+        id: r.id,
+        libraryId: r.library_id,
+        path: r.path,
+        subfolders: r.subfolders,
+        after: r.after,
+        tags: hints.tags ?? [],
+        skipAnalysis: Boolean(hints.skipAnalysis),
+        enabled: Boolean(r.enabled),
+        problem: local('Watch folders').folders.problemOf(r.path),
+      };
     };
 
     app.get('/api/libraries/:id/intake/folders', { schema: { params: id } }, async (req) => {
@@ -206,6 +216,8 @@ export const archiveRoutes =
         throw err;
       }
       b.startIntake();
+      // A first look right away, so a missing mount or unreadable files show without waiting.
+      await b.folders.poll().catch(() => 0);
       audit(ctx, req.access, 'library.changed', `library:${req.params.id}`, { watchFolder: req.body.path }, req.params.id);
       return { ok: true };
     });
@@ -576,6 +588,8 @@ export const archiveRoutes =
         quickCheck: kv.get<string>('archive.quick_check') ?? null,
         quickCheckAt: kv.get<number>('archive.quick_check_at') ?? null,
         corruptFiles: kv.get<string[]>('archive.corrupt_blobs') ?? [],
+        /** What keeps the watch folder of the settings from working (from the last poll). */
+        watchFolderProblem: ctx.cfg.archive.builtin.consumeDir.trim() ? b.folders.problemOf(ctx.cfg.archive.builtin.consumeDir.trim()) : null,
       };
     });
 
