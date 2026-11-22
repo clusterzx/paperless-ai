@@ -37,6 +37,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `ACTIVATE_CALENDAR` | find appointments, due dates and deadlines for the calendar (default off) |
 | `OCR_ENABLED`, `OCR_MODE` (`manual`, `missing`, `poor`, `always`), `OCR_WRITE_BACK` | OCR on/off, when it runs automatically, replace the text in Paperless (default on) |
 | `OCR_LANGUAGE` (`latin`, `en`, `multi`, `cyrillic`, `eslav`, `greek`, `arabic`, `devanagari`, `korean`, `thai`, `tamil`, `telugu`), `OCR_QUALITY` (`fast`, `balanced`, `accurate`) | OCR model |
+| `OCR_MODEL_VERSION` (`v5`, `v6`), `OCR_MODEL_SIZE` (`tiny`, `small`, `medium`) | OCR models: PP-OCRv5 (default, all languages) or [PP-OCRv6](ocr.md#models-pp-ocrv5-or-pp-ocrv6) in a size (Latin script, Chinese, Japanese – other languages keep v5) |
 | `OCR_DEVICE` (`auto`, `cpu`, `cuda`), `OCR_THREADS`, `OCR_MAX_PAGES` | OCR hardware and limits (`0` threads = automatic, `0` pages = all) |
 | `OCR_RELEASE` (`auto`, `document`, `idle`) | When the OCR models are unloaded and their memory is freed: `auto` = on the GPU after each document (before the AI analysis), on the CPU after 10 idle minutes |
 | `API_KEY`, `JWT_SECRET` | secrets (generated automatically when unset; use at least 32 random characters for `JWT_SECRET`) |

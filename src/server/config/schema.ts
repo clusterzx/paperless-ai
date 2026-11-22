@@ -11,7 +11,7 @@ import {
   DEFAULT_SYSTEM_PROMPT,
 } from './defaults.js';
 import { normalizePaperlessUrl } from './url.js';
-import { OCR_DEVICES, OCR_LANGUAGES, OCR_MODES, OCR_QUALITY, OCR_RELEASE } from '../../shared/ocr.js';
+import { OCR_DEVICES, OCR_LANGUAGES, OCR_MODEL_SIZES, OCR_MODEL_VERSIONS, OCR_MODES, OCR_QUALITY, OCR_RELEASE } from '../../shared/ocr.js';
 
 const str = (def = '') => z.string().trim().default(def);
 
@@ -350,6 +350,10 @@ export const configSchema = z.object({
       writeBack: bool(true),
       language: z.enum(OCR_LANGUAGES).default('latin'),
       quality: z.enum(OCR_QUALITY).default('balanced'),
+      /** PP-OCRv5 (all languages) or PP-OCRv6 (Latin script, Chinese, Japanese – falls back to v5 for the others). */
+      modelVersion: z.enum(OCR_MODEL_VERSIONS).default('v5'),
+      /** Size of the PP-OCRv6 models. */
+      modelSize: z.enum(OCR_MODEL_SIZES).default('small'),
       device: z.enum(OCR_DEVICES).default('auto'),
       /** When the OCR models are unloaded and their (GPU) memory is freed, see OCR_RELEASE. */
       release: z.enum(OCR_RELEASE).default('auto'),

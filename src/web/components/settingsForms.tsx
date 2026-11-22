@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Bot, Cloud, Cpu, Plug, Plus, Server, Sparkle, Trash2, Wand2 } from 'lucide-react';
 import type { AppConfig } from '../../server/config/schema';
 import type { ConnectionTestResult } from '@shared/api';
-import { OCR_LANGUAGE_LABELS, OCR_LANGUAGES, OCR_QUALITY, OCR_QUALITY_PRESETS, OCR_RELEASE, OCR_RELEASE_LABELS } from '@shared/ocr';
+import { effectiveOcrModel, OCR_LANGUAGE_LABELS, OCR_LANGUAGES, OCR_MODEL_SIZE_LABELS, OCR_MODEL_SIZES, OCR_QUALITY, OCR_QUALITY_PRESETS, OCR_RELEASE, OCR_RELEASE_LABELS } from '@shared/ocr';
 import { buildWizardPrompt } from '@shared/promptWizard';
 import { autoEmbeddingPrompts, DEFAULT_EMBEDDING_MODELS, promptTemplate } from '@shared/embeddingPrompts';
 import type { RagStatus } from '@shared/api';
@@ -951,6 +951,8 @@ const OCR_MODE_OPTIONS: { value: Config['ocr']['mode']; label: string; hint: str
 export function OcrSection({ draft, set, locked, available, cudaAvailable }: SectionProps & { available: boolean; cudaAvailable: boolean }) {
   const o = draft.ocr;
   const mode = OCR_MODE_OPTIONS.find((m) => m.value === o.mode) ?? OCR_MODE_OPTIONS[0];
+  // The model really used (PP-OCRv6 falls back to v5 for languages it cannot read).
+  const model = effectiveOcrModel(o.modelVersion, o.modelSize, o.language);
   return (
     <div className="space-y-6">
       {!available && (
@@ -960,7 +962,7 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
       )}
       <Switch
         label="Enable OCR with PaddleOCR"
-        description="Reads scans and photos locally (no external service). The models (about 20 MB) are downloaded on first use into the data directory."
+        description="Reads scans and photos locally (no external service). The models (6–140 MB, depending on the choice below) are downloaded on first use into the data directory."
         checked={o.enabled}
         locked={locked['ocr.enabled']}
         onChange={(v) => set('ocr.enabled', v)}
@@ -993,7 +995,11 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
                 ))}
               </Select>
             </Field>
-            <Field label="Quality" locked={locked['ocr.quality']} hint={OCR_QUALITY_PRESETS[o.quality].label}>
+            <Field
+              label="Quality"
+              locked={locked['ocr.quality']}
+              hint={`${OCR_QUALITY_PRESETS[o.quality].label}${model.version === 'v6' ? ' – with PP-OCRv6 it sets the resolution, the model size sets the models' : ''}`}
+            >
               <Select {...bind(draft, set, locked, 'ocr.quality')}>
                 {OCR_QUALITY.map((q) => (
                   <option key={q} value={q}>
@@ -1003,6 +1009,34 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
               </Select>
             </Field>
           </FormGrid>
+          <FormGrid>
+            <Field
+              label="Model"
+              locked={locked['ocr.modelVersion']}
+              hint={
+                o.modelVersion === 'v6'
+                  ? 'PP-OCRv6 (2026): one model for Latin-script languages, Chinese and Japanese, in three sizes – the smaller, the faster.'
+                  : 'PP-OCRv5: a recognition model per language group – all languages of the list.'
+              }
+            >
+              <Select {...bind(draft, set, locked, 'ocr.modelVersion')}>
+                <option value="v5">PP-OCRv5 – all languages</option>
+                <option value="v6">PP-OCRv6 – Latin, Chinese, Japanese</option>
+              </Select>
+            </Field>
+            {o.modelVersion === 'v6' && (
+              <Field label="Model size" locked={locked['ocr.modelSize']} hint={OCR_MODEL_SIZE_LABELS[o.modelSize]}>
+                <Select {...bind(draft, set, locked, 'ocr.modelSize')}>
+                  {OCR_MODEL_SIZES.map((size) => (
+                    <option key={size} value={size}>
+                      {size[0].toUpperCase() + size.slice(1)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+          </FormGrid>
+          {model.note && <Alert tone="info">{model.note}</Alert>}
           <FormGrid className="lg:grid-cols-3">
             <Field
               label="Device"

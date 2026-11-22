@@ -8,6 +8,8 @@ import { linesToText, skewAngle, type OcrLine } from '../../src/server/ocr/layou
 import { candidateProviders } from '../../src/server/ocr/pipeline.js';
 import { assessText } from '../../src/server/ocr/quality.js';
 import { isPdf } from '../../src/server/ocr/render.js';
+import { DETECTION_MODELS, parseDbOptions, V6_MODELS } from '../../src/server/ocr/models.js';
+import { effectiveOcrModel, OCR_LANGUAGES, OCR_V6_LANGUAGES } from '../../src/shared/ocr.js';
 
 function rect(x: number, y: number, w: number, h: number): Quad {
   return [
@@ -162,6 +164,55 @@ describe('devices and files', () => {
   it('recognises PDFs by their content, not the file name', () => {
     expect(isPdf(new TextEncoder().encode('%PDF-1.7\n...'))).toBe(true);
     expect(isPdf(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe(false);
+  });
+});
+
+describe('PP-OCRv6 (#1026)', () => {
+  it('uses PP-OCRv6 for its languages and PP-OCRv5 for the others', () => {
+    expect(effectiveOcrModel('v5', 'small', 'latin')).toEqual({ version: 'v5', size: null, label: 'PP-OCRv5', note: null });
+    expect(effectiveOcrModel('v6', 'small', 'latin')).toEqual({ version: 'v6', size: 'small', label: 'PP-OCRv6 small', note: null });
+    expect(effectiveOcrModel('v6', 'medium', 'en').label).toBe('PP-OCRv6 medium');
+    expect(effectiveOcrModel('v6', 'small', 'multi').version).toBe('v6');
+    // Tiny reads no Japanese; Cyrillic, Arabic … are not read by any size.
+    expect(effectiveOcrModel('v6', 'tiny', 'multi')).toMatchObject({ version: 'v5', note: expect.stringContaining('Japanese') });
+    for (const language of OCR_LANGUAGES.filter((l) => !OCR_V6_LANGUAGES.includes(l))) {
+      expect(effectiveOcrModel('v6', 'medium', language)).toMatchObject({ version: 'v5', size: null, note: expect.stringMatching(/^PP-OCRv6 does not read .+ – PP-OCRv5 is used$/) });
+    }
+  });
+
+  it('pins the models of every size to a revision', () => {
+    for (const [size, m] of Object.entries(V6_MODELS)) {
+      expect(m.det.repo).toBe(`PaddlePaddle/PP-OCRv6_${size}_det_onnx`);
+      expect(m.rec.repo).toBe(`PaddlePaddle/PP-OCRv6_${size}_rec_onnx`);
+      for (const f of [m.det, m.rec]) expect(f.revision).toMatch(/^[0-9a-f]{40}$/);
+    }
+    expect(V6_MODELS.tiny.rec.size).toBeLessThan(V6_MODELS.small.rec.size);
+    expect(V6_MODELS.small.rec.size).toBeLessThan(V6_MODELS.medium.rec.size);
+    expect(V6_MODELS.tiny.det.size + V6_MODELS.tiny.rec.size).toBeLessThan(DETECTION_MODELS.mobile.size + 8_100_000);
+  });
+
+  it('takes the thresholds of the text detection from the model', () => {
+    const v6 = [
+      'Global:',
+      '  model_name: PP-OCRv6_tiny_det',
+      'PostProcess:',
+      '  box_thresh: 0.4',
+      '  max_candidates: 3000',
+      '  name: DBPostProcess',
+      '  thresh: 0.2',
+      '  unclip_ratio: 1.4',
+      'PreProcess:',
+      '  transform_ops:',
+      '  - thresh: 0.9',
+    ].join('\n');
+    expect(parseDbOptions(v6)).toEqual({ thresh: 0.2, boxThresh: 0.4, unclipRatio: 1.4, maxCandidates: 3000 });
+    // v5 lists them last; nonsense values and other blocks are left out.
+    expect(parseDbOptions('PreProcess:\n  x: 1\nPostProcess:\n  name: DBPostProcess\n  thresh: 0.3\n  box_thresh: 7\n  unclip_ratio: abc\n')).toEqual({ thresh: 0.3 });
+    expect(parseDbOptions('Global: {}')).toEqual({});
+    // Long input is read in linear time.
+    const started = Date.now();
+    parseDbOptions(`PostProcess:\n${' '.repeat(200_000)}thresh${' '.repeat(200_000)}`);
+    expect(Date.now() - started).toBeLessThan(500);
   });
 });
 

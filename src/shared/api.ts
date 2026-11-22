@@ -1,3 +1,4 @@
+import type { OcrModelChoice } from './ocr.js';
 import type { SearchKey } from './searchSyntax.js';
 import type { MatchedPromptRule } from './promptRules.js';
 
@@ -713,6 +714,8 @@ export interface OcrStatus {
   writeBack: boolean;
   /** Execution provider of the loaded models (cpu, cuda, dml) – null while not loaded. */
   provider: string | null;
+  /** The OCR models used with the settings (PP-OCRv6 falls back to v5 for languages it cannot read). */
+  model: OcrModelChoice;
   analysis: { running: boolean; done: number; total: number; lastAt: number | null; error: string | null };
   queue: number;
   active: { documentId: number; title: string | null; page: number; pages: number } | null;

@@ -288,5 +288,36 @@ describe('OCR page API', () => {
     const res = await hh.inject({ method: 'GET', url: '/api/ocr/status', headers: hh.apiKeyHeaders() });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ enabled: true, available: true, mode: 'poor', writeBack: true, queue: 0, active: null });
+    expect(res.json().model).toEqual({ version: 'v5', size: null, label: 'PP-OCRv5', note: null });
+  });
+
+  it('uses PP-OCRv6 in the chosen size, restarts the OCR for another model and falls back to v5 for other scripts', async () => {
+    const hh = await harness({ config: { ocr: { enabled: true } } });
+    const { OcrService } = await import('../../src/server/ocr/service.js');
+    const options: Record<string, unknown>[] = [];
+    let disposed = 0;
+    const service = new OcrService(hh.ctx, (o) => {
+      options.push(o as unknown as Record<string, unknown>);
+      return { ...hh.ocrEngine, run: hh.ocrEngine.run.bind(hh.ocrEngine), dispose: async () => void disposed++, provider: null } as never;
+    });
+    const engine = () => (service as unknown as { getEngine(): unknown }).getEngine();
+    engine();
+    expect(options[0]).toMatchObject({ language: 'latin', detector: 'mobile' });
+    expect(options[0].v6).toBeUndefined();
+
+    hh.ctx.config.update({ ocr: { modelVersion: 'v6', modelSize: 'tiny' } });
+    await vi.waitFor(() => expect(disposed).toBe(1));
+    engine();
+    expect(options[1]).toMatchObject({ v6: 'tiny', language: 'latin' });
+    expect(service.status(0).model).toEqual({ version: 'v6', size: 'tiny', label: 'PP-OCRv6 tiny', note: null });
+
+    // Cyrillic is not read by PP-OCRv6: v5 with a note, in the API too.
+    hh.ctx.config.update({ ocr: { language: 'cyrillic' } });
+    engine();
+    expect(options[2].v6).toBeUndefined();
+    expect(service.status(0).model).toMatchObject({ version: 'v5', note: expect.stringContaining('PP-OCRv6 does not read Cyrillic') });
+    const res = await hh.inject({ method: 'GET', url: '/api/ocr/status', headers: hh.apiKeyHeaders() });
+    expect(res.json().model.label).toBe('PP-OCRv5');
+    await service.stop();
   });
 });
