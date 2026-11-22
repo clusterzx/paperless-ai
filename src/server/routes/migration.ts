@@ -114,10 +114,9 @@ export const migrationRoutes =
       const extra = ctx.cfg.archive.builtin.exportDir ? path.resolve(ctx.cfg.archive.builtin.exportDir) : null;
       if (!requested) return path.join(root, `${format}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
       const target = path.resolve(root, requested);
-      if (!target.startsWith(root + path.sep) && !(extra !== null && target.startsWith(extra + path.sep))) {
-        throw new HttpProblem(400, `Exports go into a folder below ${extra ? `${root} or ${extra}` : root} – set PAPERLESS_AI_EXPORT_DIR to allow another directory`);
-      }
-      return target;
+      if (target.startsWith(root + path.sep)) return target;
+      if (extra !== null && target.startsWith(extra + path.sep)) return target;
+      throw new HttpProblem(400, `Exports go into a folder below ${extra ? `${root} or ${extra}` : root} – set PAPERLESS_AI_EXPORT_DIR to allow another directory`);
     };
     const run = async (libraryIds: number[] | null, body: z.output<typeof exportBody>): Promise<ExportResult> => {
       const b = ctx.archive();
