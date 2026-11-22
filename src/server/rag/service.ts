@@ -27,13 +27,14 @@ import type { ChatMessage, EmbeddingClient, Usage } from '../ai/types.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
 import { datePart } from '../processing/dates.js';
-import { normalizeName } from '../paperless/metadata.js';
+import { normalizeName } from '../backend/metadata.js';
 import { chunkText } from './chunker.js';
 import { archiveFacts } from './facts.js';
+import { readableLibraries, type AccessScope } from '../access/scope.js';
 import { LocalEmbedder, localEmbeddingsAvailable } from './localEmbedder.js';
-import { metaLine, RagStore, type ChunkWithMeta, type RagDocumentMeta } from './store.js';
+import { metaLine, RagStore, type ChunkWithMeta, type LibraryFilter, type RagDocumentMeta } from './store.js';
 import { asksForRecency, buildFtsQuery, makeSnippet, mentionedMonths, mentionedYears, queryTerms, stem } from './text.js';
-import { VectorIndex } from './vectorIndex.js';
+import { createVectorSearch } from './vectorSearch.js';
 
 const log = logger.child({ module: 'rag' });
 
@@ -69,7 +70,7 @@ export interface SearchResult {
 
 export class RagService extends EventEmitter<{ status: [RagStatus] }> {
   readonly store: RagStore;
-  private readonly vectors = new VectorIndex();
+  private readonly vectors = createVectorSearch();
   private vectorsLoaded = false;
   private vectorsLoading: Promise<void> | null = null;
   private vectorGeneration = 0;
@@ -85,7 +86,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
 
   constructor(private readonly ctx: AppContext) {
     super();
-    this.store = new RagStore(ctx.db);
+    this.store = new RagStore(ctx.indexDb);
     this.lastSyncAt = ctx.repos.kv.get<number>('rag_last_sync') ?? null;
     ctx.config.on('change', (next, prev) => this.onConfigChange(next, prev));
   }
@@ -117,6 +118,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     await this.syncing?.catch(() => undefined);
     await this.embedder?.client.dispose?.();
     this.embedder = null;
+    await this.vectors.close();
   }
 
   private schedule(): void {
@@ -268,7 +270,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     for (;;) {
       const rows = this.store.embeddingsAfter(afterId, VECTOR_LOAD_BATCH);
       try {
-        for (const row of rows) this.vectors.add(row.id, row.documentId, row.vector);
+        this.vectors.addMany(rows);
       } catch {
         log.warn('Stored embeddings have inconsistent dimensions – re-embedding all passages');
         this.store.clearEmbeddings();
@@ -280,6 +282,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
       await new Promise((resolve) => setImmediate(resolve));
       if (generation !== this.vectorGeneration) return; // reset meanwhile (rebuild, model change)
     }
+    await this.vectors.flush();
     this.vectorsLoaded = true;
     if (this.vectors.count) {
       log.info(`Loaded ${this.vectors.count} vectors (${(this.vectors.memoryBytes / 1e6).toFixed(1)} MB) in ${Date.now() - started} ms`);
@@ -362,13 +365,26 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     const started = Date.now();
     this.lastError = null;
     await this.ensureVectors();
-    const client = this.ctx.paperless();
-    const metadata = this.ctx.metadata();
+    const client = this.ctx.backend();
 
     this.setProgress('listing', 0, 0);
+    // Ids are unique across metadata namespaces (libraries), so the name maps can be merged.
+    const loadNames = async () => {
+      const snaps = await Promise.all((await client.metadataScopes()).map((lib) => this.ctx.metadata(lib).snapshot(true)));
+      return {
+        tags: snaps.flatMap((m) => m.tags),
+        correspondents: snaps.flatMap((m) => m.correspondents),
+        documentTypes: snaps.flatMap((m) => m.documentTypes),
+      };
+    };
+    const withLibraries = client.capabilities.libraries;
     const [docs, meta] = await Promise.all([
-      client.listDocuments({ fields: ['id', 'title', 'modified', 'created', 'correspondent', 'document_type', 'tags'], ordering: '-added', pageSize: 1000 }),
-      metadata.snapshot(true),
+      client.listDocuments({
+        fields: ['id', 'title', 'modified', 'created', 'correspondent', 'document_type', 'tags', ...(withLibraries ? ['library_id'] : [])],
+        ordering: '-added',
+        pageSize: 1000,
+      }),
+      loadNames(),
     ]);
     const tagNames = new Map(meta.tags.map((t) => [t.id, t.name]));
     const corrNames = new Map(meta.correspondents.map((c) => [c.id, c.name]));
@@ -383,6 +399,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
       documentType: d.document_type != null ? typeNames.get(d.document_type) ?? null : null,
       tags: (d.tags ?? []).map((t) => tagNames.get(t)).filter((t): t is string => Boolean(t) && !internalTags.has(normalizeName(t!))),
       created: datePart(d.created_date ?? d.created),
+      libraryId: withLibraries ? (d.library_id ?? null) : null,
     });
 
     const indexed = this.store.indexedDocuments();
@@ -393,6 +410,8 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
       const m = describe(d);
       const prev = indexed.get(d.id);
       if (full || !prev || prev.modified !== m.modified || prev.meta !== metaLine(m)) toUpdate.push(m);
+      // Moved to another library (or indexed before libraries were stored): the passages stay.
+      else if (prev.libraryId !== (m.libraryId ?? null)) this.store.setLibrary(d.id, m.libraryId ?? null);
     }
     let removed = 0;
     for (const id of indexed.keys()) {
@@ -470,9 +489,9 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
   // ------------------------------------------------------------------ retrieval
 
   /** Find known correspondents / document types mentioned in the question. */
-  private mentioned(question: string, column: 'correspondent' | 'document_type'): string[] {
+  private mentioned(question: string, column: 'correspondent' | 'document_type', libs: LibraryFilter): string[] {
     const q = ` ${question.toLowerCase()} `;
-    return this.store.distinctValues(column).filter((name) => {
+    return this.store.distinctValues(column, libs).filter((name) => {
       const n = name.toLowerCase().trim();
       if (n.length < 3) return false;
       const idx = q.indexOf(n);
@@ -485,9 +504,12 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
 
   async search(
     question: string,
-    opts: { filters?: SearchFilters; limit?: number; keywords?: string[]; signal?: AbortSignal } = {},
+    opts: { filters?: SearchFilters; limit?: number; keywords?: string[]; signal?: AbortSignal; scope?: AccessScope } = {},
   ): Promise<SearchResult> {
     const started = Date.now();
+    // Libraries the caller may read (built-in archive); passages of other libraries never compete,
+    // are never boosted and never reach the LLM context.
+    const libs = opts.scope ? readableLibraries(opts.scope) : null;
     if (this.enabled) await this.ensureVectors();
     const keywords = opts.keywords ?? [];
     const terms = queryTerms(keywords.length ? `${question} ${keywords.join(' ')}` : question, 32);
@@ -504,10 +526,11 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
             to: f.to,
             correspondents: f.correspondent ? [f.correspondent] : undefined,
             documentTypes: f.documentType ? [f.documentType] : undefined,
+            libraryIds: libs,
           })
           .map((d) => d.id),
       );
-    }
+    } else if (libs) allowDocs = this.store.documentsInLibraries(libs);
 
     const lists: { weight: number; ids: number[]; factors?: number[] }[] = [];
     const chunkDoc = new Map<number, number>();
@@ -516,7 +539,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     //    a generic word) are ranked behind complete matches and contribute less.
     const match = buildFtsQuery(terms);
     if (match) {
-      const hits = this.store.ftsSearch(match, CANDIDATES * 2).filter((h) => !allowDocs || allowDocs.has(h.documentId)).slice(0, CANDIDATES);
+      const hits = this.store.ftsSearch(match, CANDIDATES * 2, libs).filter((h) => !allowDocs || allowDocs.has(h.documentId)).slice(0, CANDIDATES);
       const toStem = (t: string) => (t.length >= 4 && !/^\d+$/.test(t) ? stem(t) : t);
       const qStems = queryTerms(question).map(toStem);
       const kStems = queryTerms(keywords.join(' ')).map(toStem).filter((k) => !qStems.includes(k));
@@ -552,12 +575,12 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
             'query',
             opts.signal,
           );
-          const hits = this.vectors.search(qv, CANDIDATES, allowDocs);
+          const hits = await this.vectors.search(qv, CANDIDATES, allowDocs);
           for (const h of hits) chunkDoc.set(h.id, h.documentId);
           lists.push({ weight: 1, ids: hits.map((h) => h.id) });
           if (kv) {
             // AI keywords (synonyms, translations) as a second, weaker semantic query.
-            const khits = this.vectors.search(kv, CANDIDATES, allowDocs);
+            const khits = await this.vectors.search(kv, CANDIDATES, allowDocs);
             for (const h of khits) chunkDoc.set(h.id, h.documentId);
             lists.push({ weight: 0.5, ids: khits.map((h) => h.id) });
           }
@@ -581,17 +604,17 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
     const addMembership = (docIds: number[], weight: number) => {
       for (const d of docIds) membership.set(d, (membership.get(d) ?? 0) + weight * UNIT);
     };
-    const corr = this.mentioned(question, 'correspondent');
-    const corrDocs = corr.length ? this.store.documentsWhere({ correspondents: corr }) : [];
+    const corr = this.mentioned(question, 'correspondent', libs);
+    const corrDocs = corr.length ? this.store.documentsWhere({ correspondents: corr, libraryIds: libs }) : [];
     addMembership(corrDocs.map((d) => d.id), 0.5);
-    const types = this.mentioned(question, 'document_type');
-    const typeDocs = types.length ? this.store.documentsWhere({ documentTypes: types }) : [];
+    const types = this.mentioned(question, 'document_type', libs);
+    const typeDocs = types.length ? this.store.documentsWhere({ documentTypes: types, libraryIds: libs }) : [];
     addMembership(typeDocs.map((d) => d.id), 0.3);
     const months = mentionedMonths(question);
-    const monthDocs = months.length ? this.store.documentsWhere({ months }) : [];
+    const monthDocs = months.length ? this.store.documentsWhere({ months, libraryIds: libs }) : [];
     addMembership(monthDocs.map((d) => d.id), 0.6);
     const years = mentionedYears(question);
-    if (years.length && !months.length) addMembership(this.store.documentsWhere({ years }).map((d) => d.id), 0.2);
+    if (years.length && !months.length) addMembership(this.store.documentsWhere({ years, libraryIds: libs }).map((d) => d.id), 0.2);
 
     const docScore = (id: number) => membership.get(chunkDoc.get(id)!) ?? 0;
     for (const [id, s] of scores) scores.set(id, s + docScore(id));
@@ -706,11 +729,11 @@ Rules:
    * translations into the language of the archive). For follow-up questions this also resolves
    * references to the conversation. Falls back to the original question on any problem.
    */
-  async analyzeQuery(question: string, history: ChatTurn[] = [], signal?: AbortSignal): Promise<{ query: string; keywords: string[] }> {
+  async analyzeQuery(question: string, history: ChatTurn[] = [], signal?: AbortSignal, scope?: AccessScope): Promise<{ query: string; keywords: string[] }> {
     const fallback = { query: question, keywords: [] as string[] };
     try {
       const llm = this.ctx.llm();
-      const titles = this.store.sampleTitles(12);
+      const titles = this.store.sampleTitles(12, scope ? readableLibraries(scope) : null);
       const convo = history
         .slice(-6)
         .map((t) => `${t.role === 'user' ? 'User' : 'Assistant'}: ${truncateToTokens(stripCitations(t.content), 250).text}`)
@@ -746,7 +769,7 @@ Return JSON {"query": string, "keywords": string[]}:
    * Answer a question about the archive. Yields sources first, then the
    * streamed answer.
    */
-  async *chat(question: string, history: ChatTurn[], opts: { filters?: SearchFilters; signal?: AbortSignal } = {}): AsyncGenerator<ChatStreamEvent> {
+  async *chat(question: string, history: ChatTurn[], opts: { filters?: SearchFilters; signal?: AbortSignal; scope?: AccessScope } = {}): AsyncGenerator<ChatStreamEvent> {
     if (!this.enabled) throw new Error('The document chat (RAG) is disabled in the settings');
     const llm = this.ctx.llm();
     const signal = opts.signal;
@@ -760,14 +783,14 @@ Return JSON {"query": string, "keywords": string[]}:
     let keywords: string[] = [];
     if (cleanHistory.length || this.cfg.rag.queryExpansion) {
       yield { type: 'status', message: 'Understanding the question…' };
-      const analysis = await this.analyzeQuery(question, cleanHistory, signal);
+      const analysis = await this.analyzeQuery(question, cleanHistory, signal, opts.scope);
       // Follow-up questions need the rewritten (standalone) query; for first questions the user's
       // own wording stays authoritative and the AI keywords only complement it.
       if (cleanHistory.length) query = analysis.query;
       keywords = analysis.keywords;
     }
     yield { type: 'status', message: 'Searching documents…' };
-    const [result, facts] = await Promise.all([this.search(query, { filters: opts.filters, keywords, signal }), archiveFacts(this.ctx, query)]);
+    const [result, facts] = await Promise.all([this.search(query, { filters: opts.filters, keywords, signal, scope: opts.scope }), archiveFacts(this.ctx, query, opts.scope)]);
     const sources = this.toSources(result);
     yield { type: 'sources', sources };
 

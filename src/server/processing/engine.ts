@@ -9,30 +9,51 @@ import type { AppContext } from '../context.js';
 import { NotConfiguredError } from '../context.js';
 import type { AppConfig } from '../config/schema.js';
 import type { PaperlessDocument } from '../paperless/types.js';
+import type { ArchiveDocument } from '../backend/types.js';
 import { AiError } from '../ai/types.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
 import type { OcrService } from '../ocr/service.js';
 import { analyzeContent } from './analyzer.js';
 import { applyPlannedUpdate, planAutomaticUpdate } from './applier.js';
-import { matchPromptRule } from './promptRules.js';
-import { ruleLabel } from '../../shared/promptRules.js';
+import { planAnalysis, planFromAction, type AnalysisPlan } from '../workflows/analysis.js';
+import type { RunSubject } from '../workflows/evaluate.js';
+import type { PromptRow } from '../db/promptsRepo.js';
+import type { PromptRuleOverrides } from '../../shared/promptRules.js';
 
 const log = logger.child({ module: 'processing' });
 
 export interface EnqueueOptions {
-  source: 'scan' | 'webhook' | 'api' | 'manual' | 'ocr';
+  source: 'scan' | 'webhook' | 'api' | 'manual' | 'ocr' | 'ingest' | 'workflow';
+  /** false: read (OCR) and index only – no AI analysis (intake option "do not analyse"). */
+  analyze?: boolean;
   /** Process even if the document was processed before. */
   force?: boolean;
   /** Replace the system prompt for this document (webhook `prompt`). */
   prompt?: string;
   /** Read the document with OCR first, whatever the automatic OCR mode says. */
   ocr?: boolean;
+  /** "analyze" action of a workflow: this prompt and these overrides instead of the `analysis.before` workflows. */
+  analysis?: { prompt: PromptRow | null; overrides: PromptRuleOverrides; workflow: string };
+  /** Intake details of a new document (conditions of `analysis.before`). */
+  intake?: RunSubject['intake'];
+}
+
+/** What the processing job needs from the workflow engine. */
+export interface WorkflowHooks {
+  /** Wait for the `document.added` workflows of a new document. */
+  settle(documentId: number): Promise<void>;
+  /** A `document.added` workflow skipped the analysis. */
+  takeSkip(documentId: number): string | null;
 }
 
 /** Reason of documents skipped for missing text – they are picked up again once automatic OCR is enabled. */
 export const NO_TEXT_REASON = 'No text content (OCR not finished or failed)';
 const NO_TEXT_AFTER_OCR = 'No text found, not even with OCR';
+/** Intake option: stored and read, but not analysed (until someone asks for it). */
+export const ANALYSIS_SKIPPED_REASON = 'Not analysed (intake option)';
+/** Imported from Paperless-ngx with its metadata (new ids, no AI analysis chosen). */
+export const IMPORTED_REASON = 'Imported from Paperless-ngx – not analysed';
 
 interface Job extends EnqueueOptions {
   documentId: number;
@@ -57,6 +78,8 @@ export function validateCron(expr: string): string | null {
 }
 
 export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, outcome: JobOutcome]; idle: [] }> {
+  /** Set when the workflow engine runs (server, tests). */
+  workflows: WorkflowHooks | null = null;
   private readonly queue: Job[] = [];
   private readonly queued = new Set<number>();
   private readonly active = new Map<number, ProcessingJob>();
@@ -140,24 +163,39 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
     this.pump();
   }
 
-  status(): ProcessingStatus {
-    const last = this.ctx.repos.documents.lastProcessed();
+  /**
+   * State of the queue. With `libs` (a scope restricted to libraries of the built-in archive) the
+   * documents, titles and counts are limited to those libraries; the queue state stays global.
+   */
+  status(libs?: number[] | null): ProcessingStatus {
+    const last = this.ctx.repos.documents.lastProcessed(libs);
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
+    let current = [...this.active.values()];
+    if (libs && current.length) {
+      const visible = new Set(
+        (
+          this.ctx.db
+            .prepare('SELECT id FROM lib_documents WHERE id IN (SELECT value FROM json_each(?)) AND library_id IN (SELECT value FROM json_each(?))')
+            .all(JSON.stringify(current.map((c) => c.documentId)), JSON.stringify(libs)) as { id: number }[]
+        ).map((r) => r.id),
+      );
+      current = current.filter((c) => visible.has(c.documentId));
+    }
     return {
       running: this.active.size > 0,
       paused: this.paused,
       automatic: this.ctx.cfg.processing.automatic,
       scanning: this.scanning !== null,
-      current: [...this.active.values()],
+      current,
       queued: this.queue.length,
       lastScanAt: this.lastScanAt,
       nextScanAt: this.cron?.nextRun()?.getTime() ?? null,
       lastError: this.lastError,
       rateLimitedUntil: this.cooldownUntil > Date.now() ? this.cooldownUntil : null,
       lastProcessed: last ? { documentId: last.id, title: last.title, processedAt: last.processed_at ?? last.updated_at } : null,
-      processedToday: this.ctx.repos.documents.processedSince(startOfDay.getTime()),
-      counts: this.ctx.repos.documents.counts(),
+      processedToday: this.ctx.repos.documents.processedSince(startOfDay.getTime(), libs),
+      counts: this.ctx.repos.documents.counts(libs),
     };
   }
 
@@ -169,29 +207,42 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
     return this.scanning;
   }
 
+  /**
+   * Ids of the named tags in every metadata namespace (Paperless-ngx has one, the built-in archive
+   * one per library).
+   */
+  private async tagIds(names: string[]): Promise<number[]> {
+    if (!names.length) return [];
+    const ids: number[] = [];
+    for (const lib of await this.ctx.backend().metadataScopes()) {
+      const meta = this.ctx.metadata(lib);
+      await meta.snapshot(true);
+      ids.push(...(await meta.resolveTags(names, false)).ids);
+    }
+    return [...new Set(ids)];
+  }
+
   private async doScan(): Promise<number> {
     if (!this.ctx.isConfigured()) throw new NotConfiguredError('Setup is not complete – skipping scan');
     const p = this.ctx.cfg.processing;
-    const client = this.ctx.paperless();
-    const meta = this.ctx.metadata();
+    const backend = this.ctx.backend();
     try {
-      await meta.snapshot(true);
       let tagFilter: number[] | undefined;
       if (p.onlyTagged) {
-        const res = await meta.resolveTags(p.tags, false);
-        if (!res.ids.length) {
-          log.warn(`"Only process tagged documents" is enabled, but none of the tags exist in Paperless: ${p.tags.join(', ') || '(none set)'}`);
+        const ids = await this.tagIds(p.tags);
+        if (!ids.length) {
+          log.warn(`"Only process tagged documents" is enabled, but none of the tags exist in ${backend.label}: ${p.tags.join(', ') || '(none set)'}`);
           this.lastScanAt = Date.now();
           return 0;
         }
-        tagFilter = res.ids;
+        tagFilter = ids;
       }
       let excludeFilter: number[] | undefined;
       if (p.excludeTags.length) {
-        const res = await meta.resolveTags(p.excludeTags, false);
-        if (res.ids.length) excludeFilter = res.ids;
+        const ids = await this.tagIds(p.excludeTags);
+        if (ids.length) excludeFilter = ids;
       }
-      const docs = await client.listDocuments({
+      const docs = await backend.listDocuments({
         tagsAny: tagFilter,
         tagsNone: excludeFilter,
         fields: ['id', 'title', 'modified'],
@@ -218,13 +269,13 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
   }
 
   /**
-   * Forget the states of documents that were deleted in Paperless (or came with an imported 3.x
+   * Forget the states of documents that were deleted in the archive (or came with an imported 3.x
    * database) – they inflate the statistics. Never fails the scan.
    */
   private async pruneDeleted(listed?: number[]): Promise<void> {
     try {
       if (!listed && Date.now() - this.lastPruneAt < PRUNE_INTERVAL_MS) return;
-      const ids = listed ?? (await this.ctx.paperless().listDocuments({ fields: ['id'], ordering: 'id', pageSize: 1000 })).map((d) => d.id);
+      const ids = listed ?? (await this.ctx.backend().listDocuments({ fields: ['id'], ordering: 'id', pageSize: 1000 })).map((d) => d.id);
       this.lastPruneAt = Date.now();
       if (!ids.length) return; // an empty archive is more likely missing permissions
       const repo = this.ctx.repos.documents;
@@ -232,11 +283,11 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       if (!missing.length) return;
       const known = repo.all().size;
       if (missing.length > 20 && missing.length > known / 2) {
-        log.warn(`${missing.length} of ${known} known documents are missing in Paperless – not forgetting them (permissions changed?)`);
+        log.warn(`${missing.length} of ${known} known documents are missing in the archive – not forgetting them (permissions changed?)`);
         return;
       }
       repo.reset(missing);
-      log.info(`Forgot the processing state of ${missing.length} document(s) deleted in Paperless`);
+      log.info(`Forgot the processing state of ${missing.length} deleted document(s)`);
     } catch (err) {
       log.warn(`Could not check for deleted documents: ${describeError(err)}`);
     }
@@ -258,17 +309,17 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
       case 'skipped':
         // Without text before automatic OCR was enabled: now it can be read.
         if (state.reason === NO_TEXT_REASON && this.ocrAutomatic()) return true;
-        return state.reason !== 'reverted' && changed;
+        return state.reason !== 'reverted' && state.reason !== ANALYSIS_SKIPPED_REASON && state.reason !== IMPORTED_REASON && changed;
       default:
         return true;
     }
   }
 
   /** The first exclude tag (Settings → Processing) the document carries, if any. */
-  private async excludeTag(doc: Pick<PaperlessDocument, 'tags'>): Promise<string | null> {
+  private async excludeTag(doc: Pick<ArchiveDocument, 'tags' | 'library_id'>): Promise<string | null> {
     const names = this.ctx.cfg.processing.excludeTags;
     if (!names.length || !doc.tags?.length) return null;
-    const meta = this.ctx.metadata();
+    const meta = this.ctx.metadata(doc.library_id ?? null);
     for (const name of names) {
       const [id] = (await meta.resolveTags([name], false)).ids;
       if (id !== undefined && doc.tags.includes(id)) return name;
@@ -376,13 +427,18 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
   async run(job: Job, info?: ProcessingJob): Promise<JobOutcome> {
     const { documentId } = job;
     const repo = this.ctx.repos.documents;
-    let doc: PaperlessDocument | undefined;
+    let doc: ArchiveDocument | undefined;
     try {
+      // A new document: its document.added workflows may move it or skip the analysis first.
+      if (this.workflows && job.source === 'ingest') {
+        if (info) info.stage = 'workflows';
+        await this.workflows.settle(documentId);
+      }
       if (!job.force) {
         const state = repo.get(documentId);
         if (state?.status === 'processed') return 'unchanged';
       }
-      doc = await this.ctx.paperless().getDocument(documentId);
+      doc = await this.ctx.backend().getDocument(documentId);
       if (info) info.title = doc.title;
       // Exclude tags guard automatic processing (scan and Paperless workflow webhook). Documents
       // requested explicitly – manual review, OCR page, API queue – are still processed.
@@ -424,6 +480,19 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
         content = this.ocr.storedText(doc) ?? content;
         if (this.ctx.cfg.ocr.enabled) this.ocr.assess(doc);
       }
+      const skippedBy = this.workflows?.takeSkip(documentId) ?? null;
+      if (skippedBy && !job.force) {
+        repo.markSkipped(documentId, doc.title, skippedBy, doc.modified ?? null);
+        log.info(`Document ${documentId}: ${skippedBy}`);
+        return 'skipped';
+      }
+      if (job.analyze === false) {
+        // A new version of an analysed document keeps its analysis; new documents wait for one.
+        if (repo.get(documentId)?.status === 'processed') repo.markProcessed(documentId, doc.title, doc.modified ?? null);
+        else repo.markSkipped(documentId, doc.title, ANALYSIS_SKIPPED_REASON, doc.modified ?? null);
+        log.info(`Document ${documentId} stored without AI analysis (intake option)`);
+        return 'skipped';
+      }
       if (content.trim().length < 10) {
         // A failed OCR run is an error (retried up to maxAttempts), not a document without text.
         if (ocrError) throw new Error(`OCR failed: ${ocrError}`);
@@ -433,25 +502,34 @@ export class ProcessingEngine extends EventEmitter<{ job: [documentId: number, o
         return 'skipped';
       }
       if (info) info.stage = 'analyzing';
-      // A prompt sent with the request (webhook, API) wins; otherwise the first matching prompt rule.
-      const rule = job.prompt ? null : await matchPromptRule(this.ctx, doc);
-      const processing = rule?.processing ?? this.ctx.cfg.processing;
-      this.modelsUsed.add(rule?.model ?? null);
-      log.info(`Analyzing document ${documentId} "${doc.title}"${rule ? ` with the prompt "${rule.prompt.name}" (${ruleLabel(rule.rule, rule.index)})` : ''}`);
+      // A prompt sent with the request (webhook, API) wins; then the "analyze" action that queued the
+      // job; otherwise the workflows before the analysis (prompt rules).
+      let shaping: AnalysisPlan | null = null;
+      if (job.analysis) shaping = planFromAction(this.ctx, job.analysis.prompt, job.analysis.overrides, job.analysis.workflow);
+      else if (!job.prompt) shaping = await planAnalysis(this.ctx, doc, { record: true, intake: job.intake });
+      if (shaping?.skip) {
+        repo.markSkipped(documentId, doc.title, shaping.skip, doc.modified ?? null);
+        log.info(`Document ${documentId}: ${shaping.skip}`);
+        return 'skipped';
+      }
+      const processing = shaping?.processing ?? this.ctx.cfg.processing;
+      this.modelsUsed.add(shaping?.model ?? null);
+      log.info(`Analyzing document ${documentId} "${doc.title}"${shaping?.source ? ` with ${shaping.prompt ? `the prompt "${shaping.prompt.name}"` : 'the system prompt'} (workflow "${shaping.source.name}")` : ''}`);
       const analysis = await analyzeContent(this.ctx, content, {
         feature: 'process',
         documentId,
-        customPrompt: job.prompt ?? rule?.prompt.prompt,
+        customPrompt: job.prompt ?? shaping?.prompt?.prompt,
         filename: doc.original_file_name,
-        processing: rule?.processing,
-        model: rule?.model,
+        processing: shaping?.processing,
+        model: shaping?.model ?? undefined,
+        libraryId: doc.library_id ?? null,
       });
       if (info) info.stage = 'saving';
       const plan = await planAutomaticUpdate(this.ctx, doc, analysis.suggestion, processing);
       const updated = await applyPlannedUpdate(this.ctx, doc, plan, {
         source: job.source,
         analysis,
-        prompt: rule ? { id: rule.prompt.id, name: rule.prompt.name } : null,
+        prompt: shaping?.prompt ? { id: shaping.prompt.id, name: shaping.prompt.name } : null,
       });
       // Our own change must not make the OCR text look outdated; the OCR page shows the new title.
       this.ctx.repos.ocr.followVersion(documentId, doc.modified ?? null, updated.modified ?? null);

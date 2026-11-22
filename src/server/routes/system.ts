@@ -1,7 +1,11 @@
+import path from 'node:path';
+import { networkFsWarning } from '../archive/fsinfo.js';
+import { watchFolderProblemFor } from '../archive/folder.js';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import type { AccountInfo, SessionInfo } from '../../shared/api.js';
+import type { AccountInfo, ArchiveInfo, SessionInfo } from '../../shared/api.js';
+import type { AppContext } from '../context.js';
 import type { Services } from '../http/app.js';
 import { badRequest, sendEventStream } from '../http/helpers.js';
 import {
@@ -49,9 +53,10 @@ export const systemRoutes =
         authenticated: Boolean(p),
         setupRequired: ctx.needsSetup(),
         needsUser: ctx.repos.users.count() === 0,
-        user: p?.kind === 'user' ? { id: p.userId, username: p.username } : undefined,
+        user: p?.kind === 'user' ? { id: p.userId, username: p.username, role: p.role } : undefined,
         version: ctx.version,
         features: { rag: ctx.cfg.rag.enabled, calendar: ctx.cfg.processing.functions.events },
+        archive: archiveInfo(ctx),
         login: { password: passwordLoginAllowed(ctx.cfg), sso: oidcUsable(ctx.cfg) ? ctx.cfg.auth.oidc.buttonLabel || 'Sign in with SSO' : null },
       };
     });
@@ -73,6 +78,10 @@ export const systemRoutes =
         if (!user || !user.password_hash || !ok) {
           log.warn(`Failed login attempt for "${req.body.username.slice(0, 50)}" from ${req.ip}`);
           return reply.code(401).send({ error: 'Invalid username or password' });
+        }
+        if (user.disabled_at) {
+          log.warn(`Login attempt for the disabled account "${user.username}" from ${req.ip}`);
+          return reply.code(403).send({ error: 'This account is disabled', code: 'account_disabled' });
         }
         // Transparently upgrade legacy hashes (cost 15 was very slow) on login.
         if (/^\$2[aby]\$1[5-9]\$/.test(user.password_hash)) {
@@ -118,6 +127,10 @@ export const systemRoutes =
       defaults: { systemPrompt: DEFAULT_SYSTEM_PROMPT },
       localEmbeddings: await localEmbeddingsAvailable(),
       needsUser: ctx.repos.users.count() === 0,
+      archive: {
+        defaultStorageDir: path.join(ctx.dataDir, 'library'),
+        networkWarning: networkFsWarning(ctx.dataDir),
+      },
     }));
 
     app.post('/api/setup/test-paperless', { config: { auth: 'setup' }, schema: { body: z.object({ url: z.string(), token: z.string() }) } }, async (req) =>
@@ -145,9 +158,16 @@ export const systemRoutes =
       const patch = req.body.config as DeepPartial<AppConfig>;
       // Validate the merged configuration before testing anything.
       const merged = configSchema.parse(deepMerge(structuredClone(ctx.cfg), withoutMaskedSecrets(patch)));
+      if (merged.archive.mode === 'builtin' && merged.archive.builtin.consumeDir.trim()) {
+        const problem = watchFolderProblemFor(merged.archive.builtin.consumeDir.trim(), ctx.dataDir, merged);
+        if (problem) return reply.code(400).send({ error: `Watch folder: ${problem}`, step: 'archive' });
+      }
 
-      const pl = await testPaperlessConnection(merged.paperless.url, storedPaperlessToken(ctx, merged.paperless.url, patch.paperless?.token, isUser(req)));
-      if (!pl.ok) return reply.code(400).send({ error: pl.message, step: 'paperless' });
+      // The built-in archive needs no connection; companion mode needs a working Paperless-ngx.
+      if (merged.archive.mode !== 'builtin') {
+        const pl = await testPaperlessConnection(merged.paperless.url, storedPaperlessToken(ctx, merged.paperless.url, patch.paperless?.token, isUser(req)));
+        if (!pl.ok) return reply.code(400).send({ error: pl.message, step: 'paperless' });
+      }
       if (!req.body.force) {
         const ai = await testAiConnection(ctx, patch.ai ?? {}, { trusted: isUser(req) });
         if (!ai.ok) return reply.code(400).send({ error: ai.message, step: 'ai', canForce: true });
@@ -162,12 +182,22 @@ export const systemRoutes =
       ctx.config.update({ ...patch, setupCompleted: true });
       let user = req.principal?.kind === 'user' ? ctx.repos.users.byId(req.principal.userId) : undefined;
       if (needsUser) {
-        const id = ctx.repos.users.create(req.body.username!, passwordHash);
+        // The account created by the setup administrates Paperless-AI.
+        const id = ctx.repos.users.create(req.body.username!, passwordHash, 'admin');
         user = ctx.repos.users.byId(id);
         log.info(`Created user "${req.body.username}"`);
       }
       if (user) setSessionCookie(reply, req, await issueSession(ctx, user), ctx.cfg.security.sessionHours);
-      log.info('Setup completed');
+      if (ctx.archiveMode() === 'builtin' && user) {
+        // The setup account owns the first library (it may have been created before the account existed).
+        ctx.archive();
+        for (const lib of ctx.repos.libraries.list()) if (!ctx.repos.libraries.owners(lib.id).length) ctx.repos.libraries.setMember(lib.id, 'user', user.id, 'owner');
+        if (typeof req.body.config?.libraryName === 'string' && req.body.config.libraryName.trim()) {
+          const first = ctx.repos.libraries.list()[0];
+          if (first) ctx.repos.libraries.update(first.id, { name: String(req.body.config.libraryName).trim().slice(0, 100) });
+        }
+      }
+      log.info(`Setup completed (${ctx.archiveMode() === 'builtin' ? 'built-in archive' : 'with Paperless-ngx'})`);
       if (ctx.cfg.rag.enabled) rag.requestSync();
       return { ok: true };
     });
@@ -179,12 +209,17 @@ export const systemRoutes =
       const users = ctx.repos.users.list().map((u) => ({ id: u.id, username: u.username, createdAt: u.created_at }));
       const me = p.kind === 'user' ? ctx.repos.users.byId(p.userId) : undefined;
       return {
-        user: p.kind === 'user' ? { id: p.userId, username: p.username } : null,
+        user:
+          p.kind === 'user' && me
+            ? { id: me.id, username: me.username, role: me.role, displayName: me.display_name, email: me.email }
+            : null,
+        groups: p.kind === 'user' ? ctx.repos.groups.groupsOf(p.userId).map((g) => ({ id: g.id, name: g.name })) : [],
         users,
         twoFactor: p.kind === 'user' ? twoFactorStatus(ctx, p.userId) : null,
         /** Accounts created by single sign-on have no password (and no local two-factor authentication). */
         hasPassword: Boolean(me?.password_hash),
         sso: { available: oidcUsable(ctx.cfg), linked: Boolean(me?.oidc_subject), passwordLogin: passwordLoginAllowed(ctx.cfg) },
+        defaultLibraryId: me?.default_library_id ?? null,
       };
     });
 
@@ -285,6 +320,7 @@ export const systemRoutes =
       async (req) => {
         const r = req.params.resource;
         const query = r === 'ui_settings' || r === 'statistics' ? undefined : { page_size: 25, ...(r === 'documents' ? { truncate_content: true } : {}) };
+        // Companion mode only: raw Paperless-ngx API answers for troubleshooting.
         return ctx.paperless().req(`/${r}/`, { query });
       },
     );
@@ -299,4 +335,18 @@ export function compareVersions(a: string, b: string): number {
     if (d) return Math.sign(d);
   }
   return 0;
+}
+
+/** Archive mode and capabilities for the UI; null while the archive is not configured. */
+export function archiveInfo(ctx: AppContext): ArchiveInfo | null {
+  if (!ctx.archiveConfigured()) return null;
+  try {
+    const backend = ctx.archive();
+    // Paperless-ngx (2.10+) keeps deleted documents in its trash: the menu links there.
+    const base = (ctx.cfg.paperless.publicUrl || ctx.cfg.paperless.url).replace(/\/+$/, '');
+    const trashUrl = backend.capabilities.trash === 'external' && base ? `${base}/trash` : null;
+    return { mode: backend.kind, label: backend.label, capabilities: backend.capabilities, trashUrl };
+  } catch {
+    return null;
+  }
 }

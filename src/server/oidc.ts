@@ -94,9 +94,21 @@ export class OidcService {
     return this.cached.config;
   }
 
-  /** Address of Paperless-AI as the browser sees it (configured, or the one of the request). */
-  private baseUrl(req: FastifyRequest): string {
-    return this.ctx.cfg.auth.publicUrl || `${req.protocol}://${req.host}`;
+  /**
+   * Address of Paperless-AI as the browser sees it: the configured one, else the one of the request.
+   * Behind a reverse proxy the request itself is plain http (and may carry an internal host name):
+   * the proxy tells in X-Forwarded-Proto / X-Forwarded-Host how the browser came in – used here even
+   * without TRUST_PROXY. Safe for this purpose: the address only builds the redirect URIs, and the
+   * provider accepts nothing but the ones registered there.
+   */
+  baseUrl(req: FastifyRequest): string {
+    if (this.ctx.cfg.auth.publicUrl) return this.ctx.cfg.auth.publicUrl;
+    const first = (name: string) => String(req.headers[name] ?? '').split(',')[0].trim();
+    const fwdProto = first('x-forwarded-proto').toLowerCase();
+    const fwdHost = first('x-forwarded-host');
+    const proto = fwdProto === 'https' || fwdProto === 'http' ? fwdProto : req.protocol;
+    const host = /^[a-z0-9.-]+(:\d{1,5})?$|^\[[0-9a-f:.]+\](:\d{1,5})?$/i.test(fwdHost) ? fwdHost : req.host;
+    return `${proto}://${host}`;
   }
 
   /**
@@ -174,13 +186,26 @@ export class OidcService {
     return { identity: { issuer: String(idClaims.iss), subject: idClaims.sub, claims, idToken: tokens.id_token }, flow };
   }
 
+  /** Group names of the identity (from the configured groups claim). */
+  groups(identity: OidcIdentity): string[] {
+    const raw = identity.claims[this.ctx.cfg.auth.oidc.groupsClaim];
+    return (Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(/[,\s]+/) : []).map((g) => String(g).trim()).filter(Boolean);
+  }
+
   /** Is the identity in one of the allowed groups (if any are configured)? */
   allowed(identity: OidcIdentity): boolean {
     const o = this.ctx.cfg.auth.oidc;
     if (!o.allowedGroups.length) return true;
-    const raw = identity.claims[o.groupsClaim];
-    const groups = (Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(/[,\s]+/) : []).map((g) => String(g).toLowerCase());
+    const groups = this.groups(identity).map((g) => g.toLowerCase());
     return o.allowedGroups.some((g) => groups.includes(g.toLowerCase()));
+  }
+
+  /** Admin by group membership: true / false, or null when no admin groups are configured. */
+  adminByGroups(identity: OidcIdentity): boolean | null {
+    const o = this.ctx.cfg.auth.oidc;
+    if (!o.adminGroups.length) return null;
+    const groups = this.groups(identity).map((g) => g.toLowerCase());
+    return o.adminGroups.some((g) => groups.includes(g.toLowerCase()));
   }
 
   /** A free user name for a new account, from the configured claim (then preferred_username, email, name, sub). */

@@ -11,7 +11,7 @@ import type { AppConfig } from '../config/schema.js';
 import type { AppContext } from '../context.js';
 import type { OcrAssessment } from '../db/ocrRepo.js';
 import { logger } from '../logger.js';
-import type { PaperlessDocument } from '../paperless/types.js';
+import type { ArchiveDocument } from '../backend/types.js';
 import { describeError } from '../util/http.js';
 import { UserError } from '../util/errors.js';
 import { assessText } from './quality.js';
@@ -20,6 +20,9 @@ import { isPdf } from './render.js';
 import { ocrAvailable, OcrWorkerEngine, type OcrEngine, type OcrProgress, type OcrResult } from './runner.js';
 
 const log = logger.child({ module: 'ocr' });
+
+/** Text written by the OCR. */
+const OCR_ORIGIN = { actor: 'system', ref: 'ocr' } as const;
 
 /** Documents whose content is fetched per request while assessing the archive. */
 const ASSESS_BATCH = 100;
@@ -31,7 +34,7 @@ export interface ReadResult {
   /** The OCR text scored better than the text Paperless had – only then it replaces it (and is analysed). */
   better: boolean;
   /** The document after the write-back (new `modified`), or the unchanged one. */
-  doc: PaperlessDocument;
+  doc: ArchiveDocument;
   result: OcrResult;
   writtenBack: boolean;
 }
@@ -110,7 +113,7 @@ export class OcrService {
   // ------------------------------------------------------------ decisions
 
   /** Text quality of a document as Paperless delivers it (also stored for the OCR page). */
-  assess(doc: PaperlessDocument): OcrAssessment {
+  assess(doc: ArchiveDocument): OcrAssessment {
     const quality = assessText(doc.content, doc.page_count, this.cfg.poorBelow);
     const a: OcrAssessment = {
       id: doc.id,
@@ -125,7 +128,7 @@ export class OcrService {
   }
 
   /** OCR text stored for exactly this version of the document (not written back, not reverted). */
-  storedText(doc: PaperlessDocument): string | null {
+  storedText(doc: ArchiveDocument): string | null {
     const r = this.ctx.repos.ocr.result(doc.id);
     if (!r || r.status !== 'done' || r.reverted_at || r.kept_original || !r.text) return null;
     if (r.written_back) return r.written_modified === (doc.modified ?? null) ? r.text : null;
@@ -133,7 +136,7 @@ export class OcrService {
   }
 
   /** Whether the automatic mode wants this document read before the AI analysis. */
-  autoNeeded(doc: PaperlessDocument): boolean {
+  autoNeeded(doc: ArchiveDocument): boolean {
     const o = this.cfg;
     if (!o.enabled || o.mode === 'manual' || this.available === false) return false;
     // Already read this version (e.g. a re-analysis after the write-back).
@@ -148,16 +151,16 @@ export class OcrService {
 
   /** Download a file PaddleOCR can read: the original if it is a PDF or an image, else the archived PDF. */
   private async documentFile(id: number, signal?: AbortSignal): Promise<Uint8Array> {
-    const client = this.ctx.paperless();
-    const original = await client.download(id, true, signal);
+    const backend = this.ctx.backend();
+    const original = await backend.download(id, { original: true, signal });
     if (isPdf(original.data) || original.contentType.startsWith('image/')) return original.data;
-    const archived = await client.download(id, false, signal);
+    const archived = await backend.download(id, { original: false, signal });
     if (isPdf(archived.data)) return archived.data;
-    throw new UserError(`OCR cannot read this file type (${original.contentType}) and Paperless has no archived PDF of it`);
+    throw new UserError(`OCR cannot read this file type (${original.contentType}) and there is no archived PDF of it`);
   }
 
   /** Read a document with PaddleOCR. Writes the text back to Paperless when enabled. */
-  async read(doc: PaperlessDocument, opts: { onProgress?: OcrProgress; signal?: AbortSignal } = {}): Promise<ReadResult> {
+  async read(doc: ArchiveDocument, opts: { onProgress?: OcrProgress; signal?: AbortSignal } = {}): Promise<ReadResult> {
     if (!(await this.isAvailable())) throw new UserError('OCR is not available in this installation (onnxruntime-node, sharp or @hyzyla/pdfium missing)');
     const repo = this.ctx.repos.ocr;
     const preset = OCR_QUALITY_PRESETS[this.cfg.quality];
@@ -204,8 +207,10 @@ export class OcrService {
 
       let current = doc;
       let writtenBack = false;
-      if (this.cfg.writeBack && better) {
-        current = await this.ctx.paperless().updateDocument(doc.id, { content: text });
+      // The built-in archive keeps the text itself: OCR text always replaces a worse one (with undo).
+      if ((this.cfg.writeBack || this.ctx.archiveMode() === 'builtin') && better) {
+        current = await this.ctx.backend().updateDocument(doc.id, { content: text }, OCR_ORIGIN);
+        this.ctx.events.emit({ type: 'document.updated', id: doc.id, fields: ['content'], origin: OCR_ORIGIN, libraryId: doc.library_id ?? null });
         repo.markWrittenBack(doc.id, doc.content ?? '', current.modified ?? null);
         writtenBack = true;
         this.assess({ ...current, content: text });
@@ -226,9 +231,10 @@ export class OcrService {
     const r = repo.result(documentId);
     if (!r || r.status !== 'done' || !r.text) throw new UserError('There is no OCR result for this document');
     if (r.written_back && !r.reverted_at) throw new UserError('The OCR text is already saved in Paperless');
-    const client = this.ctx.paperless();
-    const doc = await client.getDocument(documentId);
-    const updated = await client.updateDocument(documentId, { content: r.text });
+    const backend = this.ctx.backend();
+    const doc = await backend.getDocument(documentId);
+    const updated = await backend.updateDocument(documentId, { content: r.text }, OCR_ORIGIN);
+    this.ctx.events.emit({ type: 'document.updated', id: documentId, fields: ['content'], origin: OCR_ORIGIN, libraryId: doc.library_id ?? null });
     repo.markApplied(documentId, doc.content ?? '', updated.modified ?? null);
     this.assess({ ...updated, content: r.text });
     this.onTextChanged?.(documentId);
@@ -242,7 +248,8 @@ export class OcrService {
     if (!r || r.status !== 'done') throw new UserError('There is no OCR result for this document');
     if (r.reverted_at) throw new UserError('The OCR text was already reverted');
     if (r.written_back) {
-      const updated = await this.ctx.paperless().updateDocument(documentId, { content: r.previous_text ?? '' });
+      const updated = await this.ctx.backend().updateDocument(documentId, { content: r.previous_text ?? '' }, { ...OCR_ORIGIN, ref: 'ocr:revert' });
+      this.ctx.events.emit({ type: 'document.updated', id: documentId, fields: ['content'], origin: OCR_ORIGIN, libraryId: updated.library_id ?? null });
       repo.markReverted(documentId, updated.modified ?? null);
       this.assess({ ...updated, content: r.previous_text ?? '' });
     } else repo.markReverted(documentId, r.source_modified);
@@ -273,7 +280,7 @@ export class OcrService {
 
   private async doAssess(full: boolean): Promise<void> {
     this.assessError = null;
-    const client = this.ctx.paperless();
+    const client = this.ctx.backend();
     const repo = this.ctx.repos.ocr;
     const docs = await client.listDocuments({ fields: ['id', 'title', 'modified', 'created', 'page_count'], ordering: '-added', pageSize: 1000 });
     const known = repo.assessedVersions();

@@ -1,845 +1,237 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/x-icon" href="favicon.ico"><favicon href="favicon.ico">
-    <title>Paperless AI - AI Captain, Documents Ahead</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
-
-        :root {
-            --primary: #9333EA;
-            --secondary: #4F46E5;
-            --accent: #2DD4BF;
-            --text: #F8FAFC;
-            --bg: #2D1B69;
-            --card-bg: rgba(255, 255, 255, 0.1);
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        /* Add particle canvas styling */
-        #particle-canvas {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        /* Ensure content stays above particles */
-        nav, header, section, footer {
-            position: relative;
-            z-index: 1;
-        }
-        body {
-            font-family: 'Inter', sans-serif;
-            line-height: 1.6;
-            color: var(--text);
-            background: linear-gradient(135deg, var(--bg), var(--primary));
-            min-height: 100vh;
-        }
-
-        nav {
-            background: rgba(0, 0, 0, 0.2);
-            backdrop-filter: blur(10px);
-            padding: 1rem;
-            position: fixed;
-            width: 100%;
-            z-index: 1000;
-        }
-
-        .nav-content {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            color: var(--text);
-            text-decoration: none;
-            font-weight: 700;
-            font-size: 1.5rem;
-        }
-
-        .logo i {
-            color: var(--accent);
-        }
-
-        .nav-links {
-            display: flex;
-            gap: 2rem;
-        }
-
-        .nav-links a {
-            color: var(--text);
-            text-decoration: none;
-            font-weight: 500;
-            transition: color 0.3s;
-        }
-
-        .nav-links a:hover {
-            color: var(--accent);
-        }
-
-        header {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 2rem;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        .hero-content {
-            flex: 1;
-            padding-right: 2rem;
-        }
-
-        .hero-image {
-            flex: 1;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .hero-image img {
-            max-width: 100%;
-            height: auto;
-        }
-
-        h1 {
-            font-size: 3.5rem;
-            margin-bottom: 1rem;
-            background: linear-gradient(45deg, var(--accent), #FFFFFF);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-            padding: 4rem 2rem;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        .feature-card {
-            background: var(--card-bg);
-            border-radius: 20px;
-            padding: 2rem;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: transform 0.3s;
-        }
-
-        .feature-card:hover {
-            transform: translateY(-5px);
-        }
-
-        .feature-icon {
-            font-size: 2rem;
-            color: var(--accent);
-            margin-bottom: 1rem;
-        }
-
-        .cta-button {
-            display: inline-block;
-            padding: 1rem 2rem;
-            background: linear-gradient(45deg, var(--accent), var(--secondary));
-            color: white;
-            text-decoration: none;
-            border-radius: 50px;
-            font-weight: 600;
-            margin-top: 2rem;
-            transition: transform 0.3s;
-        }
-
-        .cta-button:hover {
-            transform: scale(1.05);
-        }
-
-        .section-header {
-        text-align: center;
-        max-width: 800px;
-        margin: 0 auto 3rem auto;
-        padding: 0 2rem;
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paperless-AI – your documents, organised and answerable</title>
+  <meta name="description" content="Paperless-AI fills in titles, tags, correspondents, dates and custom fields, reads bad scans with local OCR and answers questions about your whole archive – as an extension of Paperless-ngx or on its own.">
+  <link rel="icon" href="favicon.ico">
+  <style>
+    :root {
+      --canvas: #f7f7fa; --surface: #ffffff; --surface-2: #f1f1f6; --border: #e3e3ea;
+      --text: #15151c; --muted: #5b5b6a; --accent: #5b3ff3; --accent-strong: #4a2fdb; --accent-soft: #efecfe; --accent-2: #0ea5e9;
+      --shadow: 0 1px 2px rgb(16 16 30 / .04), 0 8px 24px -8px rgb(16 16 30 / .12);
+      color-scheme: light;
     }
-
-    .section-header h2 {
-        font-size: 2.5rem;
-        margin-bottom: 1rem;
-        background: linear-gradient(45deg, var(--accent), #FFFFFF);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --canvas: #08080b; --surface: #141419; --surface-2: #1a1a21; --border: #25252f;
+        --text: #ededf3; --muted: #a2a2b2; --accent: #8f7dff; --accent-strong: #a899ff; --accent-soft: #211c45; --accent-2: #38bdf8;
+        --shadow: 0 1px 2px rgb(0 0 0 / .35), 0 10px 28px -10px rgb(0 0 0 / .6);
+        color-scheme: dark;
+      }
     }
-
-    .section-description {
-        font-size: 1.2rem;
-        color: var(--text);
-        opacity: 0.9;
-    }
-
-    .screenshot-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-        gap: 2rem;
-        padding: 0 2rem;
-        max-width: 1400px;
-        margin: 0 auto;
-    }
-
-    .screenshot-card {
-        background: var(--card-bg);
-        border-radius: 20px;
-        overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        position: relative;
-        cursor: pointer;
-        transition: transform 0.3s, box-shadow 0.3s;
-    }
-
-    .screenshot-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-    }
-
-    .screenshot-card img {
-        width: 100%;
-        height: 300px;
-        object-fit: cover;
-        transition: transform 0.3s;
-    }
-
-    .screenshot-card:hover img {
-        transform: scale(1.05);
-    }
-
-    .screenshot-overlay {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
-        padding: 2rem;
-        color: white;
-        transform: translateY(100%);
-        transition: transform 0.3s;
-    }
-
-    .screenshot-card:hover .screenshot-overlay {
-        transform: translateY(0);
-    }
-
-    .screenshot-overlay h3 {
-        font-size: 1.5rem;
-        margin-bottom: 0.5rem;
-        color: var(--accent);
-    }
-
-    .screenshot-overlay p {
-        font-size: 0.9rem;
-        opacity: 0.9;
-    }
-
-    /* Responsive adjustments */
-    @media (max-width: 768px) {
-        .section-header h2 {
-            font-size: 2rem;
-        }
-
-        .section-description {
-            font-size: 1rem;
-        }
-
-        .screenshot-grid {
-            padding: 0 1rem;
-        }
-
-        .screenshot-card {
-            min-height: 200px;
-        }
-    }
-        .terminal-section {
-            max-width: 1000px;
-            margin: 4rem auto;
-            padding: 2rem;
-        }
-
-        .terminal-window {
-            background: rgba(0, 0, 0, 0.7);
-            border-radius: 12px;
-            overflow: hidden;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-        }
-
-        .terminal-header {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 1rem;
-            display: flex;
-            align-items: center;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .terminal-dots {
-            display: flex;
-            gap: 8px;
-            margin-right: 1rem;
-        }
-
-        .dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-        }
-
-        .dot-red { background: #FF5F56; }
-        .dot-yellow { background: #FFBD2E; }
-        .dot-green { background: #27C93F; }
-
-        .terminal-title {
-            color: var(--text);
-            font-size: 0.9rem;
-            font-family: 'Fira Code', monospace;
-            opacity: 0.8;
-        }
-
-        .terminal-content {
-            padding: 1.5rem;
-            font-family: 'Fira Code', monospace;
-            font-size: 0.9rem;
-            line-height: 1.5;
-        }
-
-        .code-block {
-            position: relative;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 8px;
-            padding: 1rem;
-            margin: 1rem 0;
-        }
-
-        .code-block pre {
-            margin: 0;
-            white-space: pre-wrap;
-            word-break: break-all;
-        }
-
-        .code-block code {
-            color: #A0AEC0;
-        }
-
-        .copy-button {
-            position: absolute;
-            top: 0.5rem;
-            right: 0.5rem;
-            background: rgba(255, 255, 255, 0.1);
-            border: none;
-            border-radius: 4px;
-            padding: 0.4rem;
-            color: var(--text);
-            cursor: pointer;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .copy-button:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        .terminal-tabs {
-            display: flex;
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-
-        .terminal-tab {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            color: var(--text);
-            cursor: pointer;
-            transition: all 0.3s;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .terminal-tab.active {
-            background: var(--accent);
-            border-color: var(--accent);
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        .lightbox {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.9);
-            z-index: 1100;
-            padding: 2rem;
-            backdrop-filter: blur(10px);
-        }
-
-        .lightbox.active {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .close-lightbox {
-            position: absolute;
-            top: 1rem;
-            right: 2rem;
-            color: white;
-            font-size: 2rem;
-            cursor: pointer;
-            z-index: 1101;
-        }
-
-        #lightbox-img {
-            max-width: 90%;
-            max-height: 80vh;
-            object-fit: contain;
-            border-radius: 10px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-        }
-
-        .lightbox-caption {
-            color: white;
-            margin-top: 1rem;
-            text-align: center;
-            font-size: 1.2rem;
-        }
-
-        footer {
-            background: rgba(0, 0, 0, 0.2);
-            padding: 4rem 2rem;
-            margin-top: 4rem;
-        }
-
-        .footer-content {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 2rem;
-        }
-
-        @media (max-width: 768px) {
-            header {
-                flex-direction: column;
-                text-align: center;
-                padding-top: 6rem;
-            }
-
-            .hero-content {
-                padding-right: 0;
-                margin-bottom: 2rem;
-            }
-
-            .nav-links {
-                display: none;
-            }
-
-            h1 {
-                font-size: 2.5rem;
-            }
-
-            .terminal-section {
-                padding: 1rem;
-            }
-
-            .terminal-tabs {
-                flex-wrap: wrap;
-            }
-        }
-    </style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: var(--canvas); color: var(--text); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code, pre { font: 13.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+    nav { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--canvas) 85%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
+    nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 60px; gap: 16px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--text); font-size: 17px; white-space: nowrap; }
+    .brand img { width: 28px; height: 28px; border-radius: 7px; }
+    .links { display: flex; gap: 22px; font-size: 14.5px; white-space: nowrap; }
+    .links a { color: var(--muted); }
+    .links a:hover { color: var(--text); text-decoration: none; }
+    @media (max-width: 720px) { .links .hide-sm { display: none; } .links { gap: 16px; } }
+    header { padding: 72px 0 48px; text-align: center; }
+    .eyebrow { display: inline-block; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 4px 12px; border-radius: 999px; margin-bottom: 18px; }
+    h1 { font-size: clamp(34px, 6vw, 58px); line-height: 1.08; letter-spacing: -0.02em; margin-bottom: 18px; }
+    .grad { background: linear-gradient(90deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .lead { font-size: clamp(16px, 2.2vw, 19px); color: var(--muted); max-width: 720px; margin: 0 auto 28px; }
+    .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: 12px; font-weight: 600; font-size: 15px; border: 1px solid var(--border); background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+    .btn:hover { text-decoration: none; border-color: var(--accent); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn.primary:hover { background: var(--accent-strong); }
+    .hero-shot { margin: 48px auto 0; max-width: 1040px; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); }
+    .hero-shot img { display: block; width: 100%; height: auto; }
+    section { padding: 64px 0; }
+    h2 { font-size: clamp(26px, 3.6vw, 36px); letter-spacing: -0.01em; text-align: center; margin-bottom: 10px; }
+    .sub { text-align: center; color: var(--muted); max-width: 680px; margin: 0 auto 36px; }
+    .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px; box-shadow: var(--shadow); }
+    .card h3 { font-size: 17px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+    .card p, .card li { color: var(--muted); font-size: 15px; }
+    .card ul { padding-left: 18px; margin-top: 8px; }
+    .icon { width: 34px; height: 34px; flex: none; border-radius: 10px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
+    .icon svg { width: 18px; height: 18px; }
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+    .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+    figure { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+    figure img { display: block; width: 100%; height: auto; }
+    figcaption { padding: 10px 14px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--border); }
+    .start { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; align-items: start; }
+    .code { position: relative; background: #0f0f15; color: #e6e6ef; border-radius: 14px; padding: 18px; overflow-x: auto; border: 1px solid #23232b; }
+    .code pre { white-space: pre; }
+    .copy { position: absolute; top: 10px; right: 10px; font: 600 12px/1 ui-sans-serif, system-ui, sans-serif; padding: 6px 10px; border-radius: 8px; border: 1px solid #33333f; background: #1a1a21; color: #e6e6ef; cursor: pointer; }
+    ol.steps { padding-left: 20px; color: var(--muted); }
+    ol.steps li { margin-bottom: 10px; }
+    ol.steps strong { color: var(--text); }
+    .note { margin-top: 16px; font-size: 14px; color: var(--muted); border-left: 3px solid var(--accent); padding: 6px 12px; background: var(--surface-2); border-radius: 0 8px 8px 0; }
+    .docs { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .docs a { display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; color: var(--text); }
+    .docs a:hover { border-color: var(--accent); text-decoration: none; }
+    .docs span { display: block; font-size: 13.5px; color: var(--muted); }
+    footer { border-top: 1px solid var(--border); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
+    footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    footer nav { position: static; background: none; border: 0; backdrop-filter: none; display: flex; gap: 18px; flex-wrap: wrap; }
+  </style>
 </head>
 <body>
-    <canvas id="particle-canvas"></canvas>
-    <nav>
-        <div class="nav-content">
-            <a href="#" class="logo">
-                <img src="ppai_icon.png" alt="Paperless AI Logo" style="height: 60px;">
-                Paperless AI
-            </a>
-            <div class="nav-links">
-                <a href="#features">Features</a>
-                <a href="#screenshots">Screenshots</a>
-                <a href="#installation">Installation</a>
-                <a href="https://github.com/clusterzx/paperless-ai/wiki/1.-Home">Documentation</a>
-            </div>
-        </div>
-    </nav>
-
-    <header>
-        <div class="hero-content">
-            <h1>AI Captain, Documents Ahead</h1>
-            <p>The most advanced AI companion for Paperless-NGX. Transform your document management with powerful AI-driven automation and insights.</p>
-            <a href="#features" class="cta-button">Explore Features</a>
-        </div>
-        <div class="hero-image">
-            <img src="hero.png" alt="Paperless AI Dashboard" />
-        </div>
-    </header>
-
-    <section id="features" class="features-grid">
-        <div class="feature-card">
-            <i class="fas fa-message feature-icon"></i>
-            <h3>Document Chat</h3>
-            <p>Interact with your documents through natural conversation. Ask questions and get instant, AI-powered responses.</p>
-        </div>
-        <div class="feature-card">
-            <i class="fas fa-code feature-icon"></i>
-            <h3>AI Playground</h3>
-            <p>Experiment with different AI models and customize document processing workflows to suit your needs.</p>
-        </div>
-        <div class="feature-card">
-            <i class="fas fa-history feature-icon"></i>
-            <h3>Smart History</h3>
-            <p>Keep track of all document interactions and AI processing with detailed historical records.</p>
-        </div>
-        <div class="feature-card">
-            <i class="fas fa-gear feature-icon"></i>
-            <h3>Custom Settings</h3>
-            <p>Fine-tune your AI processing parameters and document management preferences with ease.</p>
-        </div>
-    </section>
-
-    <section id="screenshots">
-        <div class="section-header">
-            <h2>See It In Action</h2>
-            <p class="section-description">Experience the power of AI-driven document management firsthand</p>
-        </div>
-        <div class="screenshot-grid">
-            <div class="screenshot-card" onclick="openLightbox(this)">
-                <img src="chat.png" alt="Document Chat Interface" />
-                <div class="screenshot-overlay">
-                    <h3>Document Chat</h3>
-                    <p>Interactive AI-powered document conversations</p>
-                </div>
-            </div>
-            <div class="screenshot-card" onclick="openLightbox(this)">
-                <img src="playground.png" alt="AI Playground Interface" />
-                <div class="screenshot-overlay">
-                    <h3>AI Playground</h3>
-                    <p>Experiment with different AI models and parameters</p>
-                </div>
-            </div>
-            <div class="screenshot-card" onclick="openLightbox(this)">
-                <img src="history.png" alt="Document History Interface" />
-                <div class="screenshot-overlay">
-                    <h3>History View</h3>
-                    <p>Track and manage your document processing history</p>
-                </div>
-            </div>
-            <div class="screenshot-card" onclick="openLightbox(this)">
-                <img src="settings.png" alt="Settings Interface" />
-                <div class="screenshot-overlay">
-                    <h3>Settings</h3>
-                    <p>Configure your AI and document processing preferences</p>
-                </div>
-            </div>
-        </div>
-    </section>
-    <section id="installation" class="terminal-section">
-        <h2>Installation</h2>
-        <div class="terminal-tabs">
-            <div class="terminal-tab active" data-tab="docker">Docker</div>
-            <div class="terminal-tab" data-tab="manual">Manual Install</div>
-            <div class="terminal-tab" data-tab="config">Configuration</div>
-        </div>
-
-        <div class="terminal-window">
-            <div class="terminal-header">
-                <div class="terminal-dots">
-                    <span class="dot dot-red"></span>
-                    <span class="dot dot-yellow"></span>
-                    <span class="dot dot-green"></span>
-                </div>
-                <span class="terminal-title">paperless-ai installation</span>
-            </div>
-
-            <div class="terminal-content">
-                <div class="tab-content active" id="docker-content">
-                    <div class="command-line">
-                        <span class="prompt">$</span>
-                        <span class="command">Quick start with Docker</span>
-                    </div>
-                    <div class="code-block">
-                        <button class="copy-button">
-                            <i class="far fa-copy"></i>
-                            Copy
-                        </button>
-                        <pre><code>docker pull clusterzx/paperless-ai:latest
-
-docker run -d \
-    --name paperless-ai \
-    --network bridge \
-    -v paperless-ai_data:/app/data \
-    -p 3000:3000 \
-    --restart unless-stopped \
-    clusterzx/paperless-ai
-                          </code></pre>
-                    </div>
-                </div>
-
-                <div class="tab-content" id="manual-content">
-                    <div class="command-line">
-                        <span class="prompt">$</span>
-                        <span class="command">Manual installation steps</span>
-                    </div>
-                    <div class="code-block">
-                        <button class="copy-button">
-                            <i class="far fa-copy"></i>
-                            Copy
-                        </button>
-                        <pre><code>git clone https://github.com/clusterzx/paperless-ai.git
-cd paperless-ai
-pip install -r requirements.txt
-python main.py</code></pre>
-                    </div>
-                </div>
-
-                <div class="tab-content" id="config-content">
-                    <div class="command-line">
-                        <span class="prompt">$</span>
-                        <span class="command">Configuration file setup</span>
-                    </div>
-                    <div class="code-block">
-                        <button class="copy-button">
-                            <i class="far fa-copy"></i>
-                            Copy
-                        </button>
-                        <pre><code>Goto http://your-paperless-ai-instance/setup</code></pre>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Lightbox -->
-    <div id="lightbox" class="lightbox" onclick="closeLightbox()">
-        <span class="close-lightbox">&times;</span>
-        <img id="lightbox-img" src="" alt="Enlarged screenshot">
-        <div class="lightbox-caption"></div>
+  <nav>
+    <div class="wrap">
+      <a class="brand" href="#"><img src="logo.png" alt="">Paperless-AI</a>
+      <div class="links">
+        <a class="hide-sm" href="#features">Features</a>
+        <a class="hide-sm" href="#screenshots">Screenshots</a>
+        <a href="#start">Get started</a>
+        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/README.md">Docs</a>
+        <a href="https://github.com/clusterzx/paperless-ai">GitHub</a>
+      </div>
     </div>
+  </nav>
 
-    <footer>
-        <div class="footer-content">
-            <div class="footer-section">
-                <h3>About</h3>
-                <p>Paperless AI is revolutionizing document management with cutting-edge AI technology.</p>
-            </div>
-            <div class="footer-section">
-                <h3>Resources</h3>
-                <a href="#">Documentation</a>
-                <a href="#">API Reference</a>
-                <a href="#">Community</a>
-            </div>
-            <div class="footer-section">
-                <h3>Connect</h3>
-                <div class="social-links">
-                    <a href="#"><i class="fab fa-github"></i></a>
-                    <a href="#"><i class="fab fa-discord"></i></a>
-                </div>
-            </div>
+  <header>
+    <div class="wrap">
+      <span class="eyebrow">Open source · runs on your own server</span>
+      <h1>Your documents,<br><span class="grad">organised and answerable.</span></h1>
+      <p class="lead">Paperless-AI fills in titles, tags, correspondents, dates and custom fields, reads bad scans with local OCR and answers questions about your whole archive – as an extension of Paperless-ngx or on its own with the built-in archive.</p>
+      <div class="cta">
+        <a class="btn primary" href="#start">Get started</a>
+        <a class="btn" href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/README.md">Documentation</a>
+      </div>
+      <div class="hero-shot"><img src="screenshots/dashboard.png" alt="The dashboard of Paperless-AI" width="1440" height="900"></div>
+    </div>
+  </header>
+
+  <section>
+    <div class="wrap">
+      <h2>Two ways to run it</h2>
+      <p class="sub">The setup asks once. An installation with Paperless-ngx can move to the built-in archive later – with the same document ids.</p>
+      <div class="modes">
+        <div class="card">
+          <h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></span>With Paperless-ngx</h3>
+          <p>Paperless-ngx (2.x and 3.x) stays your archive. Paperless-AI analyses new documents on a schedule or instantly through a Paperless-ngx workflow and writes the results back.</p>
         </div>
-    </footer>
+        <div class="card">
+          <h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M10 13h4"/></svg></span>Built-in archive</h3>
+          <p>No Paperless-ngx, Redis or Postgres needed: upload, watch folders, e-mail, WebDAV and sharing from the phone; full-text search for 200,000+ documents, versions, a trash and libraries with roles for families and teams. The mobile apps made for Paperless-ngx connect to it as well.</p>
+        </div>
+      </div>
+    </div>
+  </section>
 
-    <script>
-        // Smooth scroll
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
-                document.querySelector(this.getAttribute('href')).scrollIntoView({
-                    behavior: 'smooth'
-                });
-            });
-        });
+  <section id="features">
+    <div class="wrap">
+      <h2>What it does</h2>
+      <p class="sub">With OpenAI, Anthropic (Claude), Azure OpenAI, any OpenAI-compatible API – or fully local with Ollama.</p>
+      <div class="features">
+        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8L20 10l-5 3.6L16.5 20 12 16.5 7.5 20 9 13.6 4 10l6.1-1.2z"/></svg></span>Automatic processing</h3><p>Title, tags, correspondent, document type, date and custom fields for every new document. Prompt rules give each kind of document its own prompt.</p></div>
+        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></svg></span>Ask your archive</h3><p>Questions in plain language over all documents – hybrid keyword and vector search, answers that cite their sources. AI agents (Claude, Hermes …) connect over MCP.</p></div>
+        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2"/><path d="M8 9h8M8 12h8M8 15h5"/></svg></span>Local OCR</h3><p>Scans and photos are read with PaddleOCR on your CPU or NVIDIA GPU – the text is only replaced when it reads better.</p></div>
+        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/></svg></span>Getting documents in</h3><p>Built-in archive: upload, a REST API, watch folders for scanners, IMAP mailboxes with rules, a WebDAV inbox and the share menu of your phone.</p></div>
+        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>Search and clean metadata</h3><p>Search syntax like <code>tag:steuer from:adac created:2024</code>; duplicate tags and correspondents found and merged in one click.</p></div>
+        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4a2 2 0 0 1 2 2V14"/></svg></span>Workflows</h3><p>When a document arrives or is analysed and it matches, set tags and fields, extract values with the AI, send e-mails or webhooks – with test runs and undo.</p></div>
+        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span>Calendar</h3><p>Appointments, payment due dates and deadlines from your documents, as a private iCal subscription.</p></div>
+        <div class="card"><h3><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.4 8.4 8 9 4.6-.6 8-4 8-9V6z"/></svg></span>Sign-in and history</h3><p>Two-factor authentication, single sign-on with OpenID Connect, API keys with fine-grained permissions and rate limits – and a history in which every change can be undone.</p></div>
+      </div>
+    </div>
+  </section>
 
-        // Intersection Observer for animations
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    entry.target.style.opacity = '1';
-                    entry.target.style.transform = 'translateY(0)';
-                }
-            });
-        }, { threshold: 0.1 });
+  <section id="screenshots">
+    <div class="wrap">
+      <h2>See it</h2>
+      <p class="sub">Light and dark theme, a command menu (⌘K / Ctrl+K), and it works on the phone.</p>
+      <div class="shots">
+        <figure><img src="screenshots/documents.png" alt="Documents" loading="lazy" width="1440" height="900"><figcaption>Documents – filters, search syntax, bulk edits</figcaption></figure>
+        <figure><img src="screenshots/ask.png" alt="Ask your archive" loading="lazy" width="1440" height="900"><figcaption>Ask your archive – answers with sources</figcaption></figure>
+        <figure><img src="screenshots/review.png" alt="Manual review" loading="lazy" width="1440" height="900"><figcaption>Manual review of the AI suggestions</figcaption></figure>
+        <figure><img src="screenshots/history.png" alt="History" loading="lazy" width="1440" height="900"><figcaption>History with undo</figcaption></figure>
 
-        document.querySelectorAll('.feature-card, .screenshot-card').forEach(card => {
-            card.style.opacity = '0';
-            card.style.transform = 'translateY(20px)';
-            card.style.transition = 'opacity 0.5s, transform 0.5s';
-            observer.observe(card);
-        });
+      </div>
+    </div>
+  </section>
 
-        // Lightbox functionality
-        function openLightbox(card) {
-            const lightbox = document.getElementById('lightbox');
-            const lightboxImg = document.getElementById('lightbox-img');
-            const img = card.querySelector('img');
-            const caption = card.querySelector('.screenshot-overlay h3').textContent;
-            
-            lightboxImg.src = img.src;
-            document.querySelector('.lightbox-caption').textContent = caption;
-            lightbox.classList.add('active');
-            document.body.style.overflow = 'hidden';
-        }
+  <section id="start">
+    <div class="wrap">
+      <h2>Get started</h2>
+      <p class="sub">One container, one data volume. No restart after the setup.</p>
+      <div class="start">
+        <div class="code">
+          <button class="copy" type="button" data-copy="compose">Copy</button>
+<pre id="compose"># docker-compose.yml
+services:
+  paperless-ai:
+    image: clusterzx/paperless-ai:latest
+    container_name: paperless-ai
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - paperless-ai_data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
-        function closeLightbox() {
-            const lightbox = document.getElementById('lightbox');
-            lightbox.classList.remove('active');
-            document.body.style.overflow = 'auto';
-        }
+volumes:
+  paperless-ai_data:</pre>
+        </div>
+        <div>
+          <ol class="steps">
+            <li><strong>Start it:</strong> <code>docker compose up -d</code></li>
+            <li><strong>Open</strong> <code>http://&lt;your-server&gt;:3000</code></li>
+            <li><strong>The setup wizard</strong> asks for your account, the archive (Paperless-ngx or built-in), the AI provider and the processing options.</li>
+            <li><strong>NVIDIA GPU for OCR?</strong> Use the image <code>latest-cuda</code> – see the <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/installation.md">installation guide</a>.</li>
+          </ol>
+          <p class="note">Complete the setup before the instance is reachable from other networks, and keep Paperless-AI in your local network or behind a VPN or an authenticating reverse proxy. Coming from 3.x? See <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/upgrading.md">Upgrading</a>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
 
-        // Close lightbox with escape key
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                closeLightbox();
-            }
-        });
+  <section id="docs">
+    <div class="wrap">
+      <h2>Documentation</h2>
+      <p class="sub">Step-by-step guides in the repository.</p>
+      <div class="docs">
+        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/installation.md">Installation<span>Docker, images, Paperless-ngx user, reverse proxy</span></a>
+        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/configuration.md">Configuration<span>All environment variables</span></a>
+        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/built-in-archive.md">Built-in archive<span>Libraries, versions, moving from Paperless-ngx</span></a>
+        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/intake.md">Getting documents in<span>Upload, WebDAV, watch folders, e-mail, phone</span></a>
+        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/search-and-metadata.md">Search and metadata<span>Search syntax, duplicates</span></a>
+        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/ask-your-archive.md">Ask your archive<span>Embeddings, local models</span></a>
+        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/mcp.md">AI agents (MCP)<span>Claude, Hermes, OpenCode; key permissions</span></a>
+        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/ocr.md">OCR<span>Modes, GPU, speed</span></a>
+        <a href="https://github.com/clusterzx/paperless-ai/blob/main/docs/guide/README.md">All guides<span>Prompt rules, calendar, single sign-on, API …</span></a>
+      </div>
+    </div>
+  </section>
 
-        // Tab switching functionality
-        document.querySelectorAll('.terminal-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                // Remove active class from all tabs and content
-                document.querySelectorAll('.terminal-tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                
-                // Add active class to clicked tab and corresponding content
-                tab.classList.add('active');
-                document.getElementById(`${tab.dataset.tab}-content`).classList.add('active');
-            });
-        });
+  <footer>
+    <div class="wrap">
+      <span>Paperless-AI · MIT license · a hobby project, provided as is</span>
+      <nav>
+        <a href="https://github.com/clusterzx/paperless-ai">GitHub</a>
+        <a href="https://github.com/clusterzx/paperless-ai/releases">Releases</a>
+        <a href="https://github.com/clusterzx/paperless-ai/issues">Issues</a>
+        <a href="https://discord.gg/AvNekAfK38">Discord</a>
+        <a href="https://github.com/clusterzx/paperless-ai#-support-development">Support the project</a>
+      </nav>
+    </div>
+  </footer>
 
-        // Copy functionality
-        document.querySelectorAll('.copy-button').forEach(button => {
-            button.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const code = button.nextElementSibling.textContent;
-                navigator.clipboard.writeText(code);
-                
-                // Change button text temporarily
-                const originalText = button.innerHTML;
-                button.innerHTML = '<i class="fas fa-check"></i> Copied!';
-                setTimeout(() => {
-                    button.innerHTML = originalText;
-                }, 2000);
-            });
-        });
-    </script>
-        <script>
-        // Add particle animation
-        const canvas = document.getElementById('particle-canvas');
-        const ctx = canvas.getContext('2d');
-
-        // Set canvas size
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
-
-        // Particle class
-        class Particle {
-            constructor() {
-                this.x = Math.random() * canvas.width;
-                this.y = Math.random() * canvas.height;
-                this.size = Math.random() * 2 + 1;
-                this.speedX = Math.random() * 1 - 0.5;
-                this.speedY = Math.random() * 1 - 0.5;
-                this.opacity = Math.random() * 0.5 + 0.1;
-            }
-
-            update() {
-                this.x += this.speedX;
-                this.y += this.speedY;
-
-                if (this.x > canvas.width) this.x = 0;
-                if (this.x < 0) this.x = canvas.width;
-                if (this.y > canvas.height) this.y = 0;
-                if (this.y < 0) this.y = canvas.height;
-            }
-
-            draw() {
-                ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity})`;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
-
-        // Create particle array
-        const particles = [];
-        const particleCount = 220;
-
-        for (let i = 0; i < particleCount; i++) {
-            particles.push(new Particle());
-        }
-
-        // Animation loop
-        function animate() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            particles.forEach(particle => {
-                particle.update();
-                particle.draw();
-            });
-
-            // Draw connections between nearby particles
-            particles.forEach((particle1, index) => {
-                for (let j = index + 1; j < particles.length; j++) {
-                    const particle2 = particles[j];
-                    const dx = particle1.x - particle2.x;
-                    const dy = particle1.y - particle2.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-
-                    if (distance < 100) {
-                        ctx.strokeStyle = `rgba(255, 255, 255, ${0.1 * (1 - distance/100)})`;
-                        ctx.beginPath();
-                        ctx.moveTo(particle1.x, particle1.y);
-                        ctx.lineTo(particle2.x, particle2.y);
-                        ctx.stroke();
-                    }
-                }
-            });
-
-            requestAnimationFrame(animate);
-        }
-
-        animate();
-    </script>
+  <script>
+    document.querySelectorAll('[data-copy]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var text = document.getElementById(btn.getAttribute('data-copy')).textContent;
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = 'Copied';
+          setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
+        }, function () {});
+      });
+    });
+  </script>
 </body>
 </html>

@@ -8,7 +8,9 @@ import { deepMerge } from '../config/store.js';
 import { normalizePaperlessUrl } from '../config/legacy.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
 import { newApiKey } from '../auth.js';
+import { audit } from '../access/context.js';
 import { validateCron } from '../processing/engine.js';
+import { watchFolderProblemFor } from '../archive/folder.js';
 import { clearExternalApiCache, fetchExternalData } from '../processing/externalApi.js';
 import { localEmbeddingsAvailable } from '../rag/localEmbedder.js';
 import { cudaProviderInstalled } from '../ocr/pipeline.js';
@@ -50,6 +52,11 @@ export const settingsRoutes =
         const next = configSchema.parse(deepMerge(structuredClone(ctx.cfg), patch));
         const cronProblem = validateCron(next.processing.scanInterval);
         if (cronProblem) throw badRequest(`Invalid scan interval: ${cronProblem}`);
+        const consumeDir = next.archive.builtin.consumeDir.trim();
+        if (consumeDir && consumeDir !== ctx.cfg.archive.builtin.consumeDir.trim()) {
+          const problem = watchFolderProblemFor(consumeDir, ctx.dataDir, next);
+          if (problem) throw badRequest(`Watch folder: ${problem}`);
+        }
         if (next.externalApi.enabled) {
           for (const [label, value] of [
             ['headers', next.externalApi.headers],
@@ -108,19 +115,23 @@ export const settingsRoutes =
         ctx.config.update(patch);
         clearExternalApiCache();
         log.info('Settings saved');
+        audit(ctx, req.access, 'settings.saved', null, { sections: Object.keys(patch) });
 
         // Create configured custom fields in Paperless right away so problems show up immediately.
-        if (ctx.cfg.processing.functions.customFields && ctx.cfg.processing.customFields.length && ctx.paperlessConfigured()) {
+        if (ctx.cfg.processing.functions.customFields && ctx.cfg.processing.customFields.length && ctx.archiveConfigured()) {
+          const where = ctx.archiveMode() === 'builtin' ? 'the archive' : 'Paperless';
           try {
-            const meta = ctx.metadata();
-            await meta.snapshot(true);
-            for (const f of ctx.cfg.processing.customFields) {
-              // Select fields need options, which are maintained in Paperless.
-              const res = await meta.resolveCustomField(f.name, f.type !== 'select', f.type, f.currency);
-              if (res.id == null) warnings.push(`Select field "${f.name}" does not exist in Paperless – create it there with its options.`);
+            for (const lib of await ctx.backend().metadataScopes()) {
+              const meta = ctx.metadata(lib);
+              await meta.snapshot(true);
+              for (const f of ctx.cfg.processing.customFields) {
+                // Select fields need options, which are maintained where the archive is.
+                const res = await meta.resolveCustomField(f.name, f.type !== 'select', f.type, f.currency);
+                if (res.id == null) warnings.push(`Select field "${f.name}" does not exist in ${where} – create it there with its options.`);
+              }
             }
           } catch (err) {
-            warnings.push(`Custom fields could not be created in Paperless: ${describeError(err)}`);
+            warnings.push(`Custom fields could not be created in ${where}: ${describeError(err)}`);
           }
         }
         return { config: ctx.config.redacted(), locked: ctx.config.lockedPaths, warnings };
@@ -160,7 +171,8 @@ export const settingsRoutes =
 
     app.get('/api/settings/api-key', { config: { auth: 'session' } }, async () => ({ apiKey: ctx.cfg.security.apiKey }));
 
-    app.post('/api/settings/api-key/regenerate', { config: { auth: 'session' } }, async () => {
+    app.post('/api/settings/api-key/regenerate', { config: { auth: 'session' } }, async (req) => {
+      audit(ctx, req.access, 'apikey.legacy_regenerated');
       if (ctx.config.lockedPaths['security.apiKey']) throw badRequest('The API key is set via the API_KEY environment variable and cannot be changed here');
       const apiKey = newApiKey();
       ctx.config.update({ security: { apiKey } });

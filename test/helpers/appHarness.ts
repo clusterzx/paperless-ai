@@ -13,6 +13,8 @@ import { RagService } from '../../src/server/rag/service.js';
 import { OcrService } from '../../src/server/ocr/service.js';
 import { FakeOcrEngine } from './fakeOcr.js';
 import { buildApp } from '../../src/server/http/app.js';
+import { wireDocumentEvents } from '../../src/server/wiring.js';
+import { WorkflowEngine } from '../../src/server/workflows/engine.js';
 import { hashPassword, SESSION_COOKIE } from '../../src/server/auth.js';
 import type { AppConfig, DeepPartial } from '../../src/server/config/schema.js';
 import { deepMerge } from '../../src/server/config/store.js';
@@ -35,6 +37,8 @@ export interface HarnessOptions {
   configured?: boolean;
   memoryDb?: boolean;
   env?: Record<string, string | undefined>;
+  /** Run with the built-in archive instead of the mock Paperless-ngx. */
+  archive?: 'paperless' | 'builtin';
 }
 
 export interface Harness {
@@ -42,6 +46,7 @@ export interface Harness {
   engine: ProcessingEngine;
   rag: RagService;
   ocr: OcrService;
+  workflows: WorkflowEngine;
   /** Stand-in for PaddleOCR (set its text/error to control OCR results). */
   ocrEngine: FakeOcrEngine;
   app: FastifyInstance;
@@ -96,14 +101,19 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
   const base: DeepPartial<AppConfig> = configured
     ? baseConfig(paperless, llm, opts)
     : { processing: { automatic: false }, rag: { autoSync: false, embeddingProvider: 'none' } };
-  ctx.config.update(deepMerge(base, opts.config ?? {}));
+  const archive: DeepPartial<AppConfig> =
+    opts.archive === 'builtin' ? { archive: { mode: 'builtin', builtin: { storageDir: path.join(dataDir, 'library') } }, ocr: { enabled: true, mode: 'poor' } } : {};
+  ctx.config.update(deepMerge(deepMerge(base, archive), opts.config ?? {}));
 
   const ocrEngine = new FakeOcrEngine();
   const ocr = new OcrService(ctx, () => ocrEngine);
   const engine = new ProcessingEngine(ctx, ocr);
   const rag = new RagService(ctx);
-  ocr.onTextChanged = (id) => rag.invalidate(id);
-  const app = await buildApp({ ctx, engine, rag, ocr });
+  wireDocumentEvents(ctx, { rag, ocr, engine });
+  const workflows = new WorkflowEngine(ctx, engine);
+  engine.workflows = workflows;
+  workflows.start();
+  const app = await buildApp({ ctx, engine, rag, ocr, workflows });
   await app.ready();
 
   let cookie: string | null = null;
@@ -113,6 +123,7 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
     engine,
     rag,
     ocr,
+    workflows,
     ocrEngine,
     app,
     paperless,
@@ -121,7 +132,8 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
     inject: (o) => app.inject(o),
     async login(username = TEST_USER, password = TEST_PASSWORD) {
       if (cookie && username === TEST_USER && password === TEST_PASSWORD) return cookie;
-      if (!ctx.repos.users.byUsername(username)) ctx.repos.users.create(username, await hashPassword(password));
+      // The default test user administrates the instance (like the account created by the setup).
+      if (!ctx.repos.users.byUsername(username)) ctx.repos.users.create(username, await hashPassword(password), username === TEST_USER ? 'admin' : 'member');
       const res = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { username, password } });
       if (res.statusCode !== 200) throw new Error(`Login failed: ${res.statusCode} ${res.body}`);
       const c = res.cookies.find((x) => x.name === SESSION_COOKIE);
@@ -133,6 +145,7 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
     apiKeyHeaders: () => ({ 'x-api-key': ctx.cfg.security.apiKey }),
     async close() {
       await app.close();
+      await workflows.stop();
       await engine.stop();
       await rag.stop();
       ctx.close();

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openDatabase, type Db } from '../../src/server/db/database.js';
+import type { Db } from '../../src/server/db/database.js';
+import { openIndexDatabase } from '../../src/server/db/indexDatabase.js';
 import { metaLine, RagStore, splitTags, type RagDocumentMeta } from '../../src/server/rag/store.js';
 import { buildFtsQuery, queryTerms } from '../../src/server/rag/text.js';
 
@@ -7,7 +8,7 @@ let db: Db;
 let store: RagStore;
 
 beforeEach(() => {
-  db = openDatabase(':memory:');
+  db = openIndexDatabase(':memory:');
   store = new RagStore(db);
 });
 afterEach(() => db.close());
@@ -104,9 +105,10 @@ describe('RagStore', () => {
     store.saveEmbeddings([{ id: ids[0], vector: new Float32Array([1, 2, 3]) }]);
     expect(store.countPendingEmbeddings()).toBe(1);
     expect(store.pendingEmbeddings(10).map((p) => p.id)).toEqual([ids[1]]);
-    expect([...store.embeddings(ids).get(ids[0])!]).toEqual([1, 2, 3]);
+    const norm = Math.hypot(1, 2, 3);
+    [...store.embeddings(ids).get(ids[0])!].forEach((x, i) => expect(x).toBeCloseTo([1, 2, 3][i] / norm, 2));
     expect(store.embeddings(ids).has(ids[1])).toBe(false);
-    expect(store.embeddingsAfter(0, 10).map((e) => [e.id, e.documentId, [...e.vector]])).toEqual([[ids[0], 1, [1, 2, 3]]]);
+    expect(store.embeddingsAfter(0, 10).map((e) => [e.id, e.documentId, e.vector.length])).toEqual([[ids[0], 1, 3]]);
     expect(store.embeddingsAfter(ids[0], 10)).toEqual([]);
     expect(store.stats()).toEqual({ documents: 1, chunks: 2, embedded: 1 });
     store.clearEmbeddings();

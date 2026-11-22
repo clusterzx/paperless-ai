@@ -1,3 +1,4 @@
+import { canEdit, readableLibraries, type AccessScope } from '../access/scope.js';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -18,6 +19,13 @@ export const ocrRoutes =
   ({ ctx, engine, ocr }: Services): FastifyPluginAsync =>
   async (fastify) => {
     const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+    /** The caller may read and change the document (built-in archive: editor of its library). */
+    const editable = async (scope: AccessScope, id: number) => {
+      const doc = await ctx.backend(scope).getDocument(id);
+      if (!canEdit(scope, doc.library_id)) throw new HttpProblem(403, 'Not allowed to change this document');
+      return doc;
+    };
 
     /** Requested OCR runs that are not finished – including the one being read right now. */
     const pendingJobs = () => {
@@ -59,7 +67,8 @@ export const ocrRoutes =
       },
       async (req): Promise<OcrListResponse> => {
         ocr.assessIfStale();
-        const list = ctx.repos.ocr.list(req.query);
+        const libs = readableLibraries(req.access!);
+        const list = ctx.repos.ocr.list({ ...req.query, libraryIds: libs });
         const jobs = engine.ocrJobs();
         const active = ocr.status(0).active;
         const items: OcrDocumentItem[] = list.items.map((a) => ({
@@ -79,7 +88,7 @@ export const ocrRoutes =
                   ? { state: 'queued' }
                   : null,
         }));
-        return { items, total: list.total, page: list.page, pageSize: list.pageSize, counts: ctx.repos.ocr.counts() };
+        return { items, total: list.total, page: list.page, pageSize: list.pageSize, counts: ctx.repos.ocr.counts(libs) };
       },
     );
 
@@ -119,7 +128,7 @@ export const ocrRoutes =
       '/api/ocr/documents/:id',
       { schema: { params: z.object({ id: z.coerce.number().int().positive() }) } },
       async (req): Promise<OcrDocumentText> => {
-        const doc = await ctx.paperless().getDocument(req.params.id);
+        const doc = await ctx.backend(req.access!).getDocument(req.params.id);
         const result = ctx.repos.ocr.result(doc.id);
         const ocrText = result?.status === 'done' ? result.text : null;
         // Saved in Paperless: the text before the OCR is the one kept for undo.
@@ -148,6 +157,7 @@ export const ocrRoutes =
         },
       },
       async (req) => {
+        await editable(req.access!, req.params.id);
         await ocr.apply(req.params.id);
         engine.enqueue(req.params.id, { source: 'ocr', force: true });
         return { ok: true };
@@ -158,6 +168,7 @@ export const ocrRoutes =
       '/api/ocr/documents/:id/revert',
       { schema: { params: z.object({ id: z.coerce.number().int().positive() }) } },
       async (req) => {
+        await editable(req.access!, req.params.id);
         await ocr.revert(req.params.id);
         return { ok: true };
       },

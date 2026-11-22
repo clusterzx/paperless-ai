@@ -4,14 +4,15 @@
  */
 import type { AnalysisResult, DocumentSnapshot, DocumentSuggestion } from '../../shared/api.js';
 import type { AppContext } from '../context.js';
+import type { AccessScope } from '../access/scope.js';
 import type { AppConfig } from '../config/schema.js';
-import type { DocumentPatch } from '../paperless/client.js';
-import { normalizeName } from '../paperless/metadata.js';
-import type { PaperlessCustomField, PaperlessCustomFieldType, PaperlessDocument } from '../paperless/types.js';
+import { normalizeName } from '../backend/metadata.js';
+import { entityKey, pickKeep } from '../backend/similarNames.js';
+import { statusOf, type ArchiveDocument, type ChangeOrigin, type CustomField, type CustomFieldType, type DocumentPatch } from '../backend/types.js';
 import { logger } from '../logger.js';
-import { PaperlessError } from '../paperless/client.js';
 import { datePart, normalizeDate } from './dates.js';
 import { localDate } from './prompt.js';
+import { currencyIn, formatMonetaryValue, parseNumber } from '../../shared/numbers.js';
 
 const log = logger.child({ module: 'applier' });
 
@@ -23,7 +24,7 @@ export interface PlannedUpdate {
   notes: string[];
 }
 
-export function snapshotOf(doc: PaperlessDocument): DocumentSnapshot {
+export function snapshotOf(doc: ArchiveDocument): DocumentSnapshot {
   return {
     title: doc.title,
     tags: [...(doc.tags ?? [])],
@@ -39,25 +40,10 @@ export function truncateTitle(title: string): string {
   return t.length > MAX_TITLE_LENGTH ? `${t.slice(0, MAX_TITLE_LENGTH - 1).trimEnd()}…` : t;
 }
 
-/** Parse numbers written in German or English notation ("1.234,56", "1,234.56", "12,50 €"). */
-export function parseNumber(input: string): number | null {
-  let t = input.replace(/[^\d,.-]/g, '');
-  if (!t || !/\d/.test(t)) return null;
-  const lastComma = t.lastIndexOf(',');
-  const lastDot = t.lastIndexOf('.');
-  if (lastComma > -1 && lastDot > -1) {
-    t = lastComma > lastDot ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
-  } else if (lastComma > -1) {
-    t = /^-?\d{1,3}(,\d{3})+$/.test(t) ? t.replace(/,/g, '') : t.replace(',', '.');
-  } else if (/^-?\d{1,3}(\.\d{3}){2,}$/.test(t)) {
-    t = t.replace(/\./g, '');
-  }
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-}
+export { parseNumber };
 
 /** Convert a textual AI value into the representation Paperless expects for the field type. */
-export function convertCustomFieldValue(field: PaperlessCustomField, value: string, currency?: string): unknown {
+export function convertCustomFieldValue(field: CustomField, value: string, currency?: string): unknown {
   const v = value.trim();
   switch (field.data_type) {
     case 'string':
@@ -87,8 +73,8 @@ export function convertCustomFieldValue(field: PaperlessCustomField, value: stri
     case 'monetary': {
       const n = parseNumber(v);
       if (n === null) return undefined;
-      const cur = (field.extra_data?.default_currency || currency || /\b([A-Z]{3})\b/.exec(v)?.[1] || '').toUpperCase();
-      return `${cur}${n.toFixed(2)}`;
+      // A currency written in the value ("USD134.89", "12,50 €") wins; else the field's, else the configured one.
+      return formatMonetaryValue(currencyIn(v) || field.extra_data?.default_currency || currency || '', n);
     }
     case 'select': {
       // Paperless < 2.15 stores plain string options and the option index as value; newer
@@ -112,21 +98,21 @@ function sameSet(a: number[], b: number[]): boolean {
 
 async function resolveCustomFields(
   ctx: AppContext,
-  doc: PaperlessDocument,
+  doc: ArchiveDocument,
   values: { field_name: string; value: string }[],
   onlyConfigured: boolean,
   notes: string[],
   configuredFields = ctx.cfg.processing.customFields,
 ): Promise<{ field: number; value: unknown }[] | undefined> {
   if (!values.length) return undefined;
-  const meta = ctx.metadata();
+  const meta = ctx.metadata(doc.library_id ?? null);
   const merged = new Map<number, unknown>((doc.custom_fields ?? []).map((f) => [f.field, f.value]));
   let changed = false;
   for (const { field_name, value } of values) {
     const configured = configuredFields.find((c) => normalizeName(c.name) === normalizeName(field_name));
     if (onlyConfigured && !configured) continue;
     try {
-      const type = (configured?.type ?? 'string') as PaperlessCustomFieldType;
+      const type = (configured?.type ?? 'string') as CustomFieldType;
       // Select fields need their options – those are defined in Paperless.
       const create = Boolean(configured) && type !== 'select';
       const res = await meta.resolveCustomField(configured?.name ?? field_name, create, type, configured?.currency);
@@ -157,11 +143,11 @@ async function resolveCustomFields(
  */
 export async function planAutomaticUpdate(
   ctx: AppContext,
-  doc: PaperlessDocument,
+  doc: ArchiveDocument,
   s: DocumentSuggestion,
   p: AppConfig['processing'] = ctx.cfg.processing,
 ): Promise<PlannedUpdate> {
-  const meta = ctx.metadata();
+  const meta = ctx.metadata(doc.library_id ?? null);
   await meta.snapshot();
   const patch: DocumentPatch = {};
   const notes: string[] = [];
@@ -225,7 +211,16 @@ export async function planAutomaticUpdate(
         notes.push(`Kept existing correspondent "${correspondent}" (AI suggested "${s.correspondent}")`);
       }
     } else {
-      const res = await meta.resolveCorrespondent(s.correspondent, !p.restrict.correspondents);
+      // "ADAC Versicherung AG" while "ADAC Versicherung" exists: the existing one (the same name apart
+      // from legal form, region word, case and punctuation) – no near-duplicate.
+      const known = (await meta.snapshot()).correspondents;
+      const suggested = s.correspondent;
+      const key = entityKey(suggested, 'correspondent');
+      const exact = known.some((c) => normalizeName(c.name) === normalizeName(suggested));
+      const alike = exact || !key ? [] : known.filter((c) => entityKey(c.name, 'correspondent') === key);
+      const wanted = alike.length ? pickKeep(alike, 'correspondent').name : s.correspondent;
+      if (alike.length) notes.push(`Used the existing correspondent "${wanted}" for "${s.correspondent}"`);
+      const res = await meta.resolveCorrespondent(wanted, !p.restrict.correspondents);
       if (res.id == null) notes.push(`Correspondent "${s.correspondent}" does not exist (restricted to existing correspondents)`);
       else if (res.id !== doc.correspondent) {
         correspondent = res.name;
@@ -253,8 +248,8 @@ export interface ManualUpdateInput {
 }
 
 /** Plan an update with values explicitly chosen by the user (manual review). */
-export async function planManualUpdate(ctx: AppContext, doc: PaperlessDocument, input: ManualUpdateInput): Promise<PlannedUpdate> {
-  const meta = ctx.metadata();
+export async function planManualUpdate(ctx: AppContext, doc: ArchiveDocument, input: ManualUpdateInput): Promise<PlannedUpdate> {
+  const meta = ctx.metadata(doc.library_id ?? null);
   await meta.snapshot();
   const patch: DocumentPatch = {};
   const notes: string[] = [];
@@ -305,36 +300,51 @@ export async function planManualUpdate(ctx: AppContext, doc: PaperlessDocument, 
 
 export interface ApplyMeta {
   source: string;
+  /** Who applies the change (default: the AI for automatic sources, the system otherwise). */
+  origin?: ChangeOrigin;
+  /** Access scope of the request (manual edits); default: system. */
+  scope?: AccessScope;
   analysis?: AnalysisResult;
   /** Library prompt of the prompt rule that applied. */
   prompt?: { id: number; name: string } | null;
 }
 
-/** PATCH the document, then record history and processing state (only after success). */
-export async function applyPlannedUpdate(ctx: AppContext, doc: PaperlessDocument, plan: PlannedUpdate, info: ApplyMeta): Promise<PaperlessDocument> {
+/** Who made a change, from the processing source. */
+export function originFor(source: string, userId?: number | null): ChangeOrigin {
+  if (source === 'manual' && userId) return { actor: 'user', actorId: userId };
+  return { actor: 'ai', ref: `source:${source}` };
+}
+
+/** Save the document, then record history and processing state (only after success). */
+export async function applyPlannedUpdate(ctx: AppContext, doc: ArchiveDocument, plan: PlannedUpdate, info: ApplyMeta): Promise<ArchiveDocument> {
   let updated = doc;
+  const backend = ctx.backend(info.scope);
+  const origin = info.origin ?? originFor(info.source);
   if (Object.keys(plan.patch).length) {
     try {
-      updated = await ctx.paperless().updateDocument(doc.id, plan.patch);
+      updated = await backend.updateDocument(doc.id, plan.patch, origin);
     } catch (err) {
       // One unacceptable custom field value must not cost the title, tags and correspondent.
       if (!withoutRejectedCustomFields(err, plan)) throw err;
-      updated = Object.keys(plan.patch).length ? await ctx.paperless().updateDocument(doc.id, plan.patch) : doc;
+      updated = Object.keys(plan.patch).length ? await backend.updateDocument(doc.id, plan.patch, origin) : doc;
     }
   }
   const hasChanges = Object.keys(plan.patch).length > 0;
+  let historyId: number | null = null;
   try {
     // Undo snapshot and processing state are stored together (or not at all).
-    ctx.db.transaction(() => recordApplied(ctx, doc, updated, plan, info, hasChanges))();
+    historyId = ctx.db.transaction(() => recordApplied(ctx, doc, updated, plan, info, hasChanges))();
   } catch (err) {
-    // Paperless was changed already: never process (and change) the document a second time.
-    log.error({ err, documentId: doc.id }, `Document ${doc.id} was updated in Paperless, but the history could not be saved`);
+    // The archive was changed already: never process (and change) the document a second time.
+    log.error({ err, documentId: doc.id }, `Document ${doc.id} was updated, but the history could not be saved`);
     try {
-      ctx.repos.documents.markProcessed(doc.id, updated.title ?? doc.title, updated.modified ?? null);
+      if (info.source !== 'edit') ctx.repos.documents.markProcessed(doc.id, updated.title ?? doc.title, updated.modified ?? null);
     } catch {
       /* database unavailable – logged above */
     }
   }
+  if (hasChanges) ctx.events.emit({ type: 'document.updated', id: doc.id, fields: Object.keys(plan.patch), origin, libraryId: doc.library_id ?? null });
+  if (!USER_SOURCES.has(info.source)) ctx.events.emit({ type: 'document.processed', id: doc.id, historyId, libraryId: doc.library_id ?? null });
   if (plan.notes.length) log.info({ documentId: doc.id, notes: plan.notes }, `Document ${doc.id}: ${plan.notes.join('; ')}`);
   return updated;
 }
@@ -346,8 +356,8 @@ export async function applyPlannedUpdate(ctx: AppContext, doc: PaperlessDocument
  */
 function withoutRejectedCustomFields(err: unknown, plan: PlannedUpdate): boolean {
   const fields = plan.patch.custom_fields;
-  if (!fields || !(err instanceof PaperlessError) || err.status !== 400) return false;
-  const body = (err.cause as { body?: unknown } | undefined)?.body as { custom_fields?: unknown } | undefined;
+  if (!fields || statusOf(err) !== 400) return false;
+  const body = ((err as { cause?: unknown }).cause as { body?: unknown } | undefined)?.body as { custom_fields?: unknown } | undefined;
   if (!body || typeof body !== 'object' || !('custom_fields' in body)) return false;
   const errors = Array.isArray(body.custom_fields) ? body.custom_fields : null;
   // Paperless answers with one entry per submitted field – empty for the valid ones.
@@ -361,9 +371,10 @@ function withoutRejectedCustomFields(err: unknown, plan: PlannedUpdate): boolean
   return true;
 }
 
-function recordApplied(ctx: AppContext, doc: PaperlessDocument, updated: PaperlessDocument, plan: PlannedUpdate, info: ApplyMeta, hasChanges: boolean): void {
+function recordApplied(ctx: AppContext, doc: ArchiveDocument, updated: ArchiveDocument, plan: PlannedUpdate, info: ApplyMeta, hasChanges: boolean): number | null {
+  let historyId: number | null = null;
   if (hasChanges) {
-    ctx.repos.history.add({
+    historyId = ctx.repos.history.add({
       documentId: doc.id,
       source: info.source,
       provider: info.analysis?.provider,
@@ -382,14 +393,20 @@ function recordApplied(ctx: AppContext, doc: PaperlessDocument, updated: Paperle
       prompt: info.prompt ?? null,
     });
   }
-  ctx.repos.documents.markProcessed(doc.id, updated.title ?? doc.title, updated.modified ?? null);
+  // A plain edit on the document page does not count as an AI analysis; the review does.
+  if (info.source !== 'edit') ctx.repos.documents.markProcessed(doc.id, updated.title ?? doc.title, updated.modified ?? null);
+  else ctx.repos.ocr.followVersion(doc.id, doc.modified ?? null, updated.modified ?? null);
+  return historyId;
 }
+
+/** Sources of changes made by people (not by an AI analysis). */
+const USER_SOURCES = new Set(['manual', 'edit']);
 
 /**
  * Restore the values a document had before the AI changed it for the first time.
  * The document is marked so that it is not processed again automatically.
  */
-export async function revertDocument(ctx: AppContext, documentId: number): Promise<PaperlessDocument> {
+export async function revertDocument(ctx: AppContext, documentId: number, origin: ChangeOrigin = { actor: 'system', ref: 'revert' }, scope?: AccessScope): Promise<ArchiveDocument> {
   const original = ctx.repos.history.originalForDocument(documentId);
   if (!original) throw new Error(`No undo information stored for document ${documentId}`);
   const b = original.before;
@@ -400,8 +417,9 @@ export async function revertDocument(ctx: AppContext, documentId: number): Promi
   if (b.document_type !== undefined) patch.document_type = b.document_type;
   if (b.created) patch.created = b.created;
   if (b.custom_fields !== undefined) patch.custom_fields = b.custom_fields;
-  const updated = await ctx.paperless().updateDocument(documentId, patch);
+  const updated = await ctx.backend(scope).updateDocument(documentId, patch, origin);
   ctx.repos.history.markReverted(documentId);
+  ctx.events.emit({ type: 'document.updated', id: documentId, fields: Object.keys(patch), origin, libraryId: updated.library_id ?? null });
   ctx.repos.documents.markSkipped(documentId, updated.title, 'reverted', updated.modified ?? null);
   log.info(`Reverted AI changes of document ${documentId}`);
   return updated;

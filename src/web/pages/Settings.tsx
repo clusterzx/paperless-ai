@@ -11,14 +11,22 @@ import {
   Link2,
   ListChecks,
   LogIn,
+  Mail,
   MessageSquareQuote,
   ScanText,
   RefreshCw,
   Save,
   Sparkles,
   UserCog,
+  Users,
+  Archive as ArchiveIcon,
+  Inbox as InboxIcon,
+  ScrollText,
+  Webhook,
   Workflow,
 } from 'lucide-react';
+import { ApiKeysCard, AuditLogCard, UsersTab } from '../components/accessAdmin';
+import { ArchiveSection, NotificationsSection } from '../components/archiveSettings';
 import { Page } from '../components/Layout';
 import { TwoFactorCard } from '../components/twoFactor';
 import { SingleSignOnCard } from '../components/singleSignOn';
@@ -43,14 +51,15 @@ import {
   Field,
   Input,
   PageHeader,
+  Select,
   Skeleton,
   Tabs,
   tabPanelProps,
   useConfirm,
   useToast,
 } from '../components/ui';
-import type { AccountInfo } from '@shared/api';
-import { ApiError, errorMessage, get, post, put } from '../lib/api';
+import type { AccountInfo, LibraryInfo } from '@shared/api';
+import { ApiError, errorMessage, get, patch, post, put } from '../lib/api';
 import { changedPaths, useDraft } from '../lib/draft';
 import { useAsync, useUnsavedChanges } from '../lib/hooks';
 import { useMetadata } from '../lib/metadata';
@@ -64,7 +73,9 @@ interface SettingsResponse {
   ocr: { available: boolean; cudaAvailable: boolean };
 }
 
-const TAB_IDS = ['connection', 'ai', 'processing', 'prompt', 'fields', 'ocr', 'external', 'rag', 'signin', 'integrations', 'account'] as const;
+const TAB_IDS = ['archive', 'connection', 'ai', 'processing', 'prompt', 'fields', 'ocr', 'external', 'rag', 'signin', 'notifications', 'integrations', 'users', 'audit', 'keys', 'account'] as const;
+/** Tabs members see (everything else is administration). */
+const MEMBER_TABS = ['account', 'keys'] as const;
 type TabId = (typeof TAB_IDS)[number];
 
 function CopyField({ value, secret }: { value: string; secret?: boolean }) {
@@ -114,9 +125,9 @@ function IntegrationsTab({ locked }: { locked: Locked }) {
   return (
     <div className="space-y-6">
       <Card
-        title="API key"
+        title="Global API key"
         icon={<KeyRound className="size-4" />}
-        description="Use it in the x-api-key header for the REST API, webhooks and the browser extension."
+        description="The key of earlier versions: full administrator access. Prefer personal keys with limited permissions (Settings → API keys) – this one keeps the browser extension and existing webhooks working."
       >
         {apiKey === null ? <Skeleton className="h-9" /> : <CopyField value={apiKey} secret />}
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -240,12 +251,51 @@ function PasswordCard() {
   );
 }
 
+/** Built-in archive: where the user's uploads go without a chosen library (share, WebDAV, apps, API). */
+function UploadsCard({ account, onChange }: { account: AccountInfo; onChange: () => void }) {
+  const toast = useToast();
+  const libraries = useAsync((signal) => get<LibraryInfo[]>('/api/libraries', signal), []);
+  const writable = (libraries.data ?? []).filter((l) => l.role === 'owner' || l.role === 'editor').sort((a, b) => a.id - b.id);
+  const [busy, setBusy] = useState(false);
+  const save = async (value: string) => {
+    setBusy(true);
+    try {
+      await patch('/api/account/profile', { defaultLibraryId: value ? Number(value) : null });
+      toast.success('Default library saved');
+      onChange();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (libraries.data && writable.length < 2) return null;
+  return (
+    <Card title="Uploads" icon={<InboxIcon className="size-4" />} className="max-w-xl">
+      <Field
+        label="Default library"
+        hint="Where your documents go when no library is chosen: sharing from the phone, the WebDAV inbox root, scanner apps and API uploads without a library. An API key limited to libraries uses its own."
+      >
+        <Select value={account.defaultLibraryId ?? ''} disabled={busy || !libraries.data} onChange={(e) => void save(e.target.value)}>
+          <option value="">{writable[0] ? `The oldest one I can add to (${writable[0].name})` : 'The oldest one I can add to'}</option>
+          {writable.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </Card>
+  );
+}
+
 /** Settings → Account: password, single sign-on, two-factor authentication. */
 function AccountTab() {
   const toast = useToast();
   const search = useSearch();
   const [, navigate] = useLocation();
   const account = useAsync((signal) => get<AccountInfo>('/api/account', signal), []);
+  const { session } = useSession();
   // Back from linking at the provider: ?sso=linked or ?sso_error=…
   const [ssoError] = useState(() => new URLSearchParams(search).get('sso_error'));
   useEffect(() => {
@@ -269,13 +319,50 @@ function AccountTab() {
           <p className="mt-1 text-sm text-muted">This account was created by single sign-on – it has no password; the provider takes care of it (including multi-factor authentication).</p>
         </Card>
       )}
+      {session?.archive?.capabilities.libraries && <UploadsCard account={a} onChange={() => void account.reload()} />}
       {(a.sso.available || a.sso.linked || ssoError) && <SingleSignOnCard account={a} error={ssoError} onChange={() => void account.reload()} />}
       {a.hasPassword && <TwoFactorCard />}
     </div>
   );
 }
 
+/** Settings of members: their account and their API keys. */
+function MemberSettings() {
+  const search = useSearch();
+  const [, navigate] = useLocation();
+  const requested = new URLSearchParams(search).get('tab');
+  const tab = MEMBER_TABS.find((t) => t === requested) ?? 'account';
+  return (
+    <Page>
+      <PageHeader title="Settings" description="Your account and your API keys." />
+      <div className="lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10">
+        <div className="lg:sticky lg:top-6 lg:self-start">
+          <Tabs
+            id="settings"
+            vertical
+            value={tab}
+            onChange={(t) => navigate(`/settings?tab=${t}`, { replace: true })}
+            tabs={[
+              { id: 'account', label: 'Account', icon: <UserCog className="size-4" /> },
+              { id: 'keys', label: 'API keys', icon: <KeyRound className="size-4" /> },
+            ]}
+          />
+        </div>
+        <div className="mt-6 min-w-0 pb-24 lg:mt-0" {...tabPanelProps('settings', tab)}>
+          {tab === 'account' && <AccountTab />}
+          {tab === 'keys' && <ApiKeysCard />}
+        </div>
+      </div>
+    </Page>
+  );
+}
+
 export default function SettingsPage() {
+  const { session } = useSession();
+  return session?.user?.role === 'admin' ? <AdminSettings /> : <MemberSettings />;
+}
+
+function AdminSettings() {
   const toast = useToast();
   const confirm = useConfirm();
   const { refresh } = useSession();
@@ -284,7 +371,9 @@ export default function SettingsPage() {
   const [, navigate] = useLocation();
   const requested = new URLSearchParams(search).get('tab');
   // Unknown tabs (old links, typos) show the first tab instead of an empty page.
-  const tab: TabId = TAB_IDS.find((t) => t === requested) ?? 'connection';
+  const { session } = useSession();
+  const builtin = session?.archive?.mode === 'builtin';
+  const tab: TabId = TAB_IDS.find((t) => t === requested && (t !== 'archive' || builtin)) ?? (builtin ? 'archive' : 'connection');
   const [loaded, setLoaded] = useState<SettingsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, set, setDraft] = useDraft<Config | null>(null);
@@ -357,7 +446,8 @@ export default function SettingsPage() {
   const locked = loaded.locked;
   const tagNames = meta.tags.map((t) => t.name);
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
-    { id: 'connection', label: 'Paperless', icon: <Link2 className="size-4" /> },
+    ...(builtin ? [{ id: 'archive' as const, label: 'Archive', icon: <ArchiveIcon className="size-4" /> }] : []),
+    { id: 'connection', label: builtin ? 'Paperless-ngx (import)' : 'Paperless', icon: <Link2 className="size-4" /> },
     { id: 'ai', label: 'AI provider', icon: <Bot className="size-4" /> },
     { id: 'processing', label: 'Processing', icon: <ListChecks className="size-4" /> },
     { id: 'prompt', label: 'Prompt', icon: <MessageSquareQuote className="size-4" /> },
@@ -366,11 +456,15 @@ export default function SettingsPage() {
     { id: 'external', label: 'External data', icon: <Braces className="size-4" /> },
     { id: 'rag', label: 'Ask your archive', icon: <Sparkles className="size-4" /> },
     { id: 'signin', label: 'Sign-in', icon: <LogIn className="size-4" /> },
-    { id: 'integrations', label: 'API & webhooks', icon: <KeyRound className="size-4" /> },
+    { id: 'notifications', label: 'Notifications', icon: <Mail className="size-4" /> },
+    { id: 'integrations', label: 'API & webhooks', icon: <Webhook className="size-4" /> },
+    { id: 'users', label: 'Users & groups', icon: <Users className="size-4" /> },
+    { id: 'audit', label: 'Audit log', icon: <ScrollText className="size-4" /> },
+    { id: 'keys', label: 'API keys', icon: <KeyRound className="size-4" /> },
     { id: 'account', label: 'Account', icon: <UserCog className="size-4" /> },
   ];
   const props = { draft, set, locked };
-  const formTab = !['integrations', 'account'].includes(tab);
+  const formTab = !['integrations', 'users', 'audit', 'keys', 'account'].includes(tab);
 
   return (
     <Page>
@@ -391,6 +485,8 @@ export default function SettingsPage() {
               Some settings are defined by environment variables (marked with a lock) and cannot be changed here.
             </Alert>
           )}
+          {tab === 'archive' && <ArchiveSection draft={draft} set={set} locked={locked} />}
+          {tab === 'notifications' && <NotificationsSection draft={draft} set={set} locked={locked} dirty={dirty} />}
           {tab === 'connection' && (
             <Card
               title="Paperless-ngx connection"
@@ -445,6 +541,9 @@ export default function SettingsPage() {
             </Card>
           )}
           {tab === 'integrations' && <IntegrationsTab locked={locked} />}
+          {tab === 'users' && <UsersTab />}
+          {tab === 'audit' && <AuditLogCard />}
+          {tab === 'keys' && <ApiKeysCard />}
           {tab === 'account' && <AccountTab />}
         </div>
       </div>

@@ -754,7 +754,22 @@ export function Modal({
 }
 
 /** Panel sliding in from the right (secondary content such as filters). */
-export function SlideOver({ open, onClose, title, description, children }: { open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; children: ReactNode }) {
+export function SlideOver({
+  open,
+  onClose,
+  title,
+  description,
+  size = 'md',
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  description?: ReactNode;
+  /** md: filters and short lists; lg: forms with several columns (e.g. a library's intake settings). */
+  size?: 'md' | 'lg';
+  children: ReactNode;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
   useDialog(ref, open, onClose);
@@ -768,7 +783,10 @@ export function SlideOver({ open, onClose, title, description, children }: { ope
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="animate-slide-in absolute inset-y-2 right-2 flex w-[min(25rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-3xl border border-border bg-surface shadow-pop outline-none"
+        className={cn(
+          'animate-slide-in absolute inset-y-2 right-2 flex flex-col overflow-hidden rounded-3xl border border-border bg-surface shadow-pop outline-none',
+          size === 'lg' ? 'w-[min(52rem,calc(100vw-1rem))]' : 'w-[min(25rem,calc(100vw-1rem))]',
+        )}
       >
         <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
           <div>

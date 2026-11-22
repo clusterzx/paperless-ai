@@ -1,3 +1,7 @@
+import { ARCHIVE_SCHEMA, LIB_FTS } from '../archive/schema.js';
+import { COUNTER_TRIGGERS, rebuildCounters, SORT_INDEXES } from '../archive/counters.js';
+import { WORKFLOW_SCHEMA } from '../workflows/storage.js';
+import { MIGRATION_SCHEMA } from '../migration/schema.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
@@ -288,16 +292,209 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX history_prompt ON history(prompt_id) WHERE prompt_id IS NOT NULL;
       `),
   },
+  {
+    version: 11,
+    name: 'roles, groups, api keys, libraries',
+    up: (db) =>
+      db.exec(`
+        -- Instance roles. Existing accounts could do everything: they become admins.
+        ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member'));
+        ALTER TABLE users ADD COLUMN display_name TEXT;
+        ALTER TABLE users ADD COLUMN email TEXT;
+        ALTER TABLE users ADD COLUMN disabled_at INTEGER;
+        UPDATE users SET role = 'admin';
+
+        CREATE TABLE groups (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          -- groups synchronised from the OIDC groups claim are not edited by hand
+          oidc_name TEXT UNIQUE,
+          created_at INTEGER NOT NULL
+        );
+        CREATE TABLE group_members (
+          group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          PRIMARY KEY (group_id, user_id)
+        ) WITHOUT ROWID;
+        CREATE INDEX group_members_user ON group_members(user_id);
+
+        -- API keys per user: pai_<prefix>_<secret>; only the SHA-256 of the full key is stored.
+        CREATE TABLE api_keys (
+          id INTEGER PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          prefix TEXT NOT NULL,
+          hash TEXT NOT NULL,
+          scopes TEXT NOT NULL DEFAULT '["read"]',
+          library_ids TEXT,
+          created_at INTEGER NOT NULL,
+          last_used_at INTEGER,
+          expires_at INTEGER,
+          revoked_at INTEGER
+        );
+        CREATE UNIQUE INDEX api_keys_prefix ON api_keys(prefix);
+        CREATE INDEX api_keys_user ON api_keys(user_id);
+
+        -- Libraries of the built-in archive with their members (users or groups) and roles.
+        CREATE TABLE libraries (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          settings TEXT NOT NULL DEFAULT '{}',
+          created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          created_at INTEGER NOT NULL,
+          deleted_at INTEGER
+        );
+        CREATE TABLE library_members (
+          library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+          principal_type TEXT NOT NULL CHECK (principal_type IN ('user', 'group')),
+          principal_id INTEGER NOT NULL,
+          role TEXT NOT NULL CHECK (role IN ('owner', 'editor', 'viewer')),
+          PRIMARY KEY (library_id, principal_type, principal_id)
+        ) WITHOUT ROWID;
+        CREATE INDEX library_members_principal ON library_members(principal_type, principal_id);
+
+        -- Changes that are not document changes (users, roles, memberships, keys, settings).
+        CREATE TABLE audit_log (
+          id INTEGER PRIMARY KEY,
+          at INTEGER NOT NULL,
+          actor_type TEXT NOT NULL,
+          actor_id INTEGER,
+          actor_name TEXT,
+          action TEXT NOT NULL,
+          target TEXT,
+          library_id INTEGER,
+          details TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX audit_log_at ON audit_log(at);
+        CREATE INDEX audit_log_library ON audit_log(library_id, at) WHERE library_id IS NOT NULL;
+
+        -- iCal feed per user: the random token in the URL is the key (looked up by its SHA-256).
+        CREATE TABLE calendar_feeds (
+          user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          token TEXT NOT NULL,
+          token_hash TEXT NOT NULL UNIQUE,
+          created_at INTEGER NOT NULL
+        );
+
+        -- Saved views of the document list (per user, optionally shared with a library).
+        CREATE TABLE saved_views (
+          id INTEGER PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          library_id INTEGER,
+          name TEXT NOT NULL,
+          filter TEXT NOT NULL,
+          columns TEXT NOT NULL DEFAULT '[]',
+          sort TEXT,
+          position INTEGER NOT NULL DEFAULT 0,
+          in_navigation INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX saved_views_user ON saved_views(user_id, position);
+
+        -- In-app notifications (workflow actions, intake failures, migration …).
+        CREATE TABLE notifications (
+          id INTEGER PRIMARY KEY,
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          at INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          body TEXT NOT NULL DEFAULT '',
+          link TEXT,
+          read_at INTEGER
+        );
+        CREATE INDEX notifications_user ON notifications(user_id, read_at, at);
+      `),
+  },
+  {
+    version: 12,
+    name: 'built-in archive',
+    up: (db) => db.exec(ARCHIVE_SCHEMA),
+  },
+  {
+    version: 13,
+    name: 'archive counters and sort indexes',
+    up: (db) => {
+      db.exec(SORT_INDEXES);
+      db.exec(COUNTER_TRIGGERS);
+      rebuildCounters(db);
+      // lib_fts of the first archive schema had only the 3-letter prefix index: recreate it, the
+      // archive refills it in the background on its next start (LocalBackend.rebuildFts).
+      const fts = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'lib_fts'").get() as { sql: string } | undefined;
+      if (fts && !fts.sql.includes("prefix = '3 4'")) {
+        db.exec(`DROP TABLE lib_fts; ${LIB_FTS};`);
+        if (db.prepare('SELECT 1 FROM lib_documents LIMIT 1').get()) db.prepare("INSERT OR REPLACE INTO kv (key, value) VALUES ('archive.fts_rebuild', 'true')").run();
+      }
+    },
+  },
+  {
+    version: 14,
+    name: 'workflows',
+    up: (db) => db.exec(WORKFLOW_SCHEMA),
+  },
+  {
+    version: 15,
+    name: 'migration from Paperless-ngx',
+    up: (db) => db.exec(MIGRATION_SCHEMA),
+  },
+  {
+    version: 16,
+    name: 'import from Paperless-ngx with new ids',
+    // The id of the imported document in the built-in archive when it differs from the ngx id
+    // (an import into an archive with documents of its own); NULL = the same id.
+    up: (db) => db.exec('ALTER TABLE migration_items ADD COLUMN local_id INTEGER; CREATE UNIQUE INDEX migration_items_local ON migration_items(local_id) WHERE local_id IS NOT NULL;'),
+  },
+  {
+    version: 17,
+    name: 'intake: default library, retry hints, only new e-mails',
+    up: (db) =>
+      db.exec(`
+        -- The library a user's uploads go to when they do not choose one (NULL: the oldest one they can add to).
+        ALTER TABLE users ADD COLUMN default_library_id INTEGER;
+        -- The hints of an intake attempt (tags, title, mail sender …), so "Try again" keeps them.
+        ALTER TABLE lib_intake ADD COLUMN hints TEXT;
+        -- 1 = the first check skips the messages already in the folders (only new ones are read).
+        ALTER TABLE intake_mail_accounts ADD COLUMN skip_existing INTEGER NOT NULL DEFAULT 0;
+        -- Watch folders and mail accounts of libraries deleted before: they kept running.
+        DELETE FROM intake_folders WHERE library_id IN (SELECT id FROM libraries WHERE deleted_at IS NOT NULL);
+        DELETE FROM intake_mail_accounts WHERE library_id IN (SELECT id FROM libraries WHERE deleted_at IS NOT NULL);
+      `),
+  },
+  {
+    version: 18,
+    name: 'API keys: delete, metadata and MCP scopes, rate limit',
+    up: (db) => {
+      // Requests per minute a key may make (NULL: no limit).
+      db.exec('ALTER TABLE api_keys ADD COLUMN rate_limit INTEGER');
+      // Deleting and managing labels were part of `write`: keys that could write keep them.
+      const rows = db.prepare('SELECT id, scopes FROM api_keys').all() as { id: number; scopes: string }[];
+      const update = db.prepare('UPDATE api_keys SET scopes = ? WHERE id = ?');
+      for (const r of rows) {
+        let scopes: string[];
+        try {
+          scopes = JSON.parse(r.scopes) as string[];
+        } catch {
+          continue;
+        }
+        if (!Array.isArray(scopes) || !scopes.includes('write')) continue;
+        update.run(JSON.stringify([...new Set([...scopes, 'delete', 'metadata'])]), r.id);
+      }
+    },
+  },
 ];
 
 export function openDatabase(file: string): Db {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
+  const fresh = file === ':memory:' || !fs.existsSync(file);
   const db = new BetterSqlite3(file);
+  // Only possible before the first table exists; older databases switch with a one-time VACUUM.
+  if (fresh) db.pragma('auto_vacuum = INCREMENTAL');
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
   db.pragma('temp_store = MEMORY');
+  db.pragma('cache_size = -65536');
+  db.pragma('journal_size_limit = 67108864');
+  if (file !== ':memory:') db.pragma('mmap_size = 268435456');
   migrate(db);
   return db;
 }
@@ -346,7 +543,8 @@ export function importLegacyDatabase(db: Db, legacyFile: string): boolean {
     db.transaction(() => {
       if (tables.has('users')) {
         const insert = db.prepare(
-          `INSERT OR IGNORE INTO users (username, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+          // Accounts of ≤ 3.x could do everything: they become admins.
+          `INSERT OR IGNORE INTO users (username, password_hash, role, created_at, updated_at) VALUES (?, ?, 'admin', ?, ?)`,
         );
         for (const u of all<{ username: string; password: string; created_at: string }>('SELECT * FROM users')) {
           if (!u.username || !u.password) continue;

@@ -12,6 +12,8 @@ import { RagService } from './rag/service.js';
 import { OcrService } from './ocr/service.js';
 import { logger } from './logger.js';
 import { resetTwoFactorFromEnv } from './twoFactor.js';
+import { wireDocumentEvents } from './wiring.js';
+import { WorkflowEngine } from './workflows/engine.js';
 
 const log = logger.child({ module: 'main' });
 
@@ -31,19 +33,22 @@ async function main(): Promise<void> {
   const rag = new RagService(ctx);
   // Keep the search index fresh after documents were changed by the AI or got a new text from OCR.
   engine.on('idle', () => rag.requestSync());
-  ocr.onTextChanged = (id) => rag.invalidate(id);
+  wireDocumentEvents(ctx, { rag, ocr, engine });
+  const workflows = new WorkflowEngine(ctx, engine);
+  engine.workflows = workflows;
   if (ctx.cfg.ocr.enabled && !(await ocr.isAvailable())) {
     log.warn('OCR is enabled, but its libraries are not installed (onnxruntime-node, sharp, @hyzyla/pdfium) – OCR is skipped');
   }
 
   const staticCandidates = [path.join(root, 'dist', 'public'), path.join(here, '..', 'public')];
   const staticDir = staticCandidates.find((d) => fs.existsSync(path.join(d, 'index.html')));
-  const app = await buildApp({ ctx, engine, rag, ocr }, { staticDir });
+  const app = await buildApp({ ctx, engine, rag, ocr, workflows }, { staticDir });
 
   await app.listen({ port, host });
   log.info(`Web interface available on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
   if (ctx.needsSetup()) log.info('Setup required – open the web interface to configure Paperless-AI');
 
+  workflows.start();
   engine.start();
   rag.start();
 
@@ -56,7 +61,7 @@ async function main(): Promise<void> {
     force.unref();
     try {
       await app.close();
-      await Promise.all([engine.stop(), rag.stop()]);
+      await Promise.all([engine.stop(), rag.stop(), workflows.stop()]);
       await ocr.stop();
       ctx.close();
     } catch (err) {

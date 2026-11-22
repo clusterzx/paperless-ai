@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, type FastifyReply, type FastifyRequest, type FastifyServerOptions } from 'fastify';
+import multipart from '@fastify/multipart';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
@@ -9,12 +10,16 @@ import swaggerUi from '@fastify/swagger-ui';
 import { ZodError } from 'zod';
 import { jsonSchemaTransform, serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import type { AppContext } from '../context.js';
+import type { WorkflowEngine } from '../workflows/engine.js';
 import { NotConfiguredError } from '../context.js';
 import type { ProcessingEngine } from '../processing/engine.js';
 import type { RagService } from '../rag/service.js';
 import type { OcrService } from '../ocr/service.js';
-import { authenticate } from '../auth.js';
+import { resolveAccess } from '../auth.js';
 import { PaperlessError } from '../paperless/client.js';
+import { ArchiveError } from '../backend/types.js';
+import { hasScope, isAdmin } from '../access/scope.js';
+import { policyFor } from './policy.js';
 import { AiError } from '../ai/types.js';
 import { logger } from '../logger.js';
 import { endEventStreams, HttpProblem } from './helpers.js';
@@ -28,6 +33,16 @@ import { oidcRoutes } from '../routes/oidc.js';
 import { promptRoutes } from '../routes/prompts.js';
 import { promptRuleRoutes } from '../routes/promptRules.js';
 import { twoFactorRoutes } from '../routes/twoFactor.js';
+import { archiveRoutes } from '../routes/archive.js';
+import { workflowRoutes } from '../routes/workflows.js';
+import { DAV_METHODS, davRoutes } from '../routes/dav.js';
+import { ngxRoutes } from '../ngx/routes.js';
+import { mcpRoutes } from '../mcp/routes.js';
+import { KeyRateLimiter } from './keyRateLimit.js';
+import { MAX_API_VERSION as NGX_MAX_API_VERSION, MIN_API_VERSION as NGX_MIN_API_VERSION, NGX_VERSION, requestedVersion as ngxRequestedVersion } from '../ngx/format.js';
+import { migrationRoutes } from '../routes/migration.js';
+import { metadataRoutes } from '../routes/metadata.js';
+import { accessRoutes } from '../routes/access.js';
 import { calendarRoutes } from '../routes/calendar.js';
 
 export interface Services {
@@ -35,6 +50,8 @@ export interface Services {
   engine: ProcessingEngine;
   rag: RagService;
   ocr: OcrService;
+  /** The workflow engine (optional for tools that build the app without it). */
+  workflows?: WorkflowEngine;
 }
 
 /** Who may call a route. */
@@ -43,6 +60,10 @@ export type AuthLevel = 'public' | 'user' | 'session' | 'setup';
 declare module 'fastify' {
   interface FastifyContextConfig {
     auth?: AuthLevel;
+  }
+  interface FastifyInstance {
+    /** All routes with their auth level (permission matrix test, route listing). */
+    registeredRoutes: { method: string; url: string; auth: AuthLevel | undefined }[];
   }
 }
 
@@ -95,10 +116,18 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     bodyLimit: 10 * 1024 * 1024,
     routerOptions: { ignoreTrailingSlash: true },
   });
+  // Methods of the WebDAV inbox (routes/dav.ts).
+  for (const m of DAV_METHODS) app.addHttpMethod(m, { hasBody: true });
+  app.decorate('registeredRoutes', [] as FastifyInstance['registeredRoutes']);
+  app.addHook('onRoute', (r) => {
+    for (const method of [r.method].flat()) app.registeredRoutes.push({ method: String(method), url: r.url, auth: r.config?.auth });
+  });
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
   await app.register(cookie);
+  // Uploads: the size limit of the archive settings is enforced while the file is written.
+  await app.register(multipart, { limits: { fileSize: 4096 * 1024 * 1024, files: 100, fields: 50 } });
   await app.register(rateLimit, { global: false });
   await app.register(swagger, {
     openapi: {
@@ -131,15 +160,37 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, Access-Control-Allow-Private-Network');
     reply.header('Access-Control-Allow-Private-Network', 'true');
-    if (req.method === 'OPTIONS') return reply.code(204).send();
+    if (req.method === 'OPTIONS') {
+      // WebDAV clients ask what the inbox can do.
+      if (req.url.startsWith('/dav/')) reply.header('DAV', '1, 2').header('MS-Author-Via', 'DAV').header('Allow', `OPTIONS, GET, HEAD, PUT, DELETE, ${DAV_METHODS.join(', ')}`);
+      return reply.code(204).send();
+    }
   });
 
   app.decorateRequest('principal', null);
-  app.addHook('preHandler', async (req, reply) => {
+  app.decorateRequest('access', null);
+  const keyLimiter = new KeyRateLimiter();
+  // Before the body is parsed and validated: unauthenticated or unauthorised callers learn nothing
+  // about the input a route expects.
+  app.addHook('onRequest', async (req, reply) => {
+    if (reply.sent) return;
     // API routes require authentication unless they opt out; static assets and docs are public.
     const url = req.routeOptions.url ?? '';
     let level: AuthLevel = req.routeOptions.config?.auth ?? (url.startsWith('/api/') || url.startsWith('/chat/') ? 'user' : 'public');
-    req.principal = await authenticate(ctx, req);
+    const resolved = await resolveAccess(ctx, req);
+    req.principal = resolved.principal;
+    req.access = resolved.access;
+    // The Paperless-ngx compatible API (/ngx/api/): its version headers on every answer (apps read
+    // them even from errors) and its error format.
+    const ngx = url.startsWith('/ngx');
+    if (ngx) {
+      reply.header('X-Api-Version', String(NGX_MAX_API_VERSION)).header('X-Version', NGX_VERSION);
+      // An API version this server does not speak: 406 before anything else, as Paperless-ngx (apps
+      // step down from the newest version they know).
+      const v = ngxRequestedVersion(req);
+      if (v !== null && (v < NGX_MIN_API_VERSION || v > NGX_MAX_API_VERSION)) return reply.code(406).send({ detail: 'Invalid version in "Accept" header.' });
+    }
+    const deny = (code: number, error: string, extra: Record<string, unknown> = {}) => reply.code(code).send(ngx ? { detail: error } : { error, ...extra });
     if (level === 'public') return;
     if (level === 'setup') {
       // Open only on a fresh installation (nobody could log in yet); afterwards a logged-in user is
@@ -147,9 +198,33 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
       if (ctx.needsSetup() && ctx.repos.users.count() === 0) return;
       level = 'session';
     }
-    if (!req.principal) return reply.code(401).send({ error: 'Authentication required' });
-    if (level === 'session' && req.principal.kind !== 'user') {
-      return reply.code(403).send({ error: 'This action requires a logged-in user (API keys are not allowed)' });
+    if (!req.principal || !req.access) {
+      // WebDAV clients (scanners, file managers) ask for the credentials on this header.
+      if (url.startsWith('/dav/')) reply.header('WWW-Authenticate', 'Basic realm="Paperless-AI inbox", charset="UTF-8"');
+      // MCP clients: a Bearer token (the API key).
+      if (url === '/mcp') reply.header('WWW-Authenticate', 'Bearer realm="Paperless-AI MCP"');
+      if (ngx) {
+        // As Paperless-ngx: no credentials and wrong ones are told apart.
+        const detail = req.headers.authorization ? 'Invalid token.' : 'Authentication credentials were not provided.';
+        return reply.code(401).header('WWW-Authenticate', 'Token').send({ detail });
+      }
+      return deny(401, 'Authentication required');
+    }
+    // The requests per minute of the API key (when it has a limit).
+    if (resolved.key?.rate_limit) {
+      const r = keyLimiter.take(resolved.key.id, resolved.key.rate_limit);
+      if (!r.ok) {
+        reply.header('Retry-After', String(r.retryAfter));
+        return deny(429, `Too many requests for this API key (${resolved.key.rate_limit} per minute) – try again in ${r.retryAfter} s`, { code: 'rate_limited' });
+      }
+    }
+    if (level === 'session' && !(req.principal.kind === 'user' && req.principal.via === 'session')) {
+      return deny(403, 'This action requires a logged-in user (API keys are not allowed)');
+    }
+    const policy = policyFor(req.method, url);
+    if (policy.admin && !isAdmin(req.access)) return deny(403, 'Only administrators can do this', { code: 'admin_required' });
+    if (!hasScope(req.access, policy.scope)) {
+      return deny(403, `The API key does not have the "${policy.scope}" scope`, { code: 'scope_missing' });
     }
   });
 
@@ -164,6 +239,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
       // Paperless "not found" is a 404 for our client too; everything else is an upstream problem.
       return reply.code(err.status === 404 ? 404 : 502).send({ error: err.message, code: 'paperless_error' });
     }
+    if (err instanceof ArchiveError) return reply.code(err.status).send({ error: err.message, code: err.code });
     if (err instanceof AiError) return reply.code(502).send({ error: err.message, code: 'ai_error' });
     if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ error: err.message });
     logger.error({ err, module: 'http', url: req.url }, 'Unhandled error');
@@ -184,6 +260,14 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(promptRuleRoutes(services));
   await app.register(twoFactorRoutes(services));
   await app.register(calendarRoutes(services));
+  await app.register(accessRoutes(services));
+  await app.register(metadataRoutes(services));
+  await app.register(archiveRoutes(services));
+  await app.register(workflowRoutes(services));
+  await app.register(davRoutes(services));
+  await app.register(migrationRoutes(services));
+  await app.register(ngxRoutes(services));
+  await app.register(mcpRoutes(services));
 
   // Web UI (single page app)
   const staticDir = opts.staticDir;

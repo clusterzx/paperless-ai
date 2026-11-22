@@ -7,7 +7,9 @@ application and a JSON API, runs the document processing pipeline and keeps the 
 | File | Content |
 | --- | --- |
 | `config.json` (+ `.bak`) | settings (written atomically, validated with zod) |
-| `paperless-ai.db` | SQLite (WAL): users, processing state, history, token usage, RAG index |
+| `paperless-ai.db` | SQLite (WAL): users, libraries, processing state, history, token usage; in built-in mode the archive (documents, metadata, versions, change log, full text) |
+| `index.db` | SQLite (WAL): the search index of “Ask your archive” (passages, FTS5, int8 embeddings) – can be rebuilt, kept apart so the core database stays small to back up |
+| `library/` | built-in mode: the files, content addressed by SHA-256 (`archive.builtin.storageDir`) |
 | `models/` | cached local embedding model (only when local embeddings are used) |
 
 On first start a legacy `data/.env` is converted into `config.json` and a legacy `data/documents.db`
@@ -30,7 +32,9 @@ src/
     paperless/           Paperless-ngx client (API v7–v10), metadata cache with get-or-create
     ai/                  OpenAI-compatible/Azure, Anthropic and Ollama clients, JSON extraction, token estimation
     processing/          prompt builder, analyzer, applier (+ undo), engine (queue/scheduler), external API
-    rag/                 chunker, SQLite store (FTS5), vector index, local embedder (worker), service, document chat
+    rag/                 chunker, SQLite store (FTS5), vector index (worker), local embedder (worker), service, document chat
+    archive/             built-in archive: LocalBackend, blob store, intake (upload, folder, mail), maintenance, counters
+    workflows/           triggers → conditions → actions, analysis.before (prompt rules), run log, notifications
     ocr/                 PaddleOCR via ONNX Runtime (child process): rendering, detection post-processing, recognition,
                          reading order, text-quality heuristic, service (when to read, write-back, undo)
     http/ routes/        Fastify app, auth levels, SSE helper, route modules
@@ -48,6 +52,46 @@ configuration is `stored ⊕ env`, validated leniently (invalid values fall back
 crashing). Saving settings emits a `change` event; the Paperless client, the AI client, the scheduler
 and the RAG service rebuild themselves from it – no restart. Secrets are never sent to the browser
 (masked values round-trip unchanged).
+
+## Archive backends
+
+Documents live either in Paperless-ngx (companion mode) or in the built-in archive
+(`archive.mode`). Everything outside `src/server/backend/` and `src/server/archive/` works with the
+`DocumentBackend` interface (`backend/types.ts`): `ctx.backend(scope)` returns a `BackendView` bound
+to an access scope (system scope for internal work), `ctx.metadata(libraryId)` the metadata cache of
+a namespace (Paperless-ngx has one, the built-in archive one per library). Features ask the backend's
+capabilities (`SessionInfo.archive.capabilities`), never the mode. Committed changes are published on
+the document event bus (`events.ts`); `wiring.ts` connects the RAG index and the calendar to it.
+`test/backend/contract.ts` is the test suite every backend must pass. The plan for the built-in archive
+is in `docs/standalone/`.
+
+Built-in archive at scale (`archive/backend.ts`, measured with `npm run perf` on 200,000 documents):
+
+* Heavy reads – lists, full text, counts, facets – run on read-only connections in worker threads
+  (`db/readers.ts`, `db/readWorker.ts`; WAL lets them read next to the single writer). Tests and
+  `PAPERLESS_AI_READERS=0` run them on the main connection.
+* Lists use keyset cursors on indexes that match the sort expression exactly (`COALESCE(created, '')`).
+  Tag filters either walk the sort index and check each document (frequent tags) or start from the
+  tag's documents (rare tags, all counts); the counters decide (`rareTags`).
+* `lib_counters` holds document counts per library, tag, correspondent and type, maintained by SQLite
+  triggers in the writing transaction (`archive/counters.ts`); unfiltered facets and the metadata lists
+  read them, the weekly maintenance compares them with a recount.
+* Full text: `lib_fts` (FTS5, prefix indexes for 3 and 4 characters). A term that matches more than
+  `rankCandidates` (5,000) documents is ranked by bm25 among its newest matches only, unless the
+  other conditions leave too few of them.
+
+Libraries and access (`access/`, `http/policy.ts`, `db/scoped.ts`):
+
+* The route policy table decides who may call a route at all (admin, API key scope); library roles
+  are checked per document by the backend. Instance-wide lists – history, problems, statistics,
+  OCR list, processing status, metadata, calendar – take the caller's readable libraries
+  (`readableLibraries(scope)`, `null` in companion mode) and filter in SQL (`inLibraries`).
+* Ask your archive stores `library_id` per indexed document (`index.db`); BM25, the vector search
+  (`allowDocs`), the boosts for mentioned names and the sample titles sent to the AI are limited to
+  the caller's libraries, so foreign passages never reach a prompt. `test/integration/isolation.test.ts`
+  checks every GET route, Ask/chat and the AI prompts for a marker from a foreign library.
+* File versions: a new version or a switch is a change log event; undo makes the previous version
+  current again, undoing a trash move restores (`UNDOABLE_KINDS` in `archive/backend.ts`).
 
 ## Paperless-ngx compatibility
 
@@ -98,6 +142,37 @@ manual ──────┘                                   │
   iCal feed (RFC 5545: escaping, 75-octet folding, all-day/floating times, alarms) behind a secret
   token in the URL (`kv: calendar.feedToken`).
 
+## Workflows
+
+```
+document events ─┐                     ┌─ conditions (cheap first, AI questions last, cached) ─┐
+schedule / dates ┼─▶ workflow_runs ───▶│                                                       ├─▶ step log
+manual / API ────┘   (queue, durable)  └─ actions: field changes in one write, notifications …  ┘
+processing job ─▶ analysis.before workflows (synchronous) ─▶ prompt + settings for the AI analysis
+```
+
+* `workflows/engine.ts` turns document events (added, processed, updated, new version), cron
+  schedules, dates and manual requests into runs; a worker takes them (one at a time per
+  document), evaluates the conditions and runs the actions with the workflow's own scope
+  (its library, or everything for global ones). Interrupted runs are queued again on start.
+* Loop protection: a workflow's own change never triggers it again, chains end at depth 3, and at
+  most 10 runs per workflow and document per hour.
+* `analysis.before` is evaluated inside the processing job (`workflows/analysis.ts`) – this is what
+  prompt rules are now. New documents wait for their `document.added` workflows (bounded), so a
+  workflow can still skip or shape the analysis.
+* Notifications: in the app, e-mail (`notifications.smtp`, nodemailer), webhooks with an HMAC
+  signature (`X-Paperless-AI-Signature`) or as ntfy / Gotify messages; retried up to three times.
+
+## Migration and exports
+
+`migration/service.ts` moves a Paperless-ngx archive into the built-in archive while companion
+mode stays active (a passive `LocalBackend` writes the `lib_*` tables): same document ids and the
+same `modified` strings, so processing state, AI history, OCR results, calendar and the RAG index
+stay valid. Progress is kept per document (`migration_items`), so the import can pause, resume and
+sync repeatedly; the cutover switches `archive.mode` without a restart. `migration/export.ts`
+writes the Paperless-ngx exporter format (for `document_importer`) or plain folders with
+metadata.json/.csv. Both are also available on the command line (`src/server/cli.ts`).
+
 ## OCR
 
 ```
@@ -147,8 +222,12 @@ question ─▶ query analysis with the LLM (standalone query for follow-ups + s
   higher BM25 weight and prepended for embeddings.
 * Index synchronisation is incremental (by `modified` and metadata), runs every 15 minutes and after
   processing; deleted documents are removed. Keyword search works immediately, vectors follow.
-* The vector index stores normalised vectors as int8 with a per-vector scale and is searched brute
-  force with a bounded heap – milliseconds for archives with hundreds of thousands of passages.
+* The vector index stores normalised vectors as int8 with a per-vector scale (`PQ8` blobs in
+  `index.db`, older float32 blobs are converted when the index moves out of `paperless-ai.db`). From
+  20,000 passages on a 1-bit sign code preselects the closest max(20·k, 2,000) candidates by Hamming
+  distance, which are then scored exactly with int8. It runs in a worker thread
+  (`rag/vectorWorker.ts`, `rag/vectorSearch.ts`), so searches never block the server: ~25 ms for
+  250,000 passages × 768 dimensions.
 * Query analysis (`rag.queryExpansion`) is one short JSON call (temperature 0) that also receives a
   few document titles, so the model can translate terms into the language of the archive. Any
   failure falls back to the original question. For first questions the user's wording stays the

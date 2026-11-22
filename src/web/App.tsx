@@ -9,7 +9,6 @@ const LoginPage = lazy(() => import('./pages/Login'));
 const SetupPage = lazy(() => import('./pages/Setup'));
 const DashboardPage = lazy(() => import('./pages/Dashboard'));
 const AskPage = lazy(() => import('./pages/Ask'));
-const ChatPage = lazy(() => import('./pages/Chat'));
 const ReviewPage = lazy(() => import('./pages/Review'));
 const PlaygroundPage = lazy(() => import('./pages/Playground'));
 const PromptsPage = lazy(() => import('./pages/Prompts'));
@@ -19,6 +18,14 @@ const CalendarPage = lazy(() => import('./pages/Calendar'));
 const PromptWizardPage = lazy(() => import('./pages/PromptWizard'));
 const SettingsPage = lazy(() => import('./pages/Settings'));
 const LogsPage = lazy(() => import('./pages/Logs'));
+const DocumentsPage = lazy(() => import('./pages/Documents'));
+const DocumentPage = lazy(() => import('./pages/Document'));
+const InboxPage = lazy(() => import('./pages/Inbox'));
+const MetadataPage = lazy(() => import('./pages/Metadata'));
+const TrashPage = lazy(() => import('./pages/Trash'));
+const LibrariesPage = lazy(() => import('./pages/Libraries'));
+const WorkflowsPage = lazy(() => import('./pages/Workflows'));
+const MigrationPage = lazy(() => import('./pages/Migration'));
 
 function FullScreenSpinner() {
   return (
@@ -108,8 +115,17 @@ function Routes() {
         <Suspense fallback={<FullScreenSpinner />}>
           <Switch>
             <Route path="/" component={DashboardPage} />
+            <Route path="/documents" component={DocumentsPage} />
+            <Route path="/documents/:id" component={DocumentPage} />
+            <Route path="/inbox" component={InboxPage} />
+            <Route path="/metadata" component={MetadataPage} />
+            <Route path="/trash" component={TrashPage} />
+            <Route path="/libraries" component={LibrariesPage} />
+            <Route path="/workflows" component={WorkflowsPage} />
+            <Route path="/workflows/:id" component={WorkflowsPage} />
+            <Route path="/migration" component={MigrationPage} />
             <Route path="/ask" component={AskPage} />
-            <Route path="/chat" component={ChatPage} />
+            <Route path="/chat" component={ChatRedirect} />
             <Route path="/review" component={ReviewPage} />
             <Route path="/playground" component={PlaygroundPage} />
             <Route path="/prompts" component={PromptsPage} />
@@ -143,6 +159,12 @@ function Routes() {
       </ErrorBoundary>
     </Layout>
   );
+}
+
+/** The chat is a tab of every document now; old links (/chat?doc=…) open it there. */
+function ChatRedirect() {
+  const doc = Number(new URLSearchParams(window.location.search).get('doc'));
+  return <Redirect to={Number.isInteger(doc) && doc > 0 ? `/documents/${doc}?tab=chat` : '/documents'} replace />;
 }
 
 export default function App() {

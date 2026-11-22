@@ -146,6 +146,66 @@ export const configSchema = z.object({
       publicUrl: str().transform(normalizePaperlessUrl),
     })
     .prefault({}),
+  /** Where documents live: Paperless-ngx (companion mode) or the built-in archive. */
+  archive: z
+    .object({
+      /** 'paperless' = companion mode, 'builtin' = built-in archive. Set by the setup, changed by the migration assistant. */
+      mode: z.enum(['paperless', 'builtin']).default('paperless'),
+      builtin: z
+        .object({
+          /** Blob store (files, thumbnails); empty = <data directory>/library. */
+          storageDir: str(),
+          /** Watch folder; empty = off. */
+          consumeDir: str(),
+          /** Exports chosen in the web interface go below <data directory>/exports or below this directory. */
+          exportDir: str(),
+          consumePollSeconds: z.coerce.number().int().min(2).max(3600).default(10),
+          /** After intake: delete the file from the watch folder or move it to <consumeDir>/.done */
+          consumeAfter: z.enum(['delete', 'move']).default('delete'),
+          /** Library of the watch folder; 0 = the oldest library. */
+          consumeLibrary: z.coerce.number().int().min(0).default(0),
+          /** Subfolders of the watch folder: tags (Taxes/scan.pdf → tag "Taxes") or the library (Family/Taxes/scan.pdf → library "Family", tag "Taxes"). */
+          consumeSubfolders: z.enum(['tags', 'library', 'ignore']).default('tags'),
+          maxUploadMb: z.coerce.number().int().min(1).max(4096).default(200),
+          /** Members (not only admins) may create libraries. */
+          membersCreateLibraries: bool(true),
+          /** Days deleted documents stay in the trash (default for new libraries). */
+          trashDays: z.coerce.number().int().min(1).max(3650).default(30),
+          /** WebDAV inbox at /dav/inbox/ (upload with an API key). */
+          webdav: bool(true),
+          /** Minutes between two checks of the e-mail accounts of the libraries. */
+          mailPollMinutes: z.coerce.number().int().min(1).max(1440).default(5),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
+  /** E-mail for workflow notifications. */
+  notifications: z
+    .object({
+      smtp: z
+        .object({
+          host: str(),
+          port: z.coerce.number().int().min(1).max(65535).default(587),
+          /** 'starttls' (587), 'tls' (465) or 'none' (local relays only). */
+          security: z.enum(['starttls', 'tls', 'none']).default('starttls'),
+          username: str(),
+          password: str(),
+          /** Sender address, e.g. "Paperless-AI <archive@example.com>". */
+          from: str(),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
+  workflows: z
+    .object({
+      /** Workflow runs at the same time. */
+      concurrency: z.coerce.number().int().min(1).max(8).default(2),
+      /** Days successful runs are kept in the run log. */
+      retentionDays: z.coerce.number().int().min(1).max(3650).default(90),
+      /** Days failed runs are kept. */
+      failedRetentionDays: z.coerce.number().int().min(1).max(3650).default(365),
+    })
+    .prefault({}),
   ai: z
     .object({
       provider: z.enum(AI_PROVIDERS).default('openai'),
@@ -332,6 +392,10 @@ export const configSchema = z.object({
           groupsClaim: str('groups'),
           /** Only members of one of these groups may sign in; empty: everyone the provider lets through. */
           allowedGroups: tagList,
+          /** Members of these groups are admins of Paperless-AI (and lose the role when they leave them). */
+          adminGroups: tagList,
+          /** Copy the groups of the provider into Paperless-AI groups on every sign-in (for library memberships). */
+          syncGroups: bool(true),
           /** Create a Paperless-AI account on the first sign-in (otherwise only linked accounts can sign in). */
           autoCreate: bool(true),
           /** Signing out also ends the session at the provider (if it supports it). */
@@ -367,6 +431,7 @@ export const SECRET_PATHS = [
   'security.apiKey',
   'security.jwtSecret',
   'auth.oidc.clientSecret',
+  'notifications.smtp.password',
 ] as const;
 
 export const SECRET_MASK = '••••••••';

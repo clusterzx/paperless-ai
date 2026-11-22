@@ -1,4 +1,5 @@
 import type { Db } from './database.js';
+import { inLibraries } from './scoped.js';
 import type { OcrFilter, OcrResultInfo, TextQuality, TextQualityLevel } from '../../shared/api.js';
 
 export interface OcrAssessment {
@@ -68,6 +69,8 @@ export interface OcrListQuery {
   pageSize?: number;
   sort?: 'score' | 'id' | 'title' | 'ocr';
   order?: 'asc' | 'desc';
+  /** Built-in archive: only documents of these libraries (null = all). */
+  libraryIds?: number[] | null;
 }
 
 const FILTERS: Record<OcrFilter, string> = {
@@ -175,11 +178,12 @@ export class OcrRepo {
     return ids.length;
   }
 
-  counts(): Record<OcrFilter, number> {
+  counts(libs?: number[] | null): Record<OcrFilter, number> {
     const out = {} as Record<OcrFilter, number>;
+    const scoped = libs ? ` AND ${inLibraries('d.id')}` : '';
     for (const [key, where] of Object.entries(FILTERS) as [OcrFilter, string][]) {
       out[key] = (
-        this.db.prepare(`SELECT COUNT(*) AS c FROM ocr_documents d LEFT JOIN ocr_results r ON r.document_id = d.id WHERE ${where}`).get() as {
+        this.db.prepare(`SELECT COUNT(*) AS c FROM ocr_documents d LEFT JOIN ocr_results r ON r.document_id = d.id WHERE (${where})${scoped}`).get(...(libs ? [JSON.stringify(libs)] : [])) as {
           c: number;
         }
       ).c;
@@ -190,8 +194,12 @@ export class OcrRepo {
   list(q: OcrListQuery): { items: (OcrAssessment & { result: OcrResultRow | null })[]; total: number; page: number; pageSize: number } {
     const pageSize = Math.min(Math.max(q.pageSize ?? 50, 1), 500);
     const page = Math.max(q.page ?? 1, 1);
-    const where = [FILTERS[q.filter ?? 'all']];
+    const where = [`(${FILTERS[q.filter ?? 'all']})`];
     const params: Record<string, unknown> = {};
+    if (q.libraryIds) {
+      where.push(inLibraries('d.id', '@libs'));
+      params.libs = JSON.stringify(q.libraryIds);
+    }
     if (q.search?.trim()) {
       const s = q.search.trim();
       params.search = `%${s.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
@@ -219,11 +227,12 @@ export class OcrRepo {
   }
 
   /** IDs of documents matching a filter (for "OCR all poor documents"). */
-  ids(filter: OcrFilter, limit = 100_000): number[] {
+  ids(filter: OcrFilter, limit = 100_000, libs?: number[] | null): number[] {
+    const scoped = libs ? ` AND ${inLibraries('d.id')}` : '';
     return (
       this.db
-        .prepare(`SELECT d.id FROM ocr_documents d LEFT JOIN ocr_results r ON r.document_id = d.id WHERE ${FILTERS[filter]} ORDER BY d.score ASC, d.id LIMIT ?`)
-        .all(limit) as { id: number }[]
+        .prepare(`SELECT d.id FROM ocr_documents d LEFT JOIN ocr_results r ON r.document_id = d.id WHERE (${FILTERS[filter]})${scoped} ORDER BY d.score ASC, d.id LIMIT ?`)
+        .all(...(libs ? [JSON.stringify(libs)] : []), limit) as { id: number }[]
     ).map((r) => r.id);
   }
 

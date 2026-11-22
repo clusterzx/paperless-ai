@@ -8,6 +8,7 @@
  */
 import { HttpError, request, type RequestOptions, trimSlash } from '../util/http.js';
 import { logger } from '../logger.js';
+import type { DocumentPatch } from '../backend/types.js';
 import type {
   Paginated,
   PaperlessConnectionInfo,
@@ -240,7 +241,7 @@ export class PaperlessClient {
    * The document file: the original upload, or (original = false) the archived PDF that Paperless
    * created (only exists for documents it converted or OCRed).
    */
-  async download(id: number, original: boolean, signal?: AbortSignal): Promise<{ data: Uint8Array; contentType: string }> {
+  async download(id: number, original: boolean, signal?: AbortSignal): Promise<{ data: Uint8Array; contentType: string; filename: string | null }> {
     const version = await this.version();
     try {
       const res = await request<Response>(`${this.baseUrl}/api/documents/${id}/download/`, {
@@ -251,7 +252,11 @@ export class PaperlessClient {
         responseType: 'response',
         signal,
       });
-      return { data: new Uint8Array(await res.arrayBuffer()), contentType: res.headers.get('content-type') ?? 'application/octet-stream' };
+      return {
+        data: new Uint8Array(await res.arrayBuffer()),
+        contentType: res.headers.get('content-type') ?? 'application/octet-stream',
+        filename: dispositionFilename(res.headers.get('content-disposition')),
+      };
     } catch (err) {
       throw this.wrap(err);
     }
@@ -324,16 +329,7 @@ export class PaperlessClient {
   }
 }
 
-export interface DocumentPatch {
-  title?: string;
-  tags?: number[];
-  correspondent?: number | null;
-  document_type?: number | null;
-  created?: string;
-  custom_fields?: { field: number; value: unknown }[];
-  /** Searchable text of the document (replaced by the OCR result). */
-  content?: string;
-}
+export type { DocumentPatch } from '../backend/types.js';
 
 /**
  * Django's plain "Bad Request (400)" page (not a JSON API error): the request was refused before it
@@ -359,6 +355,21 @@ function detail(body: unknown): string {
   } catch {
     return '';
   }
+}
+
+/** File name from a Content-Disposition header (RFC 6266, `filename*` preferred). */
+export function dispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  const star = /filename\*\s*=\s*([^']*)'[^']*'([^;]+)/i.exec(header);
+  if (star) {
+    try {
+      return decodeURIComponent(star[2].trim().replace(/^"|"$/g, ''));
+    } catch {
+      /* fall through */
+    }
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|[^;]+)/i.exec(header);
+  return plain ? (plain[2] ?? plain[1]).trim() : null;
 }
 
 /** Link to a document in the Paperless web UI. */

@@ -5,6 +5,8 @@ const port = Number(process.env.E2E_PORT ?? 3457);
 export default defineConfig({
   testDir: 'e2e',
   testMatch: /.*\.spec\.ts/,
+  // The built-in archive has its own server and config (playwright.builtin.config.ts).
+  testIgnore: /builtin\.spec\.ts/,
   fullyParallel: false,
   workers: 1,
   timeout: 60_000,

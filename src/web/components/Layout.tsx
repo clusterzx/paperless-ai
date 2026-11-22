@@ -3,7 +3,16 @@ import { Link, useLocation } from 'wouter';
 import {
   Check,
   ChevronsUpDown,
+  Bookmark,
+  Trash2,
+  ExternalLink,
+  Library,
+  ArrowRightLeft,
+  Workflow as WorkflowIcon,
   FileSearch,
+  Files,
+  Inbox,
+  Tags,
   FlaskConical,
   BookMarked,
   Heart,
@@ -12,7 +21,6 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
-  MessageSquareText,
   Monitor,
   Moon,
   ScanText,
@@ -24,7 +32,8 @@ import {
   Sun,
   X,
 } from 'lucide-react';
-import type { ProcessingStatus } from '@shared/api';
+import type { ProcessingStatus, SavedView } from '@shared/api';
+import { searchFromState } from './documents';
 import { errorMessage, get, post } from '../lib/api';
 import { cn } from '../lib/format';
 import { hasUnsavedChanges, useInterval } from '../lib/hooks';
@@ -42,6 +51,8 @@ interface NavItem {
   icon: ReactNode;
   hidden?: boolean;
   keywords?: string;
+  /** A page of another application (opens in a new tab). */
+  external?: boolean;
 }
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -209,7 +220,7 @@ function ProcessingPulse() {
     : status.current.length
       ? `Analysing ${status.current.length} document${status.current.length > 1 ? 's' : ''}`
       : status.scanning
-        ? 'Scanning Paperless…'
+        ? 'Scanning the archive…'
         : 'All caught up';
   return (
     <Link href="/" className="block rounded-xl border border-border bg-surface/70 px-3 py-2.5 transition hover:bg-surface">
@@ -256,20 +267,47 @@ export function Layout({ children }: { children: ReactNode }) {
   );
 
   const rag = Boolean(session?.features.rag);
+  // Saved views shown in the navigation (reloaded when the documents page saves one).
+  const [views, setViews] = useState<SavedView[]>([]);
+  useEffect(() => {
+    if (!session?.user || !session.archive) return;
+    const load = () => get<SavedView[]>('/api/saved-views').then((v) => setViews(v.filter((x) => x.inNavigation)), () => setViews([]));
+    void load();
+    window.addEventListener('saved-views-changed', load);
+    return () => window.removeEventListener('saved-views-changed', load);
+  }, [session?.user, session?.archive]);
+  /** Members do not see the administration (settings, prompts, logs). */
+  const admin = session?.user?.role === 'admin';
   const nav: NavItem[] = [
     { href: '/', label: 'Dashboard', icon: <LayoutDashboard />, keywords: 'home overview status' },
+    { href: '/documents', label: 'Documents', icon: <Files />, hidden: !session?.archive, keywords: 'archive list search browse files' },
+    { href: '/inbox', label: 'Inbox', icon: <Inbox />, hidden: !session?.archive, keywords: 'upload scan import add' },
     { href: '/ask', label: 'Ask your archive', icon: <Sparkles />, hidden: !rag, keywords: 'rag question search' },
-    { href: '/chat', label: 'Document chat', icon: <MessageSquareText />, keywords: 'conversation' },
     { href: '/review', label: 'Manual review', icon: <FileSearch />, keywords: 'analyse suggest' },
-    { href: '/playground', label: 'Prompt playground', icon: <FlaskConical />, keywords: 'test prompt' },
-    { href: '/prompts', label: 'Prompt library', icon: <BookMarked />, keywords: 'saved prompts rating model use case manager' },
+    { href: '/playground', label: 'Prompt playground', icon: <FlaskConical />, hidden: !admin, keywords: 'test prompt' },
+    { href: '/prompts', label: 'Prompt library', icon: <BookMarked />, hidden: !admin, keywords: 'saved prompts rating model use case manager' },
     { href: '/history', label: 'History', icon: <History />, keywords: 'undo changes' },
-    { href: '/ocr', label: 'OCR', icon: <ScanText />, keywords: 'text recognition scan paddleocr quality' },
+    { href: '/ocr', label: 'OCR', icon: <ScanText />, hidden: !admin, keywords: 'text recognition scan paddleocr quality' },
     { href: '/calendar', label: 'Calendar', icon: <CalendarDays />, hidden: !session?.features.calendar, keywords: 'dates deadlines appointments due ical' },
+    { href: '/metadata', label: 'Tags & metadata', icon: <Tags />, hidden: !session?.archive, keywords: 'tags correspondents document types custom fields merge rename' },
+    // The built-in archive has its own trash; Paperless-ngx keeps deleted documents in its trash.
+    session?.archive?.capabilities.trash === 'external'
+      ? { href: session.archive.trashUrl ?? '', label: `Trash (${session.archive.label})`, icon: <Trash2 />, hidden: !session.archive.trashUrl, external: true, keywords: 'deleted restore recycle bin' }
+      : { href: '/trash', label: 'Trash', icon: <Trash2 />, hidden: session?.archive?.capabilities.trash !== 'native', keywords: 'deleted restore recycle bin' },
+    { href: '/workflows', label: 'Workflows', icon: <WorkflowIcon />, hidden: !session?.archive, keywords: 'automation rules triggers actions prompt rules' },
+    { href: '/libraries', label: 'Libraries', icon: <Library />, hidden: !session?.archive?.capabilities.libraries, keywords: 'members roles share family collections watch folder' },
   ];
   const secondary: NavItem[] = [
     { href: '/settings', label: 'Settings', icon: <Settings />, keywords: 'configuration preferences' },
-    { href: '/logs', label: 'Logs & diagnostics', icon: <ScrollText />, keywords: 'debug' },
+    { href: '/logs', label: 'Logs & diagnostics', icon: <ScrollText />, hidden: !admin, keywords: 'debug' },
+    {
+      href: '/migration',
+      // Companion mode: move to the built-in archive; built-in archive: import from Paperless-ngx (new ids).
+      label: session?.archive?.mode === 'builtin' ? 'Import from Paperless-ngx' : 'Move to built-in archive',
+      icon: <ArrowRightLeft />,
+      hidden: !admin || !session?.archive,
+      keywords: 'migration import paperless-ngx standalone switch',
+    },
   ];
 
   const isActive = (href: string) => (href === '/' ? location === '/' : location === href || location.startsWith(`${href}/`));
@@ -301,13 +339,27 @@ export function Layout({ children }: { children: ReactNode }) {
     () =>
       [...nav, ...secondary]
         .filter((n) => !n.hidden)
-        .map((n) => ({ id: `page-${n.href}`, group: 'Go to', label: n.label, icon: n.icon, keywords: n.keywords, run: () => void go(n.href) })),
+        .map((n) => ({
+          id: `page-${n.href}`,
+          group: 'Go to',
+          label: n.label,
+          icon: n.icon,
+          keywords: n.keywords,
+          run: () => (n.external ? void window.open(n.href, '_blank', 'noopener,noreferrer') : void go(n.href)),
+        })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rag, go],
   );
 
+  const navClass = 'group flex items-center gap-3 rounded-[10px] px-2.5 py-[7px] text-[13.5px] font-medium transition [&_svg]:size-[17px] text-muted hover:bg-surface/60 hover:text-fg';
   const renderItem = (item: NavItem) =>
-    item.hidden ? null : (
+    item.hidden ? null : item.external ? (
+      <a key={item.href} href={item.href} target="_blank" rel="noopener noreferrer" className={navClass}>
+        <span className="text-faint transition-colors group-hover:text-fg">{item.icon}</span>
+        {item.label}
+        <ExternalLink className="ml-auto !size-3.5 text-faint" aria-hidden />
+      </a>
+    ) : (
       <Link
         key={item.href}
         href={item.href}
@@ -353,6 +405,14 @@ export function Layout({ children }: { children: ReactNode }) {
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3" aria-label="Main">
         <div className="px-2.5 pt-1 pb-2 text-[11px] font-medium tracking-wide text-faint uppercase">Workspace</div>
         {nav.map(renderItem)}
+        {views.length > 0 && (
+          <>
+            <div className="px-2.5 pt-5 pb-2 text-[11px] font-medium tracking-wide text-faint uppercase">Views</div>
+            {views.map((v) =>
+              renderItem({ href: `/documents${searchFromState(v.filter)}`, label: v.name, icon: <Bookmark /> }),
+            )}
+          </>
+        )}
         <div className="px-2.5 pt-5 pb-2 text-[11px] font-medium tracking-wide text-faint uppercase">System</div>
         {secondary.map(renderItem)}
       </nav>

@@ -101,6 +101,33 @@ describe('single sign-on (OIDC)', () => {
     expect(cookieOf(ok.done, SESSION_COOKIE)).not.toBeNull();
   });
 
+  it('maps provider groups to admins and Paperless-AI groups', async () => {
+    const { hh, provider } = await setup({ oidc: { adminGroups: ['pai-admins'] } });
+    // an existing admin, so that the SSO account is not the first one (the first one is always admin)
+    await hh.login();
+    provider.user = { sub: 'sub-anna', claims: { preferred_username: 'anna', groups: ['family'] } };
+    await sso(hh);
+    const anna = hh.ctx.repos.users.byUsername('anna')!;
+    expect(anna.role).toBe('member');
+    expect(hh.ctx.repos.groups.groupsOf(anna.id).map((g) => g.name)).toEqual(['family']);
+
+    provider.user.claims.groups = ['family', 'pai-admins'];
+    await sso(hh);
+    expect(hh.ctx.repos.users.byUsername('anna')!.role).toBe('admin');
+    expect(hh.ctx.repos.groups.groupsOf(anna.id).map((g) => g.name)).toEqual(['family', 'pai-admins']);
+
+    provider.user.claims.groups = [];
+    await sso(hh);
+    expect(hh.ctx.repos.users.byUsername('anna')!.role).toBe('member');
+    expect(hh.ctx.repos.groups.groupsOf(anna.id)).toEqual([]);
+
+    // disabled accounts cannot sign in with SSO either
+    hh.ctx.repos.users.setDisabled(anna.id, true);
+    const refused = await sso(hh);
+    expect(location(refused.done)).toContain('sso_error=');
+    expect(cookieOf(refused.done, SESSION_COOKIE)).toBeNull();
+  });
+
   it('reports cancelled, expired and replayed sign-ins on the login page', async () => {
     const { hh, provider } = await setup();
     await hh.login(); // an account exists – errors go to the login page
@@ -171,6 +198,35 @@ describe('single sign-on (OIDC)', () => {
     expect((await hh.inject({ method: 'POST', url: '/api/account/sso/unlink', headers: { cookie } })).statusCode).toBe(409);
     // switching SSO off again brings the password login back
     expect((await put({ passwordLogin: false, oidc: { enabled: false } })).statusCode).toBe(400);
+  });
+
+  it('comes back to the address the browser used behind a reverse proxy (X-Forwarded-*), also without TRUST_PROXY', async () => {
+    const { hh, provider } = await setup();
+    const proxied = { 'x-forwarded-proto': 'https', 'x-forwarded-host': 'paperless-ai.example.com' };
+    const start = await hh.inject({ method: 'GET', url: '/api/auth/oidc/login', headers: proxied });
+    expect(new URL(location(start)).searchParams.get('redirect_uri')).toBe('https://paperless-ai.example.com/api/auth/oidc/callback');
+    // The sign-in completes with that redirect URI (the token request repeats it).
+    const flow = cookieOf(start, OIDC_FLOW_COOKIE)!;
+    const atProvider = await fetch(location(start), { redirect: 'manual' });
+    const back = new URL(atProvider.headers.get('location')!);
+    expect(back.origin).toBe('https://paperless-ai.example.com');
+    const done = await hh.inject({ method: 'GET', url: back.pathname + back.search, headers: { cookie: flow, ...proxied } });
+    expect(done.statusCode).toBe(302);
+    expect(cookieOf(done, SESSION_COOKIE)).toBeTruthy();
+    expect(provider.tokenRequests[0].params.get('redirect_uri')).toBe('https://paperless-ai.example.com/api/auth/oidc/callback');
+
+    // The settings page shows exactly that address.
+    const cookie = await hh.login();
+    expect((await hh.inject({ method: 'GET', url: '/api/settings/oidc-urls', headers: { cookie, ...proxied } })).json()).toEqual({
+      callbackUrl: 'https://paperless-ai.example.com/api/auth/oidc/callback',
+      postLogoutUrl: 'https://paperless-ai.example.com/login',
+    });
+    // Nonsense in the headers is ignored; a configured public address wins.
+    const odd = await hh.inject({ method: 'GET', url: '/api/auth/oidc/login', headers: { 'x-forwarded-proto': 'gopher', 'x-forwarded-host': 'evil.example/x' } });
+    expect(new URL(location(odd)).searchParams.get('redirect_uri')).toBe('http://localhost/api/auth/oidc/callback');
+    hh.ctx.config.update({ auth: { publicUrl: 'https://docs.example.org' } });
+    const configured = await hh.inject({ method: 'GET', url: '/api/auth/oidc/login', headers: proxied });
+    expect(new URL(location(configured)).searchParams.get('redirect_uri')).toBe('https://docs.example.org/api/auth/oidc/callback');
   });
 
   it('checks the provider before saving, and the test button finds it', async () => {

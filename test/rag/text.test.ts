@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { openDatabase, type Db } from '../../src/server/db/database.js';
+import type { Db } from '../../src/server/db/database.js';
+import { openIndexDatabase } from '../../src/server/db/indexDatabase.js';
 import { RagStore } from '../../src/server/rag/store.js';
 import {
   asksForRecency,
@@ -80,7 +81,7 @@ describe('buildFtsQuery', () => {
   });
 
   it('cannot inject FTS5 syntax', () => {
-    db = openDatabase(':memory:');
+    db = openIndexDatabase(':memory:');
     const store = new RagStore(db);
     store.upsertDocument(
       { id: 1, modified: null, contentHash: 'h', title: 'Doc', correspondent: null, documentType: null, tags: [], created: null },

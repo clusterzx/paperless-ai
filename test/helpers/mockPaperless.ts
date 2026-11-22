@@ -9,6 +9,7 @@
  * - every request is recorded for assertions
  */
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 
 export interface MockPaperlessOptions {
@@ -47,6 +48,10 @@ export interface MockDoc {
   file: { data: Buffer; contentType: string };
   /** The archived PDF Paperless created (none for documents it did not convert). */
   archive: Buffer | null;
+  archive_serial_number: number | null;
+  /** View / change permissions (returned with `full_perms=true`). */
+  permissions: { view: { users: number[]; groups: number[] }; change: { users: number[]; groups: number[] } };
+  notes: { id: number; note: string; created: string; user: number | null }[];
 }
 
 /** A tiny but valid-looking PDF for download tests. */
@@ -59,6 +64,10 @@ export interface MockNamed {
   color?: string;
   /** Like Paperless: the creating user unless `owner` is sent explicitly. */
   owner?: number | null;
+  /** Storage paths: the path template. */
+  path?: string;
+  is_inbox_tag?: boolean;
+  parent?: number | null;
 }
 
 export interface MockCustomField {
@@ -94,6 +103,8 @@ export class MockPaperless {
   defaultVersion: number;
   serverVersion: string;
   user: { id: number; username: string; is_superuser?: boolean };
+  /** Checksum algorithm of the metadata endpoint: current Paperless-ngx SHA-256, older versions MD5. */
+  checksums: 'sha256' | 'md5' = 'sha256';
 
   readonly docs = new Map<number, MockDoc>();
   readonly tags = new Map<number, MockNamed>();
@@ -101,7 +112,16 @@ export class MockPaperless {
   readonly documentTypes = new Map<number, MockNamed>();
   readonly storagePaths = new Map<number, MockNamed>();
   /** Paperless users; `null` = the API user may not view users (403). */
-  users: { id: number; username: string }[] | null = [];
+  users: { id: number; username: string; is_superuser?: boolean }[] | null = [];
+  groups: { id: number; name: string; users?: number[] }[] = [];
+  /** Lists of objects the migration does not transfer (workflows, mail accounts …). */
+  readonly extras: Record<'workflows' | 'mail_accounts' | 'mail_rules' | 'saved_views' | 'share_links', unknown[]> = {
+    workflows: [],
+    mail_accounts: [],
+    mail_rules: [],
+    saved_views: [],
+    share_links: [],
+  };
   readonly customFields = new Map<number, MockCustomField>();
   readonly requests: RecordedRequest[] = [];
   /** Optional hook to fake errors / slow responses for specific requests. */
@@ -110,6 +130,9 @@ export class MockPaperless {
   private server: http.Server | null = null;
   private nextId = 1000;
   private clock = 0;
+
+  /** Files received through post_document. */
+  readonly uploads: { documentId: number; filename: string; size: number }[] = [];
 
   constructor(opts: MockPaperlessOptions = {}) {
     this.token = opts.token ?? 'test-token';
@@ -174,11 +197,14 @@ export class MockPaperless {
       custom_fields: d.custom_fields ?? [],
       user_can_change: d.user_can_change ?? true,
       original_file_name: d.original_file_name ?? `${id}.pdf`,
-      owner: d.owner ?? this.user.id,
+      owner: d.owner === undefined ? this.user.id : d.owner,
       storage_path: d.storage_path ?? null,
       page_count: d.page_count ?? 1,
       file: d.file ?? { data: SAMPLE_PDF, contentType: 'application/pdf' },
       archive: d.archive ?? null,
+      archive_serial_number: d.archive_serial_number ?? null,
+      permissions: d.permissions ?? { view: { users: [], groups: [] }, change: { users: [], groups: [] } },
+      notes: d.notes ?? [],
     };
     this.docs.set(id, doc);
     return doc;
@@ -261,7 +287,8 @@ export class MockPaperless {
     const u = new URL(req.url ?? '/', 'http://localhost');
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
-    const raw = Buffer.concat(chunks).toString('utf8');
+    const rawBuffer = Buffer.concat(chunks);
+    const raw = String(req.headers['content-type'] ?? '').startsWith('multipart/') ? '' : rawBuffer.toString('utf8');
     let body: unknown = undefined;
     if (raw) {
       try {
@@ -325,21 +352,86 @@ export class MockPaperless {
       const items = [...this.storagePaths.values()].sort((a, b) => a.name.localeCompare(b.name));
       return send(200, this.paginate(items, q, version, u, items.map((i) => i.id)));
     }
+    if (path === '/api/groups/' && record.method === 'GET') return send(200, this.paginate(this.groups, q, version, u, this.groups.map((g) => g.id)));
+    if ((m = /^\/api\/(workflows|mail_accounts|mail_rules|saved_views|share_links)\/$/.exec(path)) && record.method === 'GET') {
+      const items = this.extras[m[1] as keyof MockPaperless['extras']];
+      return send(200, this.paginate(items, q, version, u, items.map((_, i) => i + 1)));
+    }
+    if ((m = /^\/api\/documents\/(\d+)\/metadata\/$/.exec(path)) && record.method === 'GET') {
+      const doc = this.docs.get(Number(m[1]));
+      if (!doc) return send(404, { detail: 'Not found.' });
+      // Paperless-ngx 2.x reports SHA-256; older versions (and their documents) MD5.
+      const sum = (b: Buffer) => createHash(this.checksums).update(b).digest('hex');
+      return send(200, {
+        original_checksum: sum(doc.file.data),
+        original_size: doc.file.data.length,
+        original_mime_type: doc.file.contentType,
+        original_filename: doc.original_file_name,
+        has_archive_version: Boolean(doc.archive),
+        archive_checksum: doc.archive ? sum(doc.archive) : null,
+        archive_size: doc.archive?.length ?? null,
+      });
+    }
+    if ((m = /^\/api\/documents\/(\d+)\/notes\/$/.exec(path)) && record.method === 'GET') {
+      const doc = this.docs.get(Number(m[1]));
+      if (!doc) return send(404, { detail: 'Not found.' });
+      return send(200, doc.notes);
+    }
     if (path === '/api/users/' && record.method === 'GET') {
       if (!this.users) return send(403, { detail: 'You do not have permission to perform this action.' });
       return send(200, this.paginate(this.users, q, version, u, this.users.map((i) => i.id)));
+    }
+    if (path === '/api/documents/post_document/' && record.method === 'POST') {
+      const form = await new Request('http://mock/', { method: 'POST', headers: { 'content-type': String(req.headers['content-type'] ?? '') }, body: rawBuffer }).formData();
+      const file = form.get('document');
+      if (!(file instanceof Blob)) return send(400, { document: ['No file was submitted.'] });
+      const data = Buffer.from(await file.arrayBuffer());
+      const name = (file as File).name || 'upload.pdf';
+      const doc = this.addDocument({
+        title: String(form.get('title') ?? name.replace(/\.[^.]+$/, '')),
+        content: '',
+        tags: form.getAll('tags').map((t) => Number(t)),
+        correspondent: form.get('correspondent') ? Number(form.get('correspondent')) : null,
+        document_type: form.get('document_type') ? Number(form.get('document_type')) : null,
+        created: form.get('created') ? String(form.get('created')).slice(0, 10) : undefined,
+        original_file_name: name,
+        file: { data, contentType: file.type || 'application/pdf' },
+      });
+      this.uploads.push({ documentId: doc.id, filename: name, size: data.length });
+      return send(200, `task-${doc.id}`);
+    }
+    if (path === '/api/documents/selection_data/' && record.method === 'POST') {
+      const ids = new Set(((body as { documents?: number[] })?.documents ?? []).map(Number));
+      const docs = [...this.docs.values()].filter((d) => ids.has(d.id));
+      const count = (items: Iterable<{ id: number }>, has: (d: MockDoc, id: number) => boolean) =>
+        [...items].map((i) => ({ id: i.id, document_count: docs.filter((d) => has(d, i.id)).length }));
+      return send(200, {
+        selected_tags: count(this.tags.values(), (d, id) => d.tags.includes(id)),
+        selected_correspondents: count(this.correspondents.values(), (d, id) => d.correspondent === id),
+        selected_document_types: count(this.documentTypes.values(), (d, id) => d.document_type === id),
+        selected_storage_paths: [],
+        selected_custom_fields: [],
+      });
     }
     if ((m = /^\/api\/documents\/(\d+)\/$/.exec(path))) {
       const doc = this.docs.get(Number(m[1]));
       if (!doc) return send(404, { detail: 'No Document matches the given query.' });
       if (record.method === 'GET') return send(200, this.serialize(doc, version));
       if (record.method === 'PATCH') return this.patchDocument(doc, body as Record<string, unknown>, version, send);
+      if (record.method === 'DELETE') {
+        this.deleteDocument(doc.id);
+        return send(204, undefined);
+      }
     }
     if ((m = /^\/api\/documents\/(\d+)\/download\/$/.exec(path)) && record.method === 'GET') {
       const doc = this.docs.get(Number(m[1]));
       if (!doc) return send(404, { detail: 'Not found.' });
-      if (q.get('original') === 'true' || !doc.archive) return send(200, doc.file.data, { 'Content-Type': doc.file.contentType });
-      return send(200, doc.archive, { 'Content-Type': 'application/pdf' });
+      const disposition = (name: string) => ({ 'Content-Disposition': `attachment; filename="${name}"` });
+      const base = (doc.original_file_name ?? `document-${doc.id}.pdf`).replace(/\.[^.]+$/, '');
+      if (q.get('original') === 'true' || !doc.archive) {
+        return send(200, doc.file.data, { 'Content-Type': doc.file.contentType, ...disposition(doc.original_file_name ?? `document-${doc.id}.pdf`) });
+      }
+      return send(200, doc.archive, { 'Content-Type': 'application/pdf', ...disposition(`${base}.pdf`) });
     }
     if ((m = /^\/api\/documents\/(\d+)\/thumb\/$/.exec(path)) && record.method === 'GET') {
       if (!this.docs.has(Number(m[1]))) return send(404, { detail: 'Not found.' });
@@ -350,6 +442,33 @@ export class MockPaperless {
       if (this.forbidden.has(collection)) return send(403, { detail: 'You do not have permission to perform this action.' });
       if (record.method === 'GET') return send(200, this.listCollection(collection, q, version, u));
       if (record.method === 'POST') return this.create(collection, body as Record<string, unknown>, send);
+    }
+    if ((m = /^\/api\/(tags|correspondents|document_types|custom_fields)\/(\d+)\/$/.exec(path))) {
+      const collection = m[1] as Collection;
+      const map = this.collection(collection);
+      const item = map.get(Number(m[2]));
+      if (!item) return send(404, { detail: 'Not found.' });
+      if (record.method === 'PATCH') {
+        const b = (body ?? {}) as Record<string, unknown>;
+        if (typeof b.name === 'string') {
+          if ([...map.values()].some((i) => i.id !== item.id && i.name.toLowerCase() === (b.name as string).toLowerCase())) {
+            return send(400, { error: 'Object violates owner / name unique constraint' });
+          }
+          item.name = b.name;
+        }
+        if (typeof b.color === 'string') (item as MockNamed).color = b.color;
+        return send(200, { ...item, document_count: this.documentCount(collection, item.id) });
+      }
+      if (record.method === 'DELETE') {
+        map.delete(item.id);
+        for (const d of this.docs.values()) {
+          if (collection === 'tags') d.tags = d.tags.filter((t) => t !== item.id);
+          if (collection === 'correspondents' && d.correspondent === item.id) d.correspondent = null;
+          if (collection === 'document_types' && d.document_type === item.id) d.document_type = null;
+          if (collection === 'custom_fields') d.custom_fields = d.custom_fields.filter((f) => f.field !== item.id);
+        }
+        return send(204, undefined);
+      }
     }
     return send(404, { detail: 'Not found.' });
   }
@@ -386,12 +505,12 @@ export class MockPaperless {
       created: version >= 9 ? doc.created : `${doc.created}T00:00:00+01:00`,
       modified: doc.modified,
       added: doc.added,
-      archive_serial_number: null,
+      archive_serial_number: doc.archive_serial_number,
       original_file_name: doc.original_file_name,
       owner: doc.owner,
       user_can_change: doc.user_can_change,
       custom_fields: doc.custom_fields.map((f) => ({ ...f })),
-      notes: [],
+      notes: doc.notes.map((n) => ({ ...n })),
       mime_type: doc.file.contentType,
       page_count: doc.page_count,
     };
@@ -418,17 +537,59 @@ export class MockPaperless {
     }
     if (q.has('correspondent__id')) docs = docs.filter((d) => d.correspondent === Number(q.get('correspondent__id')));
     if (q.has('document_type__id')) docs = docs.filter((d) => d.document_type === Number(q.get('document_type__id')));
+    const inList = (key: string) => (q.get(key) ?? '').split(',').filter(Boolean).map(Number);
+    if (q.has('correspondent__id__in')) docs = docs.filter((d) => d.correspondent !== null && inList('correspondent__id__in').includes(d.correspondent));
+    if (q.has('document_type__id__in')) docs = docs.filter((d) => d.document_type !== null && inList('document_type__id__in').includes(d.document_type));
+    if (q.get('correspondent__isnull')) docs = docs.filter((d) => d.correspondent === null);
+    if (q.get('document_type__isnull')) docs = docs.filter((d) => d.document_type === null);
+    if (q.has('storage_path__id')) docs = docs.filter((d) => d.storage_path === Number(q.get('storage_path__id')));
+    if (q.has('owner__id')) docs = docs.filter((d) => d.owner === Number(q.get('owner__id')));
+    const createdGte = q.get('created__gte') ?? q.get('created__date__gte');
+    const createdLte = q.get('created__lte') ?? q.get('created__date__lte');
+    if (createdGte) docs = docs.filter((d) => d.created >= createdGte);
+    if (createdLte) docs = docs.filter((d) => d.created <= createdLte);
+    if (q.get('added__date__gte')) docs = docs.filter((d) => d.added.slice(0, 10) >= q.get('added__date__gte')!);
+    if (q.get('added__date__lte')) docs = docs.filter((d) => d.added.slice(0, 10) <= q.get('added__date__lte')!);
+    const cfq = q.get('custom_field_query');
+    if (cfq) {
+      const parsed = JSON.parse(cfq) as unknown[];
+      const conds = (parsed[0] === 'AND' ? parsed[1] : [parsed]) as [number, string, unknown][];
+      docs = docs.filter((d) =>
+        conds.every(([field, op, value]) => {
+          const f = d.custom_fields.find((x) => x.field === Number(field));
+          if (op === 'exists') return Boolean(f) === Boolean(value);
+          if (!f) return false;
+          const v = f.value as string | number;
+          const num = (x: unknown) => (typeof x === 'string' ? Number(x.replace(/^[A-Z]{3}/, '')) : Number(x));
+          if (op === 'exact') return String(v) === String(value);
+          if (op === 'gte') return num(v) >= num(value);
+          if (op === 'lte') return num(v) <= num(value);
+          if (op === 'icontains') return String(v).toLowerCase().includes(String(value).toLowerCase());
+          return false;
+        }),
+      );
+    }
     if (q.has('created__year')) docs = docs.filter((d) => Number(d.created.slice(0, 4)) === Number(q.get('created__year')));
     if (q.has('created__month')) docs = docs.filter((d) => Number(d.created.slice(5, 7)) === Number(q.get('created__month')));
+    const none = (key: string) => (q.get(key) ?? '').split(',').filter(Boolean).map(Number);
+    if (q.has('correspondent__id__none')) docs = docs.filter((d) => d.correspondent === null || !none('correspondent__id__none').includes(d.correspondent));
+    if (q.has('document_type__id__none')) docs = docs.filter((d) => d.document_type === null || !none('document_type__id__none').includes(d.document_type));
+    if (q.has('title__icontains')) docs = docs.filter((d) => d.title.toLowerCase().includes(q.get('title__icontains')!.toLowerCase()));
+    if (q.has('content__icontains')) docs = docs.filter((d) => d.content.toLowerCase().includes(q.get('content__icontains')!.toLowerCase()));
+    if (q.has('archive_serial_number')) docs = docs.filter((d) => d.archive_serial_number === Number(q.get('archive_serial_number')));
     const idIn = q.get('id__in');
     if (idIn) {
       const wanted = idIn.split(',').map(Number);
       docs = docs.filter((d) => wanted.includes(d.id));
     }
-    const text = q.get('title_content') ?? q.get('text');
+    const text = q.get('title_content') ?? q.get('text') ?? q.get('query');
     if (text) {
-      const needle = text.toLowerCase();
-      docs = docs.filter((d) => d.title.toLowerCase().includes(needle) || d.content.toLowerCase().includes(needle));
+      // Like Paperless-ngx's full text search: words (all), NOT word leaves documents out.
+      const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+      const not = words.flatMap((w, i) => (words[i - 1] === 'not' ? [w] : []));
+      const want = words.filter((w, i) => w !== 'not' && words[i - 1] !== 'not');
+      const has = (d: MockDoc, w: string) => d.title.toLowerCase().includes(w) || d.content.toLowerCase().includes(w);
+      docs = docs.filter((d) => (want.length ? has(d, want.join(' ')) || want.every((w) => has(d, w)) : true) && !not.some((w) => has(d, w)));
     }
     const ordering = q.get('ordering') ?? 'id';
     const desc = ordering.startsWith('-');
@@ -442,6 +603,7 @@ export class MockPaperless {
     const fields = q.get('fields')?.split(',').filter(Boolean);
     const serialized = docs.map((d) => {
       const full = this.serialize(d, version);
+      if (q.get('full_perms') === 'true') full.permissions = structuredClone(d.permissions);
       if (q.get('truncate_content') === 'true') full.content = d.content.slice(0, 300);
       return fields ? Object.fromEntries(fields.filter((f) => f in full).map((f) => [f, full[f]])) : full;
     });

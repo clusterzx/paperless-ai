@@ -131,6 +131,11 @@ export function PromptRulesCard({ prompts, onChanged }: { prompts: LibraryPrompt
           The rules are set by the environment variable {locked} and cannot be changed here.
         </Alert>
       )}
+      <p className="mb-3 text-xs text-muted">
+        Rules are workflows that run before the analysis – the <a className="text-accent hover:underline" href="/workflows">Workflows</a> page shows them with their runs and can do more
+        (AI questions, other triggers, actions).
+        {info.data?.otherWorkflows ? ` ${info.data.otherWorkflows} more workflow(s) run before the analysis and are edited there.` : ''}
+      </p>
       {!info.data ? (
         <Skeleton className="h-16" />
       ) : !rules.length ? (
@@ -195,6 +200,54 @@ export function PromptRulesCard({ prompts, onChanged }: { prompts: LibraryPrompt
         />
       )}
     </Card>
+  );
+}
+
+/** The processing settings of a rule or of the workflow action "analyze" (everything else as in the settings). */
+export function OverridesForm({
+  overrides: o,
+  onChange: setOverrides,
+  info,
+}: {
+  overrides: PromptRuleConfig['overrides'];
+  onChange: (patch: Partial<PromptRuleConfig['overrides']>) => void;
+  info: Pick<PromptRulesInfo, 'customFields' | 'model'>;
+}) {
+  const meta = useMetadata();
+  const tagNames = meta.tags.map((t) => t.name);
+  const typeNames = meta.documentTypes.map((t) => t.name);
+  return (
+    <>
+      <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {RULE_FUNCTIONS.map((f) => (
+          <TriState key={f} label={FUNCTION_LABELS[f]} value={o.functions[f]} onChange={(v) => setOverrides({ functions: { ...o.functions, [f]: v } })} />
+        ))}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        {RULE_RESTRICTIONS.map((k) => (
+          <TriState
+            key={k}
+            label={`Only existing ${RESTRICTION_LABELS[k].toLowerCase()}`}
+            value={o.restrict[k]}
+            onChange={(v) => setOverrides({ restrict: { ...o.restrict, [k]: v } })}
+          />
+        ))}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Custom fields to fill" hint="Of the custom fields in the settings. Empty: all of them.">
+          <TagInput value={o.customFields ?? []} onChange={(v) => setOverrides({ customFields: v.length ? v : null })} suggestions={info.customFields} />
+        </Field>
+        <Field label="Model" hint={`Of the configured AI provider. Empty: ${info.model || 'the model of the AI settings'}.`}>
+          <Input value={o.model} placeholder={info.model} onChange={(e) => setOverrides({ model: e.target.value })} />
+        </Field>
+        <Field label="Allowed tags" hint="The AI may only use these tags (created when missing). Empty: no list.">
+          <TagInput value={o.allowedTags ?? []} onChange={(v) => setOverrides({ allowedTags: v.length ? v : null })} suggestions={tagNames} />
+        </Field>
+        <Field label="Allowed document types" hint="The AI may only choose one of these types (created when missing). Empty: no list.">
+          <TagInput value={o.allowedDocumentTypes ?? []} onChange={(v) => setOverrides({ allowedDocumentTypes: v.length ? v : null })} suggestions={typeNames} />
+        </Field>
+      </div>
+    </>
   );
 }
 
@@ -329,35 +382,7 @@ function RuleEditor({
             <h3 className="text-sm font-semibold">Settings for these documents</h3>
             <p className="text-xs text-muted">Everything left at “As in the settings” keeps the processing settings.</p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {RULE_FUNCTIONS.map((f) => (
-              <TriState key={f} label={FUNCTION_LABELS[f]} value={o.functions[f]} onChange={(v) => setOverrides({ functions: { ...o.functions, [f]: v } })} />
-            ))}
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            {RULE_RESTRICTIONS.map((k) => (
-              <TriState
-                key={k}
-                label={`Only existing ${RESTRICTION_LABELS[k].toLowerCase()}`}
-                value={o.restrict[k]}
-                onChange={(v) => setOverrides({ restrict: { ...o.restrict, [k]: v } })}
-              />
-            ))}
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Custom fields to fill" hint="Of the custom fields in the settings. Empty: all of them.">
-              <TagInput value={o.customFields ?? []} onChange={(v) => setOverrides({ customFields: v.length ? v : null })} suggestions={info.customFields} />
-            </Field>
-            <Field label="Model" hint={`Of the configured AI provider. Empty: ${info.model || 'the model of the AI settings'}.`}>
-              <Input value={o.model} placeholder={info.model} onChange={(e) => setOverrides({ model: e.target.value })} />
-            </Field>
-            <Field label="Allowed tags" hint="The AI may only use these tags (created when missing). Empty: no list.">
-              <TagInput value={o.allowedTags ?? []} onChange={(v) => setOverrides({ allowedTags: v.length ? v : null })} suggestions={tagNames} />
-            </Field>
-            <Field label="Allowed document types" hint="The AI may only choose one of these types (created when missing). Empty: no list.">
-              <TagInput value={o.allowedDocumentTypes ?? []} onChange={(v) => setOverrides({ allowedDocumentTypes: v.length ? v : null })} suggestions={typeNames} />
-            </Field>
-          </div>
+          <OverridesForm overrides={o} onChange={setOverrides} info={info} />
         </section>
 
         <Switch label="Rule enabled" checked={rule.enabled} onChange={(v) => setRule({ ...rule, enabled: v })} />

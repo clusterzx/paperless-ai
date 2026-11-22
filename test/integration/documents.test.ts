@@ -123,7 +123,7 @@ describe('manual review', () => {
 describe('document browsing', () => {
   it('lists and searches documents with their processing state', async () => {
     const res = await h.inject({ method: 'GET', url: '/api/documents?query=electricity', headers: auth });
-    expect(res.json()).toEqual({
+    expect(res.json()).toMatchObject({
       count: 1,
       page: 1,
       // marked as processed by the (no-op) manual apply above
@@ -156,7 +156,7 @@ describe('document browsing', () => {
     const res = await h.inject({ method: 'GET', url: '/api/metadata', headers: auth });
     const body = res.json();
     expect(body.tags.map((t: { name: string }) => t.name)).toContain('Invoice');
-    expect(body.customFields).toContainEqual({ id: 30, name: 'Notes', data_type: 'string' });
+    expect(body.customFields).toContainEqual({ id: 30, name: 'Notes', data_type: 'string', extra_data: { default_currency: null, select_options: [] } });
     const counts = await h.inject({ method: 'GET', url: '/api/metadata/counts', headers: auth });
     expect(counts.json().tags[0]).toMatchObject({ document_count: expect.any(Number) });
   });

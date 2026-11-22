@@ -54,6 +54,11 @@ test('setup wizard configures Paperless-AI', async ({ page, request }) => {
   await page.getByLabel('Confirm password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Continue' }).click();
 
+  // Companion mode (the default): Paperless-ngx stays the archive.
+  await expect(page.getByRole('heading', { name: 'Where do your documents live?' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: /With Paperless-ngx/ })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('button', { name: 'Continue' }).click();
+
   // Wrong token → error, then fix it.
   await page.getByPlaceholder('http://paperless-ngx:8000').fill(`${info.paperlessUrl}/api/`);
   await page.getByPlaceholder('Token of the Paperless user').fill('wrong-token');
@@ -137,11 +142,13 @@ test('ask your archive answers with cited sources', async ({ page }) => {
   await expect(page.getByRole('link', { name: /HUK-COBURG|Kfz-Versicherung/ }).first()).toBeVisible();
 });
 
-test('document chat streams an answer', async ({ page }) => {
+test('document chat streams an answer in the tab of the document (old links lead there)', async ({ page }) => {
   await login(page);
   await page.goto('/chat?doc=4');
-  await expect(page.getByRole('heading', { level: 2 })).toContainText(/Allianz|Krankenversicherung/);
-  await page.getByRole('button', { name: 'Summarize this document.' }).click();
+  await expect(page).toHaveURL(/\/documents\/4\?tab=chat$/);
+  await expect(page.getByRole('tab', { name: 'Chat' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByPlaceholder('Ask about this document…').fill('Fasse das Dokument kurz zusammen.');
+  await page.keyboard.press('Enter');
   await expect(page.getByText('kurze Zusammenfassung')).toBeVisible();
 });
 
@@ -151,8 +158,39 @@ test('manual review analyses and saves a document', async ({ page }) => {
   await page.getByRole('button', { name: 'Analyze with AI' }).click();
   await expect(page.getByText(/AI suggestion by mock-gpt/)).toBeVisible();
   await page.getByLabel('Title').fill('Mietvertrag Leopoldstraße (geprüft)');
-  await page.getByRole('button', { name: 'Save to Paperless' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText(/Saved: /)).toBeVisible();
+});
+
+test('documents page filters, opens and edits documents and bulk-tags a selection', async ({ page }) => {
+  await login(page);
+  await page.goto('/documents');
+  await expect(page.getByRole('heading', { level: 1, name: 'Documents' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Mietvertrag/ })).toBeVisible();
+  // full text search narrows the list
+  await page.getByLabel('Search documents').fill('Mietvertrag');
+  await expect(page).toHaveURL(/q=Mietvertrag/);
+  await expect(page.getByRole('link', { name: /Krankenversicherung/ })).toHaveCount(0);
+  await page.getByRole('link', { name: /Mietvertrag/ }).first().click();
+  await expect(page).toHaveURL(/\/documents\/3$/);
+  await page.getByLabel('Title').fill('Mietvertrag Leopoldstraße 2021');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Mietvertrag Leopoldstraße 2021' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Activity' }).click();
+  await expect(page.getByText('Changed', { exact: true })).toBeVisible();
+
+  // bulk: tag two documents
+  await page.goto('/documents');
+  await page.getByRole('button', { name: 'Select', exact: true }).nth(0).click();
+  await page.getByRole('button', { name: 'Select', exact: true }).nth(1).click();
+  await expect(page.getByText('2 selected')).toBeVisible();
+  await page.getByRole('button', { name: 'Add tags' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('combobox').fill('Geprüft');
+  await dialog.getByRole('combobox').press('Enter');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.getByText(/Changed: 2 document/)).toBeVisible();
+  await expect(page.getByText('Geprüft').first()).toBeVisible();
 });
 
 test('settings validate and save without restart', async ({ page }) => {
@@ -243,6 +281,8 @@ test('modals keep the focus while typing and trap Tab', async ({ page }) => {
 
 test('command menu jumps to pages and asks the archive', async ({ page }) => {
   await login(page);
+  // Deleted documents are in the trash of Paperless-ngx: the menu links there.
+  await expect(page.getByRole('link', { name: 'Trash (Paperless-ngx)' })).toHaveAttribute('href', /\/trash$/);
   await page.keyboard.press('Control+k');
   const menu = page.getByRole('dialog', { name: 'Command menu' });
   await expect(menu).toBeVisible();
@@ -309,13 +349,13 @@ test('OCR page finds documents with poor text, reads them and the AI renames the
   await page.getByRole('button', { name: 'Start OCR' }).click();
   await expect(page.getByRole('tab', { name: /Needs OCR 0/ })).toBeVisible({ timeout: 20_000 });
   await page.getByRole('tab', { name: /OCR done/ }).click();
-  await expect(page.getByText('Saved in Paperless').first()).toBeVisible();
+  await expect(page.getByText('Saved', { exact: true }).first()).toBeVisible();
 
   await page.getByRole('button', { name: 'Show text' }).first().click();
   const dialog = page.getByRole('dialog');
   // Side by side: the text before the OCR and the OCR result that is in Paperless now.
   await expect(dialog.getByText('Before OCR', { exact: true })).toBeVisible();
-  await expect(dialog.getByText('PaddleOCR result – now in Paperless', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('PaddleOCR result – now saved', { exact: true })).toBeVisible();
   // Renamed by the AI pipeline from the OCR text.
   await expect(dialog.getByRole('heading', { name: /Malermeister Kopp/ })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Restore the text before OCR' })).toBeVisible();
@@ -651,7 +691,7 @@ test('prompt rules: a rule analyses matching documents with its own prompt and s
   await expect(page.getByText('Analysed with', { exact: true })).toBeVisible();
   await expect(page.getByText(/AI suggestion by mock-gpt-small/)).toBeVisible();
   await page.getByLabel('Title').fill('Stromrechnung April (Regel)');
-  await page.getByRole('button', { name: 'Save to Paperless' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText(/Saved: /)).toBeVisible();
 
   // The history shows the prompt
@@ -667,4 +707,25 @@ test('prompt rules: a rule analyses matching documents with its own prompt and s
   await rule.getByRole('button', { name: 'Delete rule' }).click();
   await page.getByRole('dialog', { name: 'Delete “Utility bills”?' }).getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByText('No rules yet – every document is analysed with the system prompt.')).toBeVisible();
+});
+
+// Last: switches the demo to the built-in archive.
+test('moves the archive from Paperless-ngx into the built-in archive', async ({ page }) => {
+  await login(page);
+  await page.goto('/migration');
+  await page.getByRole('button', { name: 'Analyse' }).click();
+  await expect(page.getByText(/Space needed: about/)).toBeVisible({ timeout: 20_000 });
+  await page.getByLabel('Library', { exact: true }).fill('Familie');
+  await page.getByRole('button', { name: 'Show who will see what' }).click();
+  await expect(page.getByRole('cell', { name: 'Familie' })).toBeVisible();
+  await page.getByRole('button', { name: 'Start the import' }).click();
+  await expect(page.getByText(/imported · imported/)).toBeVisible({ timeout: 60_000 });
+  await page.getByRole('button', { name: 'Switch to the built-in archive' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Switch' }).click();
+  await expect(page.getByText('The built-in archive is in use').first()).toBeVisible({ timeout: 30_000 });
+  // The documents are there, with the same ids; the trash and libraries exist now.
+  await page.goto('/documents');
+  await expect(page.getByRole('link').filter({ hasText: /Stromrechnung|Telekom/ }).first()).toBeVisible();
+  await page.goto('/libraries');
+  await expect(page.getByText('Familie')).toBeVisible();
 });

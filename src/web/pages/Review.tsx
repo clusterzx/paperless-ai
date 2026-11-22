@@ -4,6 +4,7 @@ import { Check, ExternalLink, FileSearch, MessageSquareText, PanelLeft, Plus, Sa
 import type { AnalysisResult, DocumentDetail } from '@shared/api';
 import type { MatchedPromptRule } from '@shared/promptRules';
 import { DocumentPicker } from '../components/DocumentPicker';
+import { fieldDraftValue, formatMonetary } from '../components/customFieldInput';
 import { RuleBadge } from '../components/promptRules';
 import { Alert, Badge, Button, Card, EmptyState, Field, Input, LinkButton, Modal, Skeleton, TagInput, useToast } from '../components/ui';
 import { errorMessage, get, post } from '../lib/api';
@@ -27,8 +28,13 @@ function fromDocument(doc: DocumentDetail, meta: MetadataLookup): FormState {
     documentType: meta.documentTypeName(doc.document_type) ?? '',
     created: doc.created ?? '',
     tags: doc.tags.map((t) => meta.tagName(t)),
+    // Readable values: "134,89 €" instead of "EUR134.89", the label of a choice instead of its id (the server reads both).
     customFields: doc.custom_fields
-      .map((f) => ({ field_name: meta.customFields.find((c) => c.id === f.field)?.name ?? `#${f.field}`, value: f.value == null ? '' : String(f.value) }))
+      .map((f) => {
+        const def = meta.customFields.find((c) => c.id === f.field);
+        const text = fieldDraftValue(def, f.value);
+        return { field_name: def?.name ?? `#${f.field}`, value: def?.data_type === 'monetary' && text ? formatMonetary(text, def.extra_data?.default_currency) : text };
+      })
       .filter((f) => f.value !== ''),
   };
 }
@@ -123,11 +129,11 @@ function ReviewDocument({ documentId }: { documentId: number }) {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant="ghost" icon={<MessageSquareText className="size-4" />} onClick={() => navigate(`/chat?doc=${d.id}`)}>
+          <Button size="sm" variant="ghost" icon={<MessageSquareText className="size-4" />} onClick={() => navigate(`/documents/${d.id}?tab=chat`)}>
             Chat
           </Button>
           <LinkButton href={d.url} size="sm" variant="ghost" icon={<ExternalLink className="size-4" />}>
-            Paperless
+            Open
           </LinkButton>
         </div>
       </div>
@@ -180,7 +186,7 @@ function ReviewDocument({ documentId }: { documentId: number }) {
             <Field label={<>Document date<Changed on={form.created !== original.created} /></>}>
               <Input type="date" value={form.created} onChange={(e) => set('created', e.target.value)} className="max-w-xs" />
             </Field>
-            <Field label={<>Tags<Changed on={JSON.stringify(form.tags) !== JSON.stringify(original.tags)} /></>} hint="New tags are created in Paperless when saving.">
+            <Field label={<>Tags<Changed on={JSON.stringify(form.tags) !== JSON.stringify(original.tags)} /></>} hint="New tags are created when saving.">
               <TagInput value={form.tags} onChange={(v) => set('tags', v)} suggestions={meta.tags.map((t) => t.name)} />
             </Field>
             {suggestedMissing.length > 0 && (
@@ -216,7 +222,7 @@ function ReviewDocument({ documentId }: { documentId: number }) {
                 Reset
               </Button>
               <Button variant="primary" icon={<Save className="size-4" />} disabled={!dirty} loading={saving} onClick={save}>
-                Save to Paperless
+                Save
               </Button>
             </div>
           </div>
