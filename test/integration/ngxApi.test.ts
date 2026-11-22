@@ -55,8 +55,34 @@ describe('signing in like the apps', () => {
     // Without a token: 401 in the error format of Paperless-ngx, with the version headers.
     const anon = await h.inject({ method: 'GET', url: '/ngx/api/ui_settings/' });
     expect(anon.statusCode).toBe(401);
-    expect(anon.json()).toEqual({ detail: 'Invalid token.' });
+    expect(anon.json()).toEqual({ detail: 'Authentication credentials were not provided.' });
     expect(anon.headers['x-api-version']).toBe('9');
+    const wrong = await h.inject({ method: 'GET', url: '/ngx/api/ui_settings/', headers: { authorization: 'Token nonsense' } });
+    expect(wrong.statusCode).toBe(401);
+    expect(wrong.json()).toEqual({ detail: 'Invalid token.' });
+  });
+
+  it('answers the server check of Paperparrot without signing in', async () => {
+    // Paperparrot tests the address with the version check (open to anyone in Paperless-ngx) …
+    const version = await h.inject({ method: 'GET', url: '/ngx/api/remote_version/', headers: { accept: 'application/json' } });
+    expect(version.statusCode, version.body).toBe(200);
+    expect(version.json()).toEqual({ version: expect.stringMatching(/^v\d+\.\d+\.\d+$/), update_available: false });
+    expect(version.headers['x-version']).toMatch(/^\d+\.\d+\.\d+$/);
+    // … asks for a single sign-on of the server (none here: 404, not 401) …
+    expect((await h.inject({ method: 'GET', url: '/ngx/api/auth/headless/app/v1/config', headers: { accept: 'application/json' } })).statusCode).toBe(404);
+    // … and sends the API version as `Version=` and an empty token before the login.
+    expect((await h.inject({ method: 'GET', url: '/ngx/api/', headers: { accept: 'application/json; Version=9' } })).statusCode).toBe(200);
+    expect((await h.inject({ method: 'GET', url: '/ngx/api/config/', headers: { accept: 'application/json; Version=10' } })).statusCode).toBe(406);
+    const config = await h.inject({ method: 'GET', url: '/ngx/api/config/', headers: { authorization: `Token ${token}`, accept: 'application/json; Version=9', 'content-type': 'application/json' } });
+    expect(config.statusCode, config.body).toBe(200);
+    expect(config.headers['x-version']).toMatch(/^\d+\.\d+\.\d+$/);
+    // The JSON content type on every request, also on a DELETE without a body.
+    const tag = (await h.inject({ method: 'POST', url: '/ngx/api/tags/', headers: auth(), payload: { name: 'Weg' } })).json();
+    const del = await h.inject({ method: 'DELETE', url: `/ngx/api/tags/${tag.id}/`, headers: auth({ 'content-type': 'application/json', 'content-length': '0' }) });
+    expect(del.statusCode, del.body).toBe(204);
+    const broken = await h.inject({ method: 'POST', url: '/ngx/api/tags/', headers: auth({ 'content-type': 'application/json' }), payload: '{"name":' });
+    expect(broken.statusCode).toBe(400);
+    expect(broken.json().detail).toMatch(/^JSON parse error/);
   });
 
   it('gives a token for user name and password, and asks for the code with two-factor authentication', async () => {

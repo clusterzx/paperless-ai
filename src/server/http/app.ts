@@ -37,7 +37,7 @@ import { archiveRoutes } from '../routes/archive.js';
 import { workflowRoutes } from '../routes/workflows.js';
 import { DAV_METHODS, davRoutes } from '../routes/dav.js';
 import { ngxRoutes } from '../ngx/routes.js';
-import { MAX_API_VERSION as NGX_MAX_API_VERSION, NGX_VERSION } from '../ngx/format.js';
+import { MAX_API_VERSION as NGX_MAX_API_VERSION, MIN_API_VERSION as NGX_MIN_API_VERSION, NGX_VERSION, requestedVersion as ngxRequestedVersion } from '../ngx/format.js';
 import { migrationRoutes } from '../routes/migration.js';
 import { metadataRoutes } from '../routes/metadata.js';
 import { accessRoutes } from '../routes/access.js';
@@ -180,7 +180,13 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     // The Paperless-ngx compatible API (/ngx/api/): its version headers on every answer (apps read
     // them even from errors) and its error format.
     const ngx = url.startsWith('/ngx');
-    if (ngx) reply.header('X-Api-Version', String(NGX_MAX_API_VERSION)).header('X-Version', NGX_VERSION);
+    if (ngx) {
+      reply.header('X-Api-Version', String(NGX_MAX_API_VERSION)).header('X-Version', NGX_VERSION);
+      // An API version this server does not speak: 406 before anything else, as Paperless-ngx (apps
+      // step down from the newest version they know).
+      const v = ngxRequestedVersion(req);
+      if (v !== null && (v < NGX_MIN_API_VERSION || v > NGX_MAX_API_VERSION)) return reply.code(406).send({ detail: 'Invalid version in "Accept" header.' });
+    }
     const deny = (code: number, error: string, extra: Record<string, unknown> = {}) => reply.code(code).send(ngx ? { detail: error } : { error, ...extra });
     if (level === 'public') return;
     if (level === 'setup') {
@@ -192,7 +198,11 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     if (!req.principal || !req.access) {
       // WebDAV clients (scanners, file managers) ask for the credentials on this header.
       if (url.startsWith('/dav/')) reply.header('WWW-Authenticate', 'Basic realm="Paperless-AI inbox", charset="UTF-8"');
-      if (ngx) return reply.code(401).header('WWW-Authenticate', 'Token').send({ detail: 'Invalid token.' });
+      if (ngx) {
+        // As Paperless-ngx: no credentials and wrong ones are told apart.
+        const detail = req.headers.authorization ? 'Invalid token.' : 'Authentication credentials were not provided.';
+        return reply.code(401).header('WWW-Authenticate', 'Token').send({ detail });
+      }
       return deny(401, 'Authentication required');
     }
     if (level === 'session' && !(req.principal.kind === 'user' && req.principal.via === 'session')) {

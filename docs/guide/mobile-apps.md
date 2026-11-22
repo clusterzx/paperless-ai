@@ -29,6 +29,7 @@ Built against the source code of these apps:
 | [Swift Paperless](https://apps.apple.com/app/swift-paperless/id6448698521) | iOS | password, code and token login |
 | [Paperless Mobile](https://f-droid.org/packages/de.astubenbord.paperless_mobile) | Android, iOS | password and code login |
 | [Paperless Native](https://f-droid.org/packages/com.paperlessnative.mobile/) | Android | password and code login |
+| [Paperparrot](https://apps.apple.com/app/paperparrot/id1663665267) | iOS, iPadOS, macOS | password and code login (built against its open API library; the app itself is not open source) |
 | Scanner and upload apps | – | use only the upload (`post_document`) |
 
 Other clients of the Paperless-ngx API should work as far as they use the parts below.
@@ -49,6 +50,7 @@ Not available (empty lists or a clear message in the app): storage paths, saved 
 ## Behind the scenes
 
 - Paths: `/ngx/api/…` with the trailing slash of Paperless-ngx; answers carry `X-Api-Version: 9` and `X-Version: 2.17.1`; versions above 9 are answered with 406, so apps fall back to 9.
+- As in Paperless-ngx, the API root (`/ngx/api/`) and the version check (`/ngx/api/remote_version/`) answer without signing in – apps test the server address with them. Everything else needs the token.
 - Errors in the format of Paperless-ngx (`{"detail": …}`, `{"non_field_errors": […]}`).
 - A document without a document date shows the day it was added (Paperless-ngx always has a date, and the apps need one). That date is not saved when the app sends the document back; a date picked in the app is.
 - Changes made through the apps appear in the change log of the document with “ngx-api” as their source and can be undone in Paperless-AI.

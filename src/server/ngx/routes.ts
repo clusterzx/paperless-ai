@@ -29,8 +29,6 @@ import {
   baseUrl,
   filterFromQuery,
   matchesNothing,
-  MAX_API_VERSION,
-  MIN_API_VERSION,
   ngxDocument,
   shownCreated,
   NGX_VERSION,
@@ -92,11 +90,20 @@ export const ngxRoutes =
     app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
       done(null, Object.fromEntries(new URLSearchParams(String(body))));
     });
-
-    app.addHook('onRequest', async (req, reply) => {
-      const v = requestedVersion(req);
-      if (v !== null && (v < MIN_API_VERSION || v > MAX_API_VERSION)) return reply.code(406).send({ detail: 'Invalid version in "Accept" header.' });
+    // JSON – also an empty body, as Paperless-ngx takes it (Paperparrot sends the JSON content type
+    // on every request, DELETE included).
+    app.removeContentTypeParser('application/json');
+    app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+      const text = String(body);
+      if (!text.trim()) return done(null, undefined);
+      try {
+        done(null, JSON.parse(text));
+      } catch (err) {
+        done(new NgxError(400, `JSON parse error - ${(err as Error).message}`), undefined);
+      }
     });
+
+    // The API version (406 for versions it does not speak) is checked with the sign-in, in app.ts.
 
     app.setErrorHandler((err: Error & { statusCode?: number; validation?: unknown }, req, reply) => {
       if (err instanceof NgxError) return reply.code(err.status).send(err.body ?? { detail: err.message });
@@ -181,7 +188,10 @@ export const ngxRoutes =
       return out;
     };
 
-    app.get('/ngx/api/', auth, async (req) => {
+    // Open without signing in, as in Paperless-ngx (the API root and the version check of Paperless-ngx
+    // allow anyone): Paperparrot calls the version check to test the server address before the login.
+    app.get('/ngx/api/', { config: { auth: 'public' } }, async (req) => {
+      local();
       const b = `${baseUrl(req)}/ngx/api`;
       const names = ['correspondents', 'document_types', 'documents', 'saved_views', 'storage_paths', 'tags', 'tasks', 'users', 'groups', 'custom_fields', 'ui_settings', 'profile', 'statistics', 'search'];
       return Object.fromEntries(names.map((n) => [n, `${b}/${n}/`]));
@@ -250,7 +260,10 @@ export const ngxRoutes =
       return userJson(u, { id: userIdOf(scopeOf(req)) ?? 0, permissions: permissions(req) });
     });
     app.get('/ngx/api/groups/', auth, async (req) => paginateList(req, ctx.repos.groups.list().map((g) => ({ id: g.id, name: g.name, permissions: [] })), req.query as Query));
-    app.get('/ngx/api/remote_version/', auth, async () => ({ version: `v${NGX_VERSION}`, update_available: false }));
+    app.get('/ngx/api/remote_version/', { config: { auth: 'public' } }, async () => {
+      local();
+      return { version: `v${NGX_VERSION}`, update_available: false };
+    });
 
     // ---------------------------------------------------------------- statistics, status
 

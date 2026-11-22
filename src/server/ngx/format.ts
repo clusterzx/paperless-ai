@@ -14,7 +14,8 @@ export const NGX_VERSION = '2.17.1';
 
 /** The API version a request asks for (`Accept: application/json; version=N`), else the newest. */
 export function requestedVersion(req: FastifyRequest): number | null {
-  const m = /version=(\d+)/.exec(String(req.headers.accept ?? ''));
+  // `version=9` (Paperless Mobile, Swift Paperless) or `Version=9` (Paperparrot).
+  const m = /version\s*=\s*(\d+)/i.exec(String(req.headers.accept ?? ''));
   return m ? Number(m[1]) : null;
 }
 
