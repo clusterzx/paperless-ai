@@ -202,6 +202,9 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'OCR_WRITE_BACK', path: 'ocr.writeBack', parse: b },
   { env: 'OCR_LANGUAGE', path: 'ocr.language', parse: (v) => v.trim().toLowerCase() },
   { env: 'OCR_QUALITY', path: 'ocr.quality', parse: (v) => v.trim().toLowerCase() },
+  // "v6", "6", "PP-OCRv6" …
+  { env: 'OCR_MODEL_VERSION', path: 'ocr.modelVersion', parse: (v) => `v${v.trim().toLowerCase().replace(/^pp-?ocr/, '').replace(/^v/, '')}` },
+  { env: 'OCR_MODEL_SIZE', path: 'ocr.modelSize', parse: (v) => v.trim().toLowerCase() },
   { env: 'OCR_DEVICE', path: 'ocr.device', parse: (v) => v.trim().toLowerCase() },
   { env: 'OCR_RELEASE', path: 'ocr.release', parse: (v) => v.trim().toLowerCase() },
   { env: 'OCR_THREADS', path: 'ocr.threads', parse: i },

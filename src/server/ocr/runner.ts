@@ -96,7 +96,8 @@ export class OcrWorkerEngine implements OcrEngine {
     if (this.child) return this.child;
     const ext = import.meta.url.endsWith('.ts') ? 'ts' : 'js';
     const entry = this.opts.entry ?? fileURLToPath(new URL(`./worker.${ext}`, import.meta.url));
-    this.note(`Starting OCR worker (${this.options.language}, ${this.options.detector} detector, device ${this.options.device})`);
+    const models = this.options.v6 ? `PP-OCRv6 ${this.options.v6}` : `PP-OCRv5, ${this.options.language}, ${this.options.detector} detector`;
+    this.note(`Starting OCR worker (${models}, device ${this.options.device})`);
     const child = fork(entry, [JSON.stringify(this.options)], {
       serialization: 'advanced',
       execArgv: this.opts.execArgv ?? process.execArgv,

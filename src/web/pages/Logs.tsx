@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Bug, Download, Pause, Play, Plug, Search, Stethoscope, Trash2 } from 'lucide-react';
-import type { ConnectionTestResult, LogEntryDto, SessionInfo } from '@shared/api';
+import { Activity, Bug, Download, Pause, Play, Plug, ScanText, Search, Stethoscope, Trash2 } from 'lucide-react';
+import type { ConnectionTestResult, LogEntryDto, OcrStatus, SessionInfo } from '@shared/api';
 import { Page } from '../components/Layout';
 import { TestResult } from '../components/settingsForms';
 import { Alert, Badge, Button, Card, Input, PageHeader, Select, Tabs, tabPanelProps } from '../components/ui';
 import { errorMessage, get, post } from '../lib/api';
 import { cn } from '../lib/format';
+import { useAsync } from '../lib/hooks';
 import { useSession } from '../lib/session';
 
 const LEVEL_TONE: Record<string, string> = {
@@ -197,6 +198,7 @@ function Diagnostics() {
   const [paperless, setPaperless] = useState<ConnectionTestResult | null>(null);
   const [ai, setAi] = useState<ConnectionTestResult | null>(null);
   const [testing, setTesting] = useState(false);
+  const ocr = useAsync((signal) => get<OcrStatus>('/api/ocr/status', signal), []);
 
   const fetchRaw = async () => {
     setBusy(true);
@@ -245,6 +247,20 @@ function Diagnostics() {
           </div>
         )}
       </Card>
+      {ocr.data && (
+        <Card title="OCR" icon={<ScanText className="size-4" />} bodyClassName="flex flex-wrap gap-x-6 gap-y-1 px-5 py-4 text-sm">
+          <span>
+            Enabled: <b className="font-medium">{ocr.data.enabled ? 'yes' : 'no'}</b>
+          </span>
+          <span>
+            Model: <b className="font-medium">{ocr.data.model.label}</b>
+          </span>
+          <span>
+            Device: <b className="font-medium">{ocr.data.provider ? ocr.data.provider.toUpperCase() : 'not loaded'}</b>
+          </span>
+          {ocr.data.model.note && <span className="basis-full text-warn">{ocr.data.model.note}</span>}
+        </Card>
+      )}
       <Card
         title="Paperless API explorer"
         icon={<Bug className="size-4" />}

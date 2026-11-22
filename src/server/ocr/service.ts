@@ -6,7 +6,7 @@
  */
 import path from 'node:path';
 import type { OcrStatus } from '../../shared/api.js';
-import { OCR_QUALITY_PRESETS, type OcrRelease } from '../../shared/ocr.js';
+import { effectiveOcrModel, OCR_QUALITY_PRESETS, type OcrModelChoice, type OcrRelease } from '../../shared/ocr.js';
 import type { AppConfig } from '../config/schema.js';
 import type { AppContext } from '../context.js';
 import type { OcrAssessment } from '../db/ocrRepo.js';
@@ -72,16 +72,18 @@ export class OcrService {
 
   private engineKey(cfg: AppConfig): string {
     const o = cfg.ocr;
-    return JSON.stringify([o.language, o.quality, o.device, o.threads, o.autoRotate]);
+    return JSON.stringify([o.language, o.quality, o.device, o.threads, o.autoRotate, o.modelVersion, o.modelSize]);
   }
 
   private pipelineOptions(): PipelineOptions {
     const o = this.cfg;
     const preset = OCR_QUALITY_PRESETS[o.quality];
+    const model = this.model();
     return {
       cacheDir: path.join(this.ctx.dataDir, 'models'),
       language: o.language,
       detector: preset.detector,
+      ...(model.version === 'v6' && model.size ? { v6: model.size } : {}),
       device: o.device,
       threads: o.threads,
       detMaxSide: preset.detMaxSide,
@@ -89,6 +91,12 @@ export class OcrService {
       textlineOrientation: true,
       minScore: 0.5,
     };
+  }
+
+  /** The model that is really used (PP-OCRv6 falls back to v5 for languages it cannot read). */
+  model(): OcrModelChoice {
+    const o = this.cfg;
+    return effectiveOcrModel(o.modelVersion, o.modelSize, o.language);
   }
 
   private getEngine(): OcrEngine {
@@ -317,6 +325,7 @@ export class OcrService {
       mode: this.cfg.mode,
       writeBack: this.cfg.writeBack,
       provider: this.engine?.engine.provider ?? null,
+      model: this.model(),
       analysis: {
         running: this.assessing !== null,
         done: this.assessProgress.done,

@@ -1,6 +1,6 @@
 /**
  * OCR options shared by the server (configuration schema) and the web UI.
- * Plain constants only – no server code.
+ * Plain constants and pure functions only – no server code.
  */
 
 export const OCR_LANGUAGES = ['latin', 'en', 'multi', 'cyrillic', 'eslav', 'greek', 'arabic', 'devanagari', 'korean', 'thai', 'tamil', 'telugu'] as const;
@@ -59,3 +59,42 @@ export const OCR_RELEASE_LABELS: Record<OcrRelease, string> = {
   document: 'After each document',
   idle: 'After 10 idle minutes',
 };
+
+/**
+ * Model generations of PaddleOCR:
+ * - v5: PP-OCRv5 – a recognition model per language group, all languages of OCR_LANGUAGES
+ * - v6: PP-OCRv6 (2026) – one model for Latin-script languages, Chinese and Japanese, in three sizes
+ */
+export const OCR_MODEL_VERSIONS = ['v5', 'v6'] as const;
+export type OcrModelVersion = (typeof OCR_MODEL_VERSIONS)[number];
+
+export const OCR_MODEL_SIZES = ['tiny', 'small', 'medium'] as const;
+export type OcrModelSize = (typeof OCR_MODEL_SIZES)[number];
+
+export const OCR_MODEL_SIZE_LABELS: Record<OcrModelSize, string> = {
+  tiny: 'Tiny – fastest, least memory (6 MB download, no Japanese)',
+  small: 'Small – recommended (31 MB download)',
+  medium: 'Medium – most accurate, slow on the CPU (139 MB download)',
+};
+
+/** The languages PP-OCRv6 reads (Latin script, English, Chinese/English/Japanese) – the others keep PP-OCRv5. */
+export const OCR_V6_LANGUAGES: readonly OcrLanguage[] = ['latin', 'en', 'multi'];
+
+export interface OcrModelChoice {
+  version: OcrModelVersion;
+  /** PP-OCRv6 only. */
+  size: OcrModelSize | null;
+  /** E.g. "PP-OCRv6 small". */
+  label: string;
+  /** Why another model than the configured one is used (null when it is the configured one). */
+  note: string | null;
+}
+
+/** The model that is really used for a configuration: PP-OCRv6 falls back to PP-OCRv5 for languages it cannot read. */
+export function effectiveOcrModel(version: OcrModelVersion, size: OcrModelSize, language: OcrLanguage): OcrModelChoice {
+  const v5 = (note: string | null): OcrModelChoice => ({ version: 'v5', size: null, label: 'PP-OCRv5', note });
+  if (version !== 'v6') return v5(null);
+  if (!OCR_V6_LANGUAGES.includes(language)) return v5(`PP-OCRv6 does not read ${OCR_LANGUAGE_LABELS[language].split(' – ')[0]} – PP-OCRv5 is used`);
+  if (language === 'multi' && size === 'tiny') return v5('PP-OCRv6 tiny does not read Japanese – PP-OCRv5 is used (small and medium do)');
+  return { version: 'v6', size, label: `PP-OCRv6 ${size}`, note: null };
+}

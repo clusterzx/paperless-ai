@@ -313,6 +313,10 @@ export default function OcrPage() {
           <span>
             Text of the document: <b className="font-medium">{s?.writeBack ? 'replaced (with undo)' : 'unchanged'}</b>
           </span>
+          <span title={s?.model.note ?? undefined}>
+            Model: <b className="font-medium">{s ? s.model.label : '…'}</b>
+            {s?.model.note && <span className="text-warn"> (fallback)</span>}
+          </span>
           <span>
             Device: <b className="font-medium">{s?.provider ? s.provider.toUpperCase() : 'loaded on first use'}</b>
           </span>

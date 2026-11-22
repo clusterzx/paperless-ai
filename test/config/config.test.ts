@@ -159,6 +159,14 @@ describe('legacy helpers', () => {
     expect(configFromEnv({ OLLAMA_THINK: 'maybe' }).values).toEqual({});
   });
 
+  it('configFromEnv maps OCR_MODEL_VERSION and OCR_MODEL_SIZE (#1026)', () => {
+    for (const v of ['v6', '6', 'PP-OCRv6', ' V6 ']) expect(configFromEnv({ OCR_MODEL_VERSION: v }).values).toEqual({ ocr: { modelVersion: 'v6' } });
+    expect(configFromEnv({ OCR_MODEL_SIZE: ' Tiny ' }).values).toEqual({ ocr: { modelSize: 'tiny' } });
+    const { config, dropped } = lenientParse(configFromEnv({ OCR_MODEL_VERSION: 'v7', OCR_MODEL_SIZE: 'huge' }).values);
+    expect(dropped.sort()).toEqual(['ocr.modelSize', 'ocr.modelVersion']);
+    expect(config.ocr).toMatchObject({ modelVersion: 'v5', modelSize: 'small' });
+  });
+
   it('configFromEnv maps OCR_RELEASE and defaults to unloading per document on the GPU (#1005)', () => {
     expect(configFromEnv({ OCR_RELEASE: ' Document ' }).values).toEqual({ ocr: { release: 'document' } });
     // an unknown value is dropped when the configuration is loaded

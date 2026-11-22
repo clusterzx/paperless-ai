@@ -1,5 +1,5 @@
 /**
- * PaddleOCR (PP-OCRv5) inference with ONNX Runtime:
+ * PaddleOCR (PP-OCRv5 / PP-OCRv6) inference with ONNX Runtime:
  * page orientation → text detection → text line orientation → recognition.
  * Runs in the OCR worker thread; all heavy work is synchronous or native.
  */
@@ -16,14 +16,16 @@ import {
   DETECTION_MODELS,
   ensureModel,
   PAGE_ORIENTATION_MODEL,
+  parseDbOptions,
   RECOGNITION_MODELS,
   TEXTLINE_ORIENTATION_MODEL,
+  V6_MODELS,
   type OcrDetector,
   type OcrLanguage,
 } from './models.js';
 
 export type { OcrDevice } from '../../shared/ocr.js';
-import type { OcrDevice } from '../../shared/ocr.js';
+import type { OcrDevice, OcrModelSize } from '../../shared/ocr.js';
 
 export interface PipelineOptions {
   cacheDir: string;
@@ -40,6 +42,9 @@ export interface PipelineOptions {
   textlineOrientation: boolean;
   /** Drop recognised lines below this confidence (0…1). */
   minScore: number;
+  /** PP-OCRv6 in this size (one model for its languages) instead of PP-OCRv5 by language and detector. */
+  v6?: OcrModelSize;
+  /** Thresholds of the text detection; default: those of the model's inference.yml. */
   db?: Partial<DbOptions>;
 }
 
@@ -102,8 +107,10 @@ export class OcrPipeline {
   static async create(opts: PipelineOptions, log: (msg: string) => void = () => undefined): Promise<OcrPipeline> {
     const ort = (await import('onnxruntime-node')) as Ort;
     const onDownload = (repo: string) => log(`Downloading OCR model ${repo} (first use)…`);
-    const detFiles = await ensureModel(opts.cacheDir, DETECTION_MODELS[opts.detector], onDownload);
-    const recFiles = await ensureModel(opts.cacheDir, RECOGNITION_MODELS[opts.language], onDownload);
+    const v6 = opts.v6 ? V6_MODELS[opts.v6] : null;
+    const detFiles = await ensureModel(opts.cacheDir, v6 ? v6.det : DETECTION_MODELS[opts.detector], onDownload);
+    const recFiles = await ensureModel(opts.cacheDir, v6 ? v6.rec : RECOGNITION_MODELS[opts.language], onDownload);
+    log(v6 ? `OCR models: PP-OCRv6 ${opts.v6}` : `OCR models: PP-OCRv5 (${opts.detector} detection, ${opts.language} recognition)`);
     const textlineFiles = opts.textlineOrientation ? await ensureModel(opts.cacheDir, TEXTLINE_ORIENTATION_MODEL, onDownload) : null;
     const pageFiles = opts.pageOrientation ? await ensureModel(opts.cacheDir, PAGE_ORIENTATION_MODEL, onDownload) : null;
 
@@ -140,7 +147,9 @@ export class OcrPipeline {
       textlineFiles ? session(textlineFiles.onnx) : Promise.resolve(null),
       pageFiles ? session(pageFiles.onnx) : Promise.resolve(null),
     ]);
-    return new OcrPipeline(ort, det, rec, chars, textlineCls, pageCls, opts, provider);
+    // The detection thresholds of the model (PP-OCRv6 uses other ones than v5), unless given.
+    const db = { ...parseDbOptions(fs.readFileSync(detFiles.yml, 'utf8')), ...opts.db };
+    return new OcrPipeline(ort, det, rec, chars, textlineCls, pageCls, { ...opts, db }, provider);
   }
 
   async release(): Promise<void> {

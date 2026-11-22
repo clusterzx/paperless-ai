@@ -1,6 +1,6 @@
 /**
- * PaddleOCR (PP-OCRv5) ONNX models published by PaddlePaddle on Hugging Face
- * (Apache-2.0). They are downloaded on first use into the data directory and
+ * PaddleOCR (PP-OCRv5, PP-OCRv6) ONNX models published by PaddlePaddle on Hugging
+ * Face (Apache-2.0). They are downloaded on first use into the data directory and
  * pinned to a revision, so an update of the model repository never changes
  * results silently.
  */
@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import type { OcrLanguage } from '../../shared/ocr.js';
+import type { OcrLanguage, OcrModelSize } from '../../shared/ocr.js';
+import type { DbOptions } from './detPost.js';
 
 export interface ModelFile {
   repo: string;
@@ -39,6 +40,56 @@ export const RECOGNITION_MODELS: Record<OcrLanguage, ModelFile> = {
   tamil: { repo: 'PaddlePaddle/ta_PP-OCRv5_mobile_rec_onnx', revision: '0db89798af0d5218fad9ea7ace0557526e9077f1', size: 7885691 },
   telugu: { repo: 'PaddlePaddle/te_PP-OCRv5_mobile_rec_onnx', revision: 'f1197c83430241c58c64b0952b3a80366d04eeba', size: 7898759 },
 };
+
+/**
+ * PP-OCRv6 (PaddleOCR 3.7, 2026): detection and one recognition model for Latin-script languages,
+ * Chinese and Japanese (tiny: without Japanese) per size.
+ */
+export const V6_MODELS: Record<OcrModelSize, { det: ModelFile; rec: ModelFile }> = {
+  tiny: {
+    det: { repo: 'PaddlePaddle/PP-OCRv6_tiny_det_onnx', revision: '2ba1506c0380b8f0b03dd142459aac66d4421f6c', size: 1780590 },
+    rec: { repo: 'PaddlePaddle/PP-OCRv6_tiny_rec_onnx', revision: '2612ab37152ae0a677521bae4e1e3d4fb4cf7c30', size: 4462639 },
+  },
+  small: {
+    det: { repo: 'PaddlePaddle/PP-OCRv6_small_det_onnx', revision: '28fe5895c24fd108c19eb3e8479f4ab385fbfc62', size: 9880512 },
+    rec: { repo: 'PaddlePaddle/PP-OCRv6_small_rec_onnx', revision: 'b8f84f0b80c529de40b4fbb3544b84fa7233a513', size: 21159378 },
+  },
+  medium: {
+    det: { repo: 'PaddlePaddle/PP-OCRv6_medium_det_onnx', revision: '61323801669c338b7891481ec7bac61ce31b576a', size: 62032837 },
+    rec: { repo: 'PaddlePaddle/PP-OCRv6_medium_rec_onnx', revision: '50c7eacafc52fa7bcf4194e8cd08e46f8558504b', size: 76554979 },
+  },
+};
+
+/**
+ * The thresholds of the text detection as the model's inference.yml gives them (PostProcess of
+ * DBPostProcess) – PP-OCRv6 uses other ones than v5. Missing values keep the defaults.
+ */
+export function parseDbOptions(yml: string): Partial<DbOptions> {
+  // Line by line (no nested patterns): the indented lines after "PostProcess:".
+  const values = new Map<string, number>();
+  let inBlock = false;
+  for (const line of yml.split('\n')) {
+    if (!inBlock) {
+      inBlock = line.trimEnd() === 'PostProcess:';
+      continue;
+    }
+    if (!line.startsWith(' ') && !line.startsWith('\t')) break;
+    const at = line.indexOf(':');
+    if (at < 0) continue;
+    const n = Number(line.slice(at + 1).trim());
+    if (Number.isFinite(n) && n > 0) values.set(line.slice(0, at).trim(), n);
+  }
+  const out: Partial<DbOptions> = {};
+  const thresh = values.get('thresh');
+  const boxThresh = values.get('box_thresh');
+  const unclipRatio = values.get('unclip_ratio');
+  const maxCandidates = values.get('max_candidates');
+  if (thresh !== undefined && thresh < 1) out.thresh = thresh;
+  if (boxThresh !== undefined && boxThresh < 1) out.boxThresh = boxThresh;
+  if (unclipRatio !== undefined && unclipRatio < 10) out.unclipRatio = unclipRatio;
+  if (maxCandidates !== undefined) out.maxCandidates = Math.round(maxCandidates);
+  return out;
+}
 
 /** Text line orientation (0° / 180°). */
 export const TEXTLINE_ORIENTATION_MODEL: ModelFile = {
