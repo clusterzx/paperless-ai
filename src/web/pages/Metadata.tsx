@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useLocation, useSearch } from 'wouter';
-import { Combine, Copy, Pencil, Plus, Sparkles, Tags, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Combine, Copy, Pencil, Plus, Sparkles, Tags, Trash2 } from 'lucide-react';
 import type { MetadataItem, MetadataKindParam, SimilarMetadataGroup } from '@shared/api';
 import { Page } from '../components/Layout';
 import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Input, Modal, PageHeader, Select, Skeleton, Tabs, tabPanelProps, useConfirm, useToast } from '../components/ui';
 import { del, errorMessage, get, patch, post } from '../lib/api';
 import { useAsync } from '../lib/hooks';
-import { formatNumber } from '../lib/format';
+import { cn, formatNumber } from '../lib/format';
 import { loadMetadata } from '../lib/metadata';
 
 const KINDS: { id: MetadataKindParam; label: string; singular: string; filter: string }[] = [
@@ -16,6 +16,38 @@ const KINDS: { id: MetadataKindParam; label: string; singular: string; filter: s
   { id: 'custom-fields', label: 'Custom fields', singular: 'custom field', filter: '' },
 ];
 const FIELD_TYPES = ['string', 'longtext', 'integer', 'float', 'monetary', 'date', 'boolean', 'url', 'select', 'documentlink'];
+
+type SortKey = 'name' | 'count';
+type Sort = { key: SortKey; order: 'asc' | 'desc' };
+const SORT_STORE = 'pai-metadata-sort';
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+/** The sort chosen last (kept in this browser); A–Z by default. */
+function storedSort(): Sort {
+  try {
+    const v = JSON.parse(localStorage.getItem(SORT_STORE) ?? 'null') as Sort | null;
+    if (v && (v.key === 'name' || v.key === 'count') && (v.order === 'asc' || v.order === 'desc')) return v;
+  } catch {
+    // no storage (private window): the default
+  }
+  return { key: 'name', order: 'asc' };
+}
+
+function SortButton({ k, sort, onSort, children }: { k: SortKey; sort: Sort; onSort: (k: SortKey) => void; children: ReactNode }) {
+  const active = sort.key === k;
+  const direction = sort.order === 'asc' ? ' (ascending)' : ' (descending)';
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(k)}
+      aria-label={`Sort by ${k === 'name' ? 'name' : 'number of documents'}${active ? direction : ''}`}
+      className={cn('inline-flex items-center gap-1 tracking-wide uppercase hover:text-fg', active && 'text-fg')}
+    >
+      {children}
+      {!active ? <ArrowUpDown className="size-3 opacity-50" /> : sort.order === 'desc' ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />}
+    </button>
+  );
+}
 
 function EditModal({ kind, item, onClose, onSaved }: { kind: (typeof KINDS)[number]; item: MetadataItem | null; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(item?.name ?? '');
@@ -311,7 +343,25 @@ export default function MetadataPage() {
   const [merging, setMerging] = useState(false);
   const [duplicates, setDuplicates] = useState(false);
   const data = useAsync((signal) => get<MetadataItem[]>(`/api/${kind.id}`, signal), [kind.id]);
-  const items = useMemo(() => (data.data ?? []).filter((i) => !find || i.name.toLowerCase().includes(find.toLowerCase())), [data.data, find]);
+  const [sort, setSort] = useState<Sort>(storedSort);
+  const onSort = (key: SortKey) => {
+    // The same column again: the other direction; another column: A–Z, or the most used first.
+    const next: Sort = sort.key === key ? { key, order: sort.order === 'asc' ? 'desc' : 'asc' } : { key, order: key === 'count' ? 'desc' : 'asc' };
+    setSort(next);
+    try {
+      localStorage.setItem(SORT_STORE, JSON.stringify(next));
+    } catch {
+      // not kept – fine
+    }
+  };
+  const items = useMemo(() => {
+    const dir = sort.order === 'asc' ? 1 : -1;
+    const byName = (a: MetadataItem, b: MetadataItem) => collator.compare(a.name, b.name);
+    return (data.data ?? [])
+      .filter((i) => !find || i.name.toLowerCase().includes(find.toLowerCase()))
+      .sort((a, b) => (sort.key === 'count' ? ((a.document_count ?? 0) - (b.document_count ?? 0)) * dir || byName(a, b) : byName(a, b) * dir));
+  }, [data.data, find, sort]);
+  const allShown = items.length > 0 && items.every((i) => selected.has(i.id));
   const reload = () => {
     setSelected(new Set());
     void data.reload();
@@ -381,41 +431,63 @@ export default function MetadataPage() {
           ) : items.length === 0 ? (
             <EmptyState title={find ? 'Nothing found' : `No ${kind.label.toLowerCase()} yet`} />
           ) : (
-            <ul className="divide-y divide-border">
-              {items.map((i) => (
-                <li key={i.id} className="flex items-center gap-3 px-5 py-2.5 text-sm">
-                  <input
-                    type="checkbox"
-                    aria-label={`Select ${i.name}`}
-                    checked={selected.has(i.id)}
-                    onChange={(e) =>
-                      setSelected((s) => {
-                        const n = new Set(s);
-                        if (e.target.checked) n.add(i.id);
-                        else n.delete(i.id);
-                        return n;
-                      })
-                    }
-                  />
-                  {i.color && <span className="size-3 shrink-0 rounded-full" style={{ background: i.color }} />}
-                  <span className="min-w-0 flex-1 truncate font-medium">{i.name}</span>
-                  {i.data_type && <Badge>{i.data_type}</Badge>}
-                  {kind.filter ? (
-                    <Link href={`/documents?${kind.filter}=${i.id}`} className="text-xs text-muted tabular-nums hover:text-fg hover:underline">
-                      {formatNumber(i.document_count)} documents
-                    </Link>
-                  ) : (
-                    <span className="text-xs text-muted tabular-nums">{formatNumber(i.document_count)} documents</span>
-                  )}
-                  <IconButton label="Rename" onClick={() => setEdit(i)}>
-                    <Pencil className="size-4" />
-                  </IconButton>
-                  <IconButton label="Delete" onClick={() => remove(i)}>
-                    <Trash2 className="size-4" />
-                  </IconButton>
-                </li>
-              ))}
-            </ul>
+            <>
+              <div className="flex items-center gap-3 border-b border-border px-5 py-2 text-xs font-medium text-muted">
+                <input
+                  type="checkbox"
+                  aria-label="Select all shown"
+                  checked={allShown}
+                  ref={(el) => {
+                    if (el) el.indeterminate = !allShown && items.some((i) => selected.has(i.id));
+                  }}
+                  onChange={(e) => setSelected(e.target.checked ? new Set(items.map((i) => i.id)) : new Set())}
+                />
+                <div className="min-w-0 flex-1">
+                  <SortButton k="name" sort={sort} onSort={onSort}>
+                    Name
+                  </SortButton>
+                </div>
+                <SortButton k="count" sort={sort} onSort={onSort}>
+                  Documents
+                </SortButton>
+                <span className="w-[4.75rem] shrink-0" aria-hidden />
+              </div>
+              <ul className="divide-y divide-border">
+                {items.map((i) => (
+                  <li key={i.id} className="flex items-center gap-3 px-5 py-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${i.name}`}
+                      checked={selected.has(i.id)}
+                      onChange={(e) =>
+                        setSelected((s) => {
+                          const n = new Set(s);
+                          if (e.target.checked) n.add(i.id);
+                          else n.delete(i.id);
+                          return n;
+                        })
+                      }
+                    />
+                    {i.color && <span className="size-3 shrink-0 rounded-full" style={{ background: i.color }} />}
+                    <span className="min-w-0 flex-1 truncate font-medium">{i.name}</span>
+                    {i.data_type && <Badge>{i.data_type}</Badge>}
+                    {kind.filter ? (
+                      <Link href={`/documents?${kind.filter}=${i.id}`} className="text-xs text-muted tabular-nums hover:text-fg hover:underline">
+                        {formatNumber(i.document_count)} documents
+                      </Link>
+                    ) : (
+                      <span className="text-xs text-muted tabular-nums">{formatNumber(i.document_count)} documents</span>
+                    )}
+                    <IconButton label="Rename" onClick={() => setEdit(i)}>
+                      <Pencil className="size-4" />
+                    </IconButton>
+                    <IconButton label="Delete" onClick={() => remove(i)}>
+                      <Trash2 className="size-4" />
+                    </IconButton>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </Card>
       </div>

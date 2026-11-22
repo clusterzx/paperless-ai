@@ -285,3 +285,35 @@ test('shows a monetary field as amount and currency and saves it in the stored f
   await expect(page.getByLabel('Rechnungssumme', { exact: true })).toHaveValue('150.50');
   await expect(page.getByLabel('Currency of Rechnungssumme')).toHaveValue('USD');
 });
+
+test('sorts tags by name and by number of documents', async ({ page }) => {
+  await login(page);
+  for (const [name, text] of [
+    ['mmm-sort', 'Sortiertest eins'],
+    ['mmm-sort,zzz-sort', 'Sortiertest zwei'],
+  ]) {
+    const res = await page.request.post('/api/documents/upload', {
+      multipart: { file: { name: `${text}.pdf`, mimeType: 'application/pdf', buffer: makePdf([[text]]) }, tags: name, skipAnalysis: 'true' },
+    });
+    expect(res.ok(), await res.text()).toBe(true);
+  }
+  expect((await page.request.post('/api/tags', { data: { name: 'aaa-sort' } })).ok()).toBe(true);
+  await page.goto('/metadata?kind=tags');
+  await page.getByLabel('Find').fill('-sort');
+  const order = async () =>
+    (await page.getByRole('checkbox', { name: /^Select .*-sort$/ }).evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!.replace('Select ', ''))));
+  await expect.poll(order).toEqual(['aaa-sort', 'mmm-sort', 'zzz-sort']);
+  await page.getByRole('button', { name: /^Sort by name/ }).click();
+  await expect.poll(order).toEqual(['zzz-sort', 'mmm-sort', 'aaa-sort']);
+  await page.getByRole('button', { name: /^Sort by number of documents/ }).click();
+  await expect.poll(order).toEqual(['mmm-sort', 'zzz-sort', 'aaa-sort']); // most used first
+  await page.getByRole('button', { name: /^Sort by number of documents/ }).click();
+  await expect.poll(order).toEqual(['aaa-sort', 'zzz-sort', 'mmm-sort']);
+  // kept after a reload
+  await page.reload();
+  await page.getByLabel('Find').fill('-sort');
+  await expect.poll(order).toEqual(['aaa-sort', 'zzz-sort', 'mmm-sort']);
+  // select all shown
+  await page.getByRole('checkbox', { name: 'Select all shown' }).check();
+  await expect(page.getByRole('button', { name: 'Merge 3' })).toBeVisible();
+});
