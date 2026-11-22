@@ -68,7 +68,16 @@ export const documentRoutes =
         tags: metas.flatMap(({ lib: l, meta }) => meta.tags.map((t) => ({ id: t.id, name: t.name, color: t.color, document_count: t.document_count, ...lib(l) }))),
         correspondents: metas.flatMap(({ lib: l, meta }) => meta.correspondents.map((c) => ({ id: c.id, name: c.name, document_count: c.document_count, ...lib(l) }))),
         documentTypes: metas.flatMap(({ lib: l, meta }) => meta.documentTypes.map((d) => ({ id: d.id, name: d.name, document_count: d.document_count, ...lib(l) }))),
-        customFields: metas.flatMap(({ lib: l, meta }) => meta.customFields.map((f) => ({ id: f.id, name: f.name, data_type: f.data_type, ...lib(l) }))),
+        // With the currency and the options, so the document page can offer the right input.
+        customFields: metas.flatMap(({ lib: l, meta }) =>
+          meta.customFields.map((f) => ({
+            id: f.id,
+            name: f.name,
+            data_type: f.data_type,
+            extra_data: { default_currency: f.extra_data?.default_currency ?? null, select_options: f.extra_data?.select_options ?? [] },
+            ...lib(l),
+          })),
+        ),
       };
     });
 

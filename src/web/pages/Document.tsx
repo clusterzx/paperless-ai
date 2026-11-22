@@ -14,6 +14,7 @@ import { cn, formatDate, timeAgo } from '../lib/format';
 import { useMetadata, type MetadataLookup } from '../lib/metadata';
 import { useLiveEvents } from '../lib/live';
 import { useSession } from '../lib/session';
+import { CustomFieldInput, fieldDraftValue } from '../components/customFieldInput';
 
 type TabId = 'details' | 'text' | 'versions' | 'activity' | 'chat';
 
@@ -31,7 +32,7 @@ function draftOf(d: DocumentDetail, meta: MetadataLookup): Draft {
   const fields: Record<string, string> = {};
   for (const f of d.custom_fields) {
     const def = meta.customFields.find((c) => c.id === f.field);
-    if (def) fields[def.name] = f.value === null || f.value === undefined ? '' : String(f.value);
+    if (def) fields[def.name] = fieldDraftValue(def, f.value);
   }
   return {
     title: d.title,
@@ -138,11 +139,14 @@ function DetailsForm({ doc, meta, onSaved }: { doc: DocumentDetail; meta: Metada
       </Field>
       {Object.keys(draft.fields).length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
-          {Object.entries(draft.fields).map(([name, value]) => (
-            <Field key={name} label={name}>
-              <Input value={value} onChange={(e) => set({ fields: { ...draft.fields, [name]: e.target.value } })} disabled={readOnly} />
-            </Field>
-          ))}
+          {Object.entries(draft.fields).map(([name, value]) => {
+            const def = meta.customFields.find((c) => c.name === name);
+            return (
+              <Field key={name} label={name} className={def?.data_type === 'longtext' ? 'sm:col-span-2' : undefined}>
+                <CustomFieldInput field={def} value={value} onChange={(v) => set({ fields: { ...draft.fields, [name]: v } })} disabled={readOnly} />
+              </Field>
+            );
+          })}
         </div>
       )}
       {!readOnly && unusedFields.length > 0 && (

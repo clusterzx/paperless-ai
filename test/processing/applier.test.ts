@@ -82,6 +82,12 @@ describe('convertCustomFieldValue', () => {
     expect(convertCustomFieldValue(field('monetary'), 'free')).toBeUndefined();
   });
 
+  it('monetary keeps a currency written in the value (the stored form and a currency chosen on the document page)', () => {
+    expect(convertCustomFieldValue(field('monetary', { default_currency: 'EUR' }), 'USD134.89')).toBe('USD134.89');
+    expect(convertCustomFieldValue(field('monetary', { default_currency: null }), 'EUR134.89')).toBe('EUR134.89');
+    expect(convertCustomFieldValue(field('monetary', { default_currency: 'EUR' }), '134,89\u00a0€', 'USD')).toBe('EUR134.89');
+  });
+
   it('select matches option labels (object and legacy string options)', () => {
     const objects = field('select', { select_options: [{ id: 'aB3', label: 'Open' }, { id: 'zZ9', label: 'Paid' }] });
     expect(convertCustomFieldValue(objects, ' paid ')).toBe('zZ9');

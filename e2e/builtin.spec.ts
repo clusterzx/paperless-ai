@@ -15,13 +15,20 @@ const USER = 'owner';
 const PASSWORD = 'e2e-password-123';
 
 async function login(page: Page) {
+  const home = page.getByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening|night)/ });
   await page.goto('/login');
-  if (page.url().endsWith('/login')) {
+  // Every test signs in: the sign-in rate limit can answer "retry in N seconds" – then wait and retry.
+  for (let attempt = 0; attempt < 3 && page.url().endsWith('/login'); attempt++) {
     await page.fill('#username', USER);
     await page.fill('#password', PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
+    const limited = page.getByRole('alert').filter({ hasText: /Rate limit exceeded/ });
+    await expect(home.or(limited)).toBeVisible();
+    if (await home.isVisible()) return;
+    const seconds = Number(/retry in (\d+)/.exec((await limited.textContent()) ?? '')?.[1] ?? 30);
+    await page.waitForTimeout((seconds + 1) * 1000);
   }
-  await expect(page.getByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening|night)/ })).toBeVisible();
+  await expect(home).toBeVisible();
 }
 
 test('setup wizard sets up the built-in archive', async ({ page, request }) => {
@@ -255,4 +262,26 @@ test('searches with tag:, title: … and completes names', async ({ page }) => {
   // A name that does not exist says so.
   await box.fill('tag:gibtesnicht');
   await expect(page.getByLabel('Search understood as')).toContainText('No tag “gibtesnicht”');
+});
+
+test('shows a monetary field as amount and currency and saves it in the stored form', async ({ page }) => {
+  await login(page);
+  const list = (await (await page.request.get('/api/documents?limit=1')).json()) as { results: { id: number; library_id: number }[] };
+  const doc = list.results[0];
+  expect((await page.request.post('/api/custom-fields', { data: { name: 'Rechnungssumme', dataType: 'monetary', currency: 'EUR', libraryId: doc.library_id } })).ok()).toBe(true);
+  expect((await page.request.patch(`/api/documents/${doc.id}`, { data: { customFields: [{ field_name: 'Rechnungssumme', value: 'EUR134.89' }] } })).ok()).toBe(true);
+
+  await page.goto(`/documents/${doc.id}`);
+  const amount = page.getByLabel('Rechnungssumme', { exact: true });
+  await expect(amount).toHaveValue('134.89'); // the browser's notation (en-US here), not "EUR134.89"
+  await expect(page.getByLabel('Currency of Rechnungssumme')).toHaveValue('EUR');
+  await amount.fill('150,5'); // German notation is understood as well
+  await page.getByLabel('Currency of Rechnungssumme').selectOption('USD');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Saved')).toBeVisible();
+  const saved = (await (await page.request.get(`/api/documents/${doc.id}`)).json()) as { custom_fields: { value: unknown }[] };
+  expect(saved.custom_fields.map((f) => f.value)).toContain('USD150.50');
+  await page.reload();
+  await expect(page.getByLabel('Rechnungssumme', { exact: true })).toHaveValue('150.50');
+  await expect(page.getByLabel('Currency of Rechnungssumme')).toHaveValue('USD');
 });

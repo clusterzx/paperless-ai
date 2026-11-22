@@ -12,6 +12,7 @@ import { statusOf, type ArchiveDocument, type ChangeOrigin, type CustomField, ty
 import { logger } from '../logger.js';
 import { datePart, normalizeDate } from './dates.js';
 import { localDate } from './prompt.js';
+import { currencyIn, formatMonetaryValue, parseNumber } from '../../shared/numbers.js';
 
 const log = logger.child({ module: 'applier' });
 
@@ -39,22 +40,7 @@ export function truncateTitle(title: string): string {
   return t.length > MAX_TITLE_LENGTH ? `${t.slice(0, MAX_TITLE_LENGTH - 1).trimEnd()}…` : t;
 }
 
-/** Parse numbers written in German or English notation ("1.234,56", "1,234.56", "12,50 €"). */
-export function parseNumber(input: string): number | null {
-  let t = input.replace(/[^\d,.-]/g, '');
-  if (!t || !/\d/.test(t)) return null;
-  const lastComma = t.lastIndexOf(',');
-  const lastDot = t.lastIndexOf('.');
-  if (lastComma > -1 && lastDot > -1) {
-    t = lastComma > lastDot ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
-  } else if (lastComma > -1) {
-    t = /^-?\d{1,3}(,\d{3})+$/.test(t) ? t.replace(/,/g, '') : t.replace(',', '.');
-  } else if (/^-?\d{1,3}(\.\d{3}){2,}$/.test(t)) {
-    t = t.replace(/\./g, '');
-  }
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-}
+export { parseNumber };
 
 /** Convert a textual AI value into the representation Paperless expects for the field type. */
 export function convertCustomFieldValue(field: CustomField, value: string, currency?: string): unknown {
@@ -87,8 +73,8 @@ export function convertCustomFieldValue(field: CustomField, value: string, curre
     case 'monetary': {
       const n = parseNumber(v);
       if (n === null) return undefined;
-      const cur = (field.extra_data?.default_currency || currency || /\b([A-Z]{3})\b/.exec(v)?.[1] || '').toUpperCase();
-      return `${cur}${n.toFixed(2)}`;
+      // A currency written in the value ("USD134.89", "12,50 €") wins; else the field's, else the configured one.
+      return formatMonetaryValue(currencyIn(v) || field.extra_data?.default_currency || currency || '', n);
     }
     case 'select': {
       // Paperless < 2.15 stores plain string options and the option index as value; newer

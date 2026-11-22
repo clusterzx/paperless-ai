@@ -5,7 +5,15 @@ export interface Metadata {
   tags: { id: number; name: string; color?: string; document_count?: number }[];
   correspondents: { id: number; name: string; document_count?: number }[];
   documentTypes: { id: number; name: string; document_count?: number }[];
-  customFields: { id: number; name: string; data_type: string }[];
+  customFields: CustomFieldMeta[];
+}
+
+export interface CustomFieldMeta {
+  id: number;
+  name: string;
+  data_type: string;
+  /** Currency of monetary fields, options of select fields (old Paperless-ngx: plain strings, the value is the index). */
+  extra_data?: { default_currency?: string | null; select_options?: ({ id: string; label: string } | string)[] } | null;
 }
 
 let cache: { at: number; promise: Promise<Metadata> } | null = null;
