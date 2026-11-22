@@ -2,6 +2,7 @@ node_modules
 dist
 data
 data_*
+scans
 logs
 .git
 .github

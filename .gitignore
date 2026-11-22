@@ -6,6 +6,7 @@ dist/
 # Runtime data (config, database, models, logs)
 data/
 data_*/
+/scans/
 logs/
 
 # Environment files (keep the example)

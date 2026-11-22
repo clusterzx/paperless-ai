@@ -74,6 +74,11 @@ volumes:
 The docs include examples for an FTP or SMB sidecar container that writes into `/consume`, for
 scanners that cannot use WebDAV or the REST upload.
 
+The `docker-compose.yml` of the repository mounts a host folder as `/scans` for this:
+`PAPERLESS_AI_SCANS_DIR=/srv/scans` (default `./scans` next to the file). Watch folders then point
+at `/scans` or at folders below it (`/scans/family`). Behind Coolify and other tools that deploy
+the compose file from the repository, set the variable in their environment settings.
+
 ## 5. Configuration reference (new)
 
 | Environment variable | Config path | Default |

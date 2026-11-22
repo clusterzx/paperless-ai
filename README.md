@@ -221,6 +221,7 @@ Choose *Built-in archive* in the setup (or set `PAPERLESS_AI_ARCHIVE=builtin`). 
 | `PAPERLESS_AI_ARCHIVE` | `builtin` or `paperless` |
 | `PAPERLESS_AI_STORAGE_DIR` | where the files go (default `data/library`) |
 | `PAPERLESS_AI_CONSUME_DIR` | watch folder (subfolders become tags – or choose the library, Settings → Archive); not inside the data directory or the file storage |
+| `PAPERLESS_AI_SCANS_DIR` | `docker-compose.yml`: host folder that appears as `/scans` in the container – for watch folders and scanner shares (default `./scans`) |
 | `PAPERLESS_AI_EXPORT_DIR` | another directory exports may be written to (e.g. a mounted volume); default: only below `data/exports` |
 | `PAPERLESS_AI_SMTP_HOST`, `_PORT`, `_SECURITY`, `_USER`, `_PASSWORD`, `_FROM` | e-mail for workflow notifications |
 | `PAPERLESS_AI_URL` | public address, used in links of e-mails and webhooks |
