@@ -1,9 +1,10 @@
 # Built-in archive (standalone mode) – plan
 
-Status: **proposal / planning** · Branch: `claude/busy-fermat-647g3o` · Origin: [Discussion #1019](https://github.com/clusterzx/paperless-ai/discussions/1019)
+Status: **implemented in 4.5.0** · Origin: [Discussion #1019](https://github.com/clusterzx/paperless-ai/discussions/1019) · User guide: [docs/guide/built-in-archive.md](../guide/built-in-archive.md)
 
-This folder describes what will be built, why, and how. It is the reference for the implementation
-and for reviewing it. Everything here is open to change until the matching milestone starts. The
+This folder describes what was built, why, and how – it was written as the plan before the
+implementation and is kept as the reference for the design. Where the implementation differs from
+the plan, §7 "Implementation status" and the implementation notes of each document say so. The
 decision log at the end records what has been settled.
 
 | Document | Content |
@@ -82,7 +83,7 @@ back to Paperless-ngx.
 | Paperless-ngx REST API compatibility | A second API under `/ngx/api/` speaks the Paperless-ngx REST API (version 9) for the mobile apps made for Paperless-ngx; Paperless-AI's own API stays as it is – see [docs/guide/mobile-apps.md](../guide/mobile-apps.md) and `src/server/ngx/`. |
 | Office documents in the first release | PDF and images first, since the OCR pipeline already reads them. Office formats later via an optional Gotenberg sidecar. |
 | Horizontal scaling, several app instances | Self-hosted single-container product. |
-| Native mobile apps | PWA (install, share target, camera upload) plus the REST API for existing scanner apps. |
+| Own native mobile apps | PWA (install, share target, camera upload), the REST API for scanner apps, and the existing Paperless-ngx apps through the compatible API ([mobile-apps.md](../guide/mobile-apps.md)). |
 | Barcode / separator page splitting, notes, share links | Later, after the core is stable. |
 
 ## 5. The two modes
@@ -122,7 +123,9 @@ back to Paperless-ngx.
 | File versions | – (Paperless-ngx's business) | ✓ |
 | Libraries with members and roles | – (Paperless-ngx permissions apply, see [access-control.md](access-control.md#7-companion-mode)) | ✓ |
 | Trash | ngx trash | ✓ |
-| Roles in Paperless-AI (admin / member), API keys per user | ✓ | ✓ |
+| Roles in Paperless-AI (admin / member), API keys per user with permissions and rate limits | ✓ | ✓ |
+| Mobile apps made for Paperless-ngx | connect to Paperless-ngx itself | ✓ through the compatible API (`/ngx/api/`) |
+| MCP server for AI agents (`/mcp`) | ✓ | ✓ |
 | Migration assistant | source | target |
 
 ## 6. Principles
@@ -221,8 +224,8 @@ share links.
 
 ### Implementation status
 
-All milestones M0–M7 are implemented on this branch (one commit per milestone). Deviations from
-the plan, decided while building:
+All milestones M0–M7 are implemented and released in 4.5.0. Deviations from the plan, decided
+while building:
 
 * **No experimental flag:** the setup offers both modes from M3 on; the migration assistant and
   the exports make the built-in archive usable for existing installations (M7).
@@ -234,6 +237,10 @@ the plan, decided while building:
   rules are workflows, webhooks are admin-only, IMAP IDLE and drag and drop are not there yet.
 * **Migration (M7):** see [migration.md §7](migration.md#7-implementation-notes-m7) – rollback
   does not write changes back to Paperless-ngx yet; the round trip CI job awaits its first run.
+* **Beyond the plan:** a Paperless-ngx compatible API for the mobile apps
+  ([mobile-apps.md](../guide/mobile-apps.md)) and an MCP server for AI agents with finer API key
+  permissions (`delete`, `metadata`, `mcp`, rate limits – [mcp.md](../guide/mcp.md),
+  [access-control.md §5](access-control.md#5-api-keys)).
 * Still open from the plan, in "Later": folder projection, searchable PDF/A, Office formats,
   per-user mapping in companion mode, notes (exported to `data/migration/notes.json` for now).
 

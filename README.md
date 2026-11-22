@@ -62,7 +62,7 @@ More: [Installation](docs/guide/installation.md) (NVIDIA image, Paperless-ngx AP
 
 ## 📚 Documentation
 
-All guides: **[docs/guide](docs/guide/README.md)** – installation, configuration, built-in archive, getting documents in, search, prompt rules, OCR, Ask your archive, calendar, single sign-on, local models, certificates, API and development. Release notes: [GitHub Releases](https://github.com/clusterzx/paperless-ai/releases).
+All guides: **[docs/guide](docs/guide/README.md)** – installation, configuration, built-in archive, getting documents in, mobile apps, AI agents (MCP), search, prompt rules, OCR, Ask your archive, calendar, single sign-on, local models, certificates, API and development. Release notes: [GitHub Releases](https://github.com/clusterzx/paperless-ai/releases).
 
 ## 🆘 Support & Community
 

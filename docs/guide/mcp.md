@@ -44,7 +44,7 @@ Download the bridge from your instance – `https://paperless-ai.example.com/mcp
 }
 ```
 
-Instead of the environment: `--url …`, `--key …` or `--key-file <file>`. When the agent runs on the same host as the container: `docker exec -i -e PAPERLESS_AI_API_KEY=pai_… paperless-ai node dist/server/cli.js mcp`.
+Instead of the environment: `--url …`, `--key …` or `--key-file <file>` (`PAPERLESS_AI_API_KEY_FILE`), e.g. for a Docker secret. When the agent runs on the same host as the container: `docker exec -i -e PAPERLESS_AI_API_KEY=pai_… paperless-ai node dist/server/cli.js mcp`.
 
 ## Tools
 
