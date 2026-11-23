@@ -1,3 +1,4 @@
+import { VERSION } from '../../src/server/context.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -27,7 +28,7 @@ describe('setup wizard', () => {
   it('reports that setup is required', async () => {
     const res = await h.inject({ method: 'GET', url: '/api/session' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ authenticated: false, setupRequired: true, needsUser: true, version: '4.5.0' });
+    expect(res.json()).toMatchObject({ authenticated: false, setupRequired: true, needsUser: true, version: VERSION });
     const health = await h.inject({ method: 'GET', url: '/health' });
     expect(health.json()).toMatchObject({ status: 'not_configured' });
   });

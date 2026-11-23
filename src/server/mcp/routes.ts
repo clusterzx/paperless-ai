@@ -14,6 +14,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { Services } from '../http/app.js';
 import { userIdOf } from '../access/scope.js';
 import { actorName } from '../access/context.js';
+import { VERSION } from '../context.js';
 import { logger } from '../logger.js';
 import { handleMessage, hasRequest, LATEST_PROTOCOL_VERSION, PROTOCOL_VERSIONS, RPC, RpcError, type RpcResponse } from './protocol.js';
 import { callTool, inputSchema, toolsFor, type ToolContext } from './tools.js';
@@ -28,11 +29,6 @@ const INSTRUCTIONS = [
   'Dates are YYYY-MM-DD. Link documents for the user with their `url`.',
 ].join(' ');
 
-/** The version of Paperless-AI (package.json), for serverInfo. */
-let version = '0.0.0';
-void readFile(new URL('../../../package.json', import.meta.url), 'utf8')
-  .then((s) => (version = (JSON.parse(s) as { version: string }).version))
-  .catch(() => undefined);
 
 /** Same origin as the server (or none – agents send none). */
 function originAllowed(req: FastifyRequest): boolean {
@@ -99,7 +95,7 @@ export const mcpRoutes =
             return {
               protocolVersion: (PROTOCOL_VERSIONS as readonly string[]).includes(asked) ? asked : LATEST_PROTOCOL_VERSION,
               capabilities: { tools: { listChanged: false } },
-              serverInfo: { name: 'paperless-ai', title: 'Paperless-AI', version },
+              serverInfo: { name: 'paperless-ai', title: 'Paperless-AI', version: VERSION },
               instructions: INSTRUCTIONS,
             };
           }

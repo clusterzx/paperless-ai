@@ -3,6 +3,7 @@
  * service clients. Clients are rebuilt automatically when the relevant part
  * of the configuration changes – no restart required after saving settings.
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import type { AppConfig } from './config/schema.js';
 import { ConfigStore } from './config/store.js';
@@ -22,7 +23,11 @@ import { activeModel, aiConfigProblem, createLlmClient, withModel } from './ai/f
 import type { CompletionResult, LlmClient, Usage } from './ai/types.js';
 import { logger } from './logger.js';
 
-export const VERSION = '4.5.0';
+/**
+ * The version of Paperless-AI. Kept in package.json only (`npm version x.y.z --no-git-tag-version`),
+ * so the app, the image and the release cannot disagree; the release workflow checks the tag against it.
+ */
+export const VERSION: string = (JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 
 export class NotConfiguredError extends Error {
   constructor(message: string) {
