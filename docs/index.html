@@ -333,8 +333,11 @@
     <span class="k">restart:</span> unless-stopped
     <span class="k">ports:</span>
       - "3000:3000"
+    <span class="k">environment:</span>
+      - TZ=Europe/Berlin <span class="c"># your time zone</span>
     <span class="k">volumes:</span>
       - paperless-ai_data:/app/data
+      - ./scans:/scans <span class="c"># built-in archive: scanner folder</span>
     <span class="k">extra_hosts:</span>
       - "host.docker.internal:host-gateway" <span class="c"># Ollama on the host</span>
 

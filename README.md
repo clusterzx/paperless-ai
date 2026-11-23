@@ -40,8 +40,13 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    environment:
+      - TZ=Europe/Berlin # your time zone: schedules, dates, logs
+      # - TRUST_PROXY=1  # behind a reverse proxy (Traefik, Caddy, nginx, Coolify …)
     volumes:
       - paperless-ai_data:/app/data
+      # Built-in archive: a folder for your scanner – set /scans as the watch folder in Settings → Archive
+      - ./scans:/scans
     extra_hosts:
       - "host.docker.internal:host-gateway" # to reach Ollama on the Docker host
 

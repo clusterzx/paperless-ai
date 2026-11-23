@@ -9,6 +9,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | --- | --- |
 | `PAPERLESS_AI_PORT` | HTTP port (default `3000`) |
 | `PAPERLESS_AI_HOST` | address the server listens on (default `0.0.0.0`, all interfaces) |
+| `TZ` | time zone, e.g. `Europe/Berlin` – the times of `SCAN_INTERVAL`, dates without a time zone and the log (default UTC) |
 | `PAPERLESS_AI_DATA_DIR` | data directory (default `./data`, `/app/data` in Docker) |
 | `PAPERLESS_AI_RESET_2FA` | username – switches off two-factor authentication of that account at the next start (phone lost and no recovery codes left); remove it afterwards |
 | `PAPERLESS_API_URL` (or `PAPERLESS_URL`), `PAPERLESS_API_TOKEN` | Paperless-ngx URL (with or without `/api`) and token – `PAPERLESS_API_URL` wins when both are set |

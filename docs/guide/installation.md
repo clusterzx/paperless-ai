@@ -13,8 +13,13 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    environment:
+      - TZ=Europe/Berlin # your time zone: schedules, dates, logs
+      # - TRUST_PROXY=1  # behind a reverse proxy (Traefik, Caddy, nginx, Coolify …)
     volumes:
       - paperless-ai_data:/app/data
+      # Built-in archive: a folder for your scanner – set /scans as the watch folder in Settings → Archive
+      - ./scans:/scans
     extra_hosts:
       - "host.docker.internal:host-gateway" # to reach Ollama on the Docker host
 
@@ -31,7 +36,9 @@ Open `http://<your-server>:3000`. The setup wizard asks for your account, the ar
 > [!IMPORTANT]
 > Until the first account exists, the setup wizard is open to everyone who can reach it. Complete the setup before the instance is reachable from other networks, and keep Paperless-AI in your local network or behind a VPN or an authenticating reverse proxy.
 
-The `docker-compose.yml` of the repository builds the image from source and additionally mounts a folder for [watch folders](intake.md#watch-folders) (`/scans`).
+- **`/scans`** is only needed for the [built-in archive](built-in-archive.md) with a scanner or another program that drops files into a folder ([watch folders](intake.md#watch-folders)); with Paperless-ngx as the archive you can leave the line out. Any host folder works, e.g. `/srv/scans:/scans` or a NAS share.
+- **`TZ`** sets the time zone of schedules, dates and logs (default: UTC).
+- The `docker-compose.yml` of the repository builds the image from source, with the same folders (the host folder of `/scans` is `PAPERLESS_AI_SCANS_DIR`).
 
 ## Image variants
 
