@@ -64,13 +64,14 @@
     .hero h1 { font-size: clamp(38px, 5.4vw, 62px); line-height: 1.02; letter-spacing: -0.035em; font-weight: 680; }
     .hero h1 .dot { color: var(--accent); }
     .hero .lead { margin-top: 22px; font-size: clamp(16.5px, 1.6vw, 18.5px); color: var(--muted); max-width: 34em; }
-    .run { margin-top: 32px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px; }
-    .cmd { display: inline-flex; align-items: stretch; border: 1px solid var(--code-border); border-radius: 10px; background: var(--code-bg); color: var(--code-text); overflow: hidden; max-width: 100%; }
-    .cmd code { background: none; padding: 12px 14px; font-size: 14.5px; border-radius: 0; white-space: nowrap; overflow-x: auto; }
-    .cmd code::before { content: "$ "; color: var(--code-muted); }
-    .cmd button { font: 600 12.5px/1 var(--sans); color: var(--code-text); background: rgb(255 255 255 / .06); border: 0; border-left: 1px solid var(--code-border); padding: 0 14px; cursor: pointer; }
-    .cmd button:hover { background: rgb(255 255 255 / .12); }
-    .run .more { font-weight: 600; white-space: nowrap; }
+    .run { margin-top: 32px; max-width: 460px; }
+    .cmd { position: relative; border: 1px solid var(--code-border); border-radius: 10px; background: var(--code-bg); color: var(--code-text); }
+    .cmd pre { padding: 14px 16px; font-size: 14px; line-height: 1.65; overflow-x: auto; }
+    .cmd .p { color: var(--code-muted); user-select: none; }
+    .cmd button { position: absolute; top: 9px; right: 9px; font: 600 12.5px/1 var(--sans); color: var(--code-text); background: rgb(255 255 255 / .07); border: 1px solid var(--code-border); border-radius: 7px; padding: 6px 10px; cursor: pointer; }
+    .cmd button:hover { background: rgb(255 255 255 / .13); }
+    .run .then { margin-top: 12px; font-size: 15px; color: var(--muted); }
+    .run .then a { font-weight: 600; white-space: nowrap; }
     .facts { margin-top: 40px; display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 0; border-top: 1px solid var(--border); padding-bottom: 48px; }
     .facts div { padding: 14px 22px 0 0; margin-right: 22px; border-right: 1px solid var(--border); }
     .facts div:last-child { border-right: 0; margin-right: 0; }
@@ -197,8 +198,15 @@
         <h1>Your documents, organised and answerable<span class="dot">.</span></h1>
         <p class="lead">Paperless-AI fills in titles, tags, correspondents, dates and custom fields, reads bad scans with local OCR and answers questions about your whole archive – as an extension of Paperless-ngx or on its own with the built-in archive.</p>
         <div class="run">
-          <span class="cmd"><code id="up">docker compose up -d</code><button type="button" data-copy="up" aria-label="Copy the command">Copy</button></span>
-          <a class="more" href="#start">Full setup →</a>
+          <div class="cmd">
+<pre><span class="p">$ </span>docker run -d \
+    --name paperless-ai \
+    -p 3000:3000 \
+    -v paperless-ai_data:/app/data \
+    clusterzx/paperless-ai:latest</pre>
+            <button type="button" data-copy-text="docker run -d --name paperless-ai -p 3000:3000 -v paperless-ai_data:/app/data clusterzx/paperless-ai:latest" aria-label="Copy the command">Copy</button>
+          </div>
+          <p class="then">Then open <code>http://&lt;your-server&gt;:3000</code> – the setup wizard asks for the rest. <a href="#start">With Docker Compose →</a></p>
         </div>
         <dl class="facts">
           <div><dt>Runs with</dt><dd>Paperless-ngx 2.x / 3.x – or alone</dd></div>
@@ -384,9 +392,10 @@
   </footer>
 
   <script>
-    document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    document.querySelectorAll('[data-copy], [data-copy-text]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        var text = document.getElementById(btn.getAttribute('data-copy')).textContent;
+        // A one-line command (works in every shell), or the text of an element.
+        var text = btn.getAttribute('data-copy-text') || document.getElementById(btn.getAttribute('data-copy')).textContent;
         navigator.clipboard.writeText(text).then(function () {
           btn.textContent = 'Copied';
           setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
