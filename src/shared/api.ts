@@ -264,7 +264,8 @@ export interface BulkEditResult {
 
 export interface UploadResult {
   filename: string;
-  status: 'stored' | 'duplicate' | 'rejected' | 'failed' | 'forwarded';
+  /** queued: received, being stored in the background (`background=true`) – the outcome follows as an intake event. */
+  status: 'stored' | 'duplicate' | 'rejected' | 'failed' | 'forwarded' | 'queued';
   documentId?: number;
   taskId?: string;
   intakeId?: number;
@@ -323,7 +324,7 @@ export interface SavedView {
 export type LiveEvent =
   | { type: 'document.added' | 'document.updated' | 'document.deleted' | 'document.restored' | 'document.processed' | 'document.version_added' | 'document.purged'; id: number }
   | { type: 'processing'; documentId: number; outcome: string }
-  | { type: 'intake'; intakeId: number; status: string; documentId?: number | null; filename?: string | null };
+  | { type: 'intake'; intakeId: number; status: string; documentId?: number | null; filename?: string | null; reason?: string | null };
 
 export interface ProcessingJob {
   documentId: number;

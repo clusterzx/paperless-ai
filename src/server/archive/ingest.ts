@@ -31,10 +31,24 @@ interface IntakeRow {
   error: string | null;
 }
 
+/** An attempt that is recorded and has its target. */
+interface Opened {
+  intakeId: number;
+  libraryId: number;
+  replaces: number | null;
+  userId: number | null;
+}
+
+/** Files stored at the same time from the background queue (Office conversions take turns anyway). */
+const PARALLEL = 2;
+
 export class IngestService {
   private stopped = false;
   /** Intake attempts in progress (stop() waits for them). */
   private readonly running = new Set<Promise<unknown>>();
+  /** Files taken by enqueue() and waiting to be stored. */
+  private readonly jobs: (() => Promise<IngestResult>)[] = [];
+  private active = 0;
 
   constructor(private readonly backend: LocalBackend) {}
 
@@ -65,15 +79,19 @@ export class IngestService {
       .run(patch.status, patch.documentId ?? null, patch.error ?? null, patch.sha256 ?? null, patch.libraryId ?? null, patch.status === 'pending' ? null : Date.now(), id);
   }
 
-  private async run(scope: AccessScope, file: IngestFile, channel: IngestChannel, hints: IngestHints): Promise<IngestResult> {
+  /**
+   * Record the attempt and check where it goes (a refusal is recorded and thrown). An earlier attempt
+   * with the same channel reference answers instead (`done`).
+   */
+  private open(scope: AccessScope, file: IngestFile, channel: IngestChannel, hints: IngestHints): { done: IngestResult } | Opened {
     // The same channel reference (mail id, Idempotency-Key, file path + mtime) is stored once.
     if (hints.channelRef) {
       const prev = this.db.prepare('SELECT * FROM lib_intake WHERE channel = ? AND channel_ref = ?').get(channel, hints.channelRef) as IntakeRow | undefined;
       if (prev?.status === 'stored' || prev?.status === 'duplicate') {
-        return { status: prev.status, documentId: prev.document_id ?? undefined, intakeId: prev.id, reason: prev.error ?? undefined };
+        return { done: { status: prev.status, documentId: prev.document_id ?? undefined, intakeId: prev.id, reason: prev.error ?? undefined } };
       }
       // The same reference in progress right now (a request sent twice): the second one can come again.
-      if (prev?.status === 'pending') return { status: 'failed', intakeId: prev.id, reason: 'This file is being stored right now – send it again in a moment' };
+      if (prev?.status === 'pending') return { done: { status: 'failed', intakeId: prev.id, reason: 'This file is being stored right now – send it again in a moment' } };
       // Failed or refused before: try again (the rights or the file may have changed).
       if (prev) this.db.prepare('DELETE FROM lib_intake WHERE id = ?').run(prev.id);
     }
@@ -91,25 +109,86 @@ export class IngestService {
       libraryId = replaced ? replaced.library_id : this.backend.targetLibrary(scope, hints.libraryId);
     } catch (err) {
       this.setIntake(intakeId, { status: 'rejected', error: describeError(err) });
-      this.ctx.events.emitIntake({ intakeId, status: 'rejected', filename: file.filename, libraryId: null, createdBy: userId });
+      this.ctx.events.emitIntake({ intakeId, status: 'rejected', filename: file.filename, libraryId: null, createdBy: userId, reason: describeError(err) });
       log.warn(`Intake of "${file.filename}" (${channel}) refused: ${describeError(err)}`);
       throw err;
     }
     this.db.prepare('UPDATE lib_intake SET library_id = ? WHERE id = ?').run(libraryId, intakeId);
     this.ctx.events.emitIntake({ intakeId, status: 'pending', filename: file.filename, libraryId, createdBy: userId });
+    return { intakeId, libraryId, replaces: replaced?.id ?? null, userId };
+  }
+
+  private async run(scope: AccessScope, file: IngestFile, channel: IngestChannel, hints: IngestHints): Promise<IngestResult> {
+    const o = this.open(scope, file, channel, hints);
+    return 'done' in o ? o.done : this.complete(scope, file, channel, hints, o);
+  }
+
+  /** Store the file of an opened attempt. */
+  private async complete(scope: AccessScope, file: IngestFile, channel: IngestChannel, hints: IngestHints, o: Opened): Promise<IngestResult> {
     try {
-      const result = await this.store(scope, file, channel, hints, libraryId, intakeId, replaced?.id ?? null);
-      this.ctx.events.emitIntake({ intakeId, status: result.status === 'stored' ? 'stored' : result.status === 'duplicate' ? 'duplicate' : 'rejected', documentId: result.documentId ?? null, filename: file.filename, libraryId, createdBy: userId });
+      const result = await this.store(scope, file, channel, hints, o.libraryId, o.intakeId, o.replaces);
+      const status = result.status === 'stored' ? 'stored' : result.status === 'duplicate' ? 'duplicate' : 'rejected';
+      this.ctx.events.emitIntake({ intakeId: o.intakeId, status, documentId: result.documentId ?? null, filename: file.filename, libraryId: o.libraryId, createdBy: o.userId, reason: result.reason ?? null });
       return result;
     } catch (err) {
-      const status = statusOf(err);
-      // A refusal (type, size, rights) stays one; anything else is a passing failure that can be retried.
-      const rejected = status !== undefined && status < 500;
-      this.setIntake(intakeId, { status: rejected ? 'rejected' : 'failed', error: describeError(err) });
-      this.ctx.events.emitIntake({ intakeId, status: rejected ? 'rejected' : 'failed', filename: file.filename, libraryId, createdBy: userId });
-      log.warn(`Intake of "${file.filename}" (${channel}) failed: ${describeError(err)}`);
-      if (status === 403 || status === 404) throw err;
-      return { status: rejected ? 'rejected' : 'failed', intakeId, reason: describeError(err) };
+      return this.failed(o, file, channel, err);
+    }
+  }
+
+  /** Record why an attempt did not work: a refusal (type, size, rights) stays one, anything else can be retried. */
+  private failed(o: Opened, file: IngestFile, channel: IngestChannel, err: unknown): IngestResult {
+    const status = statusOf(err);
+    const rejected = status !== undefined && status < 500;
+    this.setIntake(o.intakeId, { status: rejected ? 'rejected' : 'failed', error: describeError(err) });
+    this.ctx.events.emitIntake({ intakeId: o.intakeId, status: rejected ? 'rejected' : 'failed', filename: file.filename, libraryId: o.libraryId, createdBy: o.userId, reason: describeError(err) });
+    log.warn(`Intake of "${file.filename}" (${channel}) failed: ${describeError(err)}`);
+    if (status === 403 || status === 404) throw err;
+    return { status: rejected ? 'rejected' : 'failed', intakeId: o.intakeId, reason: describeError(err) };
+  }
+
+  /**
+   * Take a file at once and store it in the background – uploads of hundreds of files from the web
+   * interface: the file goes into the blob store right away (a restart leaves it as a failed attempt
+   * that can be retried), the answer is `queued` with the intake id, the outcome follows as an intake
+   * event. A few files are stored at the same time, in the order they came.
+   */
+  async enqueue(scope: AccessScope, file: IngestFile, channel: IngestChannel, hints: IngestHints): Promise<IngestResult> {
+    if (this.stopped) throw new ArchiveError('The archive is shutting down', 503, 'shutting_down');
+    if (!file.data && !file.path) throw new ArchiveError('No file content', 400, 'empty');
+    const o = this.open(scope, file, channel, hints);
+    if ('done' in o) return o.done;
+    try {
+      const maxBytes = this.ctx.cfg.archive.builtin.maxUploadMb * 1024 * 1024;
+      if (file.data && file.data.byteLength > maxBytes) throw new ArchiveError(`The file is larger than ${this.ctx.cfg.archive.builtin.maxUploadMb} MB`, 413, 'too_large');
+      const blob = file.data ? await this.backend.blobs.putBytes(file.data) : await this.backend.blobs.putFile(file.path!, maxBytes);
+      if (blob.size === 0) throw new ArchiveError('The file is empty', 400, 'empty');
+      this.setIntake(o.intakeId, { status: 'pending', sha256: blob.sha256 });
+      const kept: IngestFile = { path: this.backend.blobs.pathOf(blob.sha256), filename: file.filename, mimeType: file.mimeType };
+      this.jobs.push(() => this.complete(scope, kept, channel, hints, o));
+      this.pump();
+      return { status: 'queued', intakeId: o.intakeId };
+    } catch (err) {
+      return this.failed(o, file, channel, err);
+    }
+  }
+
+  /** Files waiting to be stored (enqueue). */
+  get waiting(): number {
+    return this.jobs.length + this.active;
+  }
+
+  private pump(): void {
+    while (!this.stopped && this.active < PARALLEL && this.jobs.length) {
+      const job = this.jobs.shift()!;
+      this.active++;
+      const p: Promise<unknown> = job()
+        .catch(() => undefined)
+        .finally(() => {
+          this.active--;
+          this.running.delete(p);
+          this.pump();
+        });
+      this.running.add(p);
     }
   }
 

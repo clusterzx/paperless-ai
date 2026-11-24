@@ -63,8 +63,11 @@ test('uploads a document, which is stored, read and analysed', async ({ page }) 
     mimeType: 'application/pdf',
     buffer: makePdf([['Stadtwerke München GmbH', 'Stromrechnung Nr. SR-2024-0315', 'Gesamtbetrag: 84,20 EUR']]),
   });
-  await expect(page.getByText('stored').first()).toBeVisible();
-  await page.getByRole('link', { name: 'Open' }).first().click();
+  // The upload of this session: sent, stored in the background, then linked.
+  const open = page.getByRole('link', { name: 'Open', exact: true });
+  await expect(open).toBeVisible();
+  await expect(page.getByText('1 of 1 stored')).toBeVisible();
+  await open.click();
   await expect(page).toHaveURL(/\/documents\/\d+$/);
   await page.getByRole('tab', { name: 'Text' }).click();
   await expect(page.getByRole('textbox', { name: 'Text of the document' })).toHaveValue(/Stromrechnung Nr\. SR-2024-0315/);

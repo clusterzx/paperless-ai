@@ -236,8 +236,16 @@ export const documentRoutes =
 
     app.post(
       '/api/documents/upload',
-      { schema: { description: 'Upload one or more files (multipart/form-data, field `file`). Other fields: libraryId or library (name), title, created, tags (comma-separated), correspondent, documentType, skipAnalysis, prompt. Header Idempotency-Key (per user). Without a library: the default library of the user.', consumes: ['multipart/form-data'] } },
-      async (req): Promise<{ results: UploadResult[] }> => ({ results: await receiveUploads(ctx, req, 'upload') }),
+      {
+        schema: {
+          description:
+            'Upload one or more files (multipart/form-data, field `file`). Other fields: libraryId or library (name), title, created, tags (comma-separated), correspondent, documentType, skipAnalysis, prompt. Header Idempotency-Key (per user). Without a library: the default library of the user. ' +
+            '`background=true` (built-in archive): answer `queued` as soon as the files are kept and store them in the background – for many files at once; the outcome follows as intake events (/api/events) and in /api/intake.',
+          consumes: ['multipart/form-data'],
+          querystring: z.object({ background: z.stringbool().default(false) }),
+        },
+      },
+      async (req): Promise<{ results: UploadResult[] }> => ({ results: await receiveUploads(ctx, req, 'upload', {}, undefined, undefined, { background: req.query.background }) }),
     );
 
     // Share target of the installed app (PWA): files shared from other apps land here.

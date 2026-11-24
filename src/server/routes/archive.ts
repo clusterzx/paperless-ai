@@ -395,7 +395,16 @@ export const archiveRoutes =
 
     app.get(
       '/api/intake',
-      { schema: { querystring: z.object({ limit: z.coerce.number().int().min(1).max(500).default(50), status: z.string().max(20).optional() }) } },
+      {
+        schema: {
+          querystring: z.object({
+            limit: z.coerce.number().int().min(1).max(500).default(50),
+            status: z.string().max(20).optional(),
+            /** Only these attempts (comma-separated ids) – e.g. the uploads of a page that waits for them. */
+            ids: z.string().max(5000).regex(/^\d+(,\d+)*$/).optional(),
+          }),
+        },
+      },
       async (req) => {
         local('The inbox');
         const scope = req.access!;
@@ -407,9 +416,9 @@ export const archiveRoutes =
             `SELECT * FROM lib_intake
              WHERE (? IS NULL OR library_id IN (SELECT value FROM json_each(?)) OR created_by = ?
                     OR (? = 1 AND (library_id IS NULL OR library_id IN (SELECT id FROM libraries WHERE deleted_at IS NOT NULL))))
-               AND (? IS NULL OR status = ?) ORDER BY id DESC LIMIT ?`,
+               AND (? IS NULL OR status = ?) AND (? IS NULL OR id IN (SELECT value FROM json_each(?))) ORDER BY id DESC LIMIT ?`,
           )
-          .all(libs ? 1 : null, JSON.stringify(libs ?? []), userIdOf(scope), isAdmin(scope) ? 1 : 0, req.query.status ?? null, req.query.status ?? null, req.query.limit) as {
+          .all(libs ? 1 : null, JSON.stringify(libs ?? []), userIdOf(scope), isAdmin(scope) ? 1 : 0, req.query.status ?? null, req.query.status ?? null, req.query.ids ? 1 : null, JSON.stringify((req.query.ids ?? '').split(',').filter(Boolean).map(Number)), req.query.limit) as {
           id: number;
           channel: string;
           filename: string | null;

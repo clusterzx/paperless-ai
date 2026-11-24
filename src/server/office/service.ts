@@ -41,8 +41,15 @@ const MARKER = '.paperless-ai.json';
 const HOST = fileURLToPath(new URL('./host.mjs', import.meta.url));
 /** A failed download is tried again by itself after this long. */
 const RETRY_AFTER_MS = 10 * 60_000;
-/** Loading LibreOffice takes a few seconds; slow disks and CPUs (a NAS) need more. */
+/**
+ * Loading LibreOffice (with a first conversion) takes a few seconds – but now and then it hangs for
+ * about 80 s at the start (seen at random, also on fast machines). A start that takes longer than
+ * QUICK_START_MS (or 4 × the last normal start) is given up and LibreOffice is started again; a
+ * fresh start is almost always quick. The third attempt waits up to START_TIMEOUT_MS (slow machines).
+ */
+const QUICK_START_MS = 30_000;
 const START_TIMEOUT_MS = 180_000;
+const START_ATTEMPTS = 3;
 
 /** Runs the conversions – the LibreOffice process, or a fake in tests. */
 export interface OfficeEngine {
@@ -53,7 +60,7 @@ export interface OfficeEngine {
   stop(): void;
 }
 
-class Timeout extends Error {}
+export class OfficeTimeout extends Error {}
 class Stopped extends Error {}
 /** LibreOffice reported an error for the file (an engine throws it; others count as a hang or crash). */
 export class OfficeRefused extends Error {}
@@ -101,17 +108,29 @@ class ProcessEngine implements OfficeEngine {
     child.stderr?.on('data', keep);
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
-        reject(new Timeout(`LibreOffice did not start within ${Math.round(timeoutMs / 1000)} s`));
+        reject(new OfficeTimeout(`LibreOffice did not start within ${Math.round(timeoutMs / 1000)} s`));
         this.stop();
       }, timeoutMs);
       child.on(
         'message',
-        (msg: { type: string; id?: number | null; data?: Uint8Array; message?: string; rss?: number; ms?: number }) => {
+        (msg: {
+          type: string;
+          id?: number | null;
+          data?: Uint8Array;
+          message?: string;
+          rss?: number;
+          ms?: number;
+          loadMs?: number;
+          warmUpMs?: number;
+        }) => {
           if (msg.rss) this.rss = msg.rss;
           if (msg.type === 'started') child.send({ type: 'init', dir: this.dir, fontsDir: this.fontsDir });
           else if (msg.type === 'ready') {
             clearTimeout(timer);
-            log.info(`LibreOffice loaded in ${((msg.ms ?? 0) / 1000).toFixed(1)} s (${Math.round((msg.rss ?? 0) / 1048576)} MB)`);
+            const s = (ms?: number) => `${((ms ?? 0) / 1000).toFixed(1)} s`;
+            log.info(
+              `LibreOffice loaded in ${s(msg.ms)} (start ${s(msg.loadMs)}, first conversion ${s(msg.warmUpMs)}; ${Math.round((msg.rss ?? 0) / 1048576)} MB)`,
+            );
             resolve();
           } else if (msg.type === 'failed' && msg.id == null) {
             clearTimeout(timer);
@@ -152,7 +171,7 @@ class ProcessEngine implements OfficeEngine {
     return new Promise<Uint8Array>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiting.delete(id);
-        reject(new Timeout(`the conversion took longer than ${Math.round(timeoutMs / 1000)} s`));
+        reject(new OfficeTimeout(`the conversion took longer than ${Math.round(timeoutMs / 1000)} s`));
       }, timeoutMs);
       this.waiting.set(id, { resolve, reject, timer });
       child.send({ type: 'convert', id, data, ext, pdfa: true });
@@ -180,11 +199,15 @@ export class OfficeService {
   private failedAt = 0;
   private stats = { conversions: 0, failures: 0, lastMs: null as number | null };
   private closed = false;
+  /** How long the last start took (it sets how long the next one may take before it is retried). */
+  private lastStartMs: number | null = null;
+  private readonly quickStartMs: number;
 
   constructor(
     private readonly ctx: AppContext,
-    opts: { watchConfig?: boolean } = {},
+    opts: { watchConfig?: boolean; quickStartMs?: number } = {},
   ) {
+    this.quickStartMs = opts.quickStartMs ?? QUICK_START_MS;
     if (!opts.watchConfig) return;
     ctx.config.on('change', this.onConfig);
     if (this.enabled && !this.installed()) void this.install().catch(() => undefined);
@@ -395,10 +418,25 @@ export class OfficeService {
       await fsp.rm(path.join(this.packageDir, 'node_modules', 'zod'), { recursive: true, force: true });
       await linkDependency(this.packageDir, 'zod');
     }
-    const engine = this.engineFactory ? this.engineFactory() : new ProcessEngine(this.packageDir, path.join(this.dir, 'fonts'));
-    this.engine = engine;
-    await engine.start(START_TIMEOUT_MS);
-    return engine;
+    const quick = Math.max(this.quickStartMs, 4 * (this.lastStartMs ?? 0));
+    for (let attempt = 1; ; attempt++) {
+      const limit = attempt < START_ATTEMPTS ? quick : START_TIMEOUT_MS;
+      const engine = this.engineFactory ? this.engineFactory() : new ProcessEngine(this.packageDir, path.join(this.dir, 'fonts'));
+      this.engine = engine;
+      const started = Date.now();
+      try {
+        await withTimeout(engine.start(limit), limit);
+        this.lastStartMs = Date.now() - started;
+        return engine;
+      } catch (err) {
+        engine.stop();
+        this.engine = null;
+        if (!(err instanceof OfficeTimeout) || attempt >= START_ATTEMPTS) throw err;
+        log.warn(
+          `LibreOffice was not ready after ${Math.round(limit / 1000)} s (it sometimes hangs while starting) – starting it again (attempt ${attempt + 1} of ${START_ATTEMPTS})`,
+        );
+      }
+    }
   }
 
   private armIdle(): void {
@@ -444,4 +482,13 @@ async function linkDependency(packageDir: string, name: string): Promise<void> {
   } catch {
     await fsp.cp(source, target, { recursive: true });
   }
+}
+
+/** The promise, or an OfficeTimeout after `ms`. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new OfficeTimeout(`LibreOffice did not start within ${Math.round(ms / 1000)} s`)), ms);
+  });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
 }

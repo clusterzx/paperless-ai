@@ -21,6 +21,7 @@ import { badRequest, HttpProblem } from '../http/helpers.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
 import { textEncoding } from '../archive/formats.js';
+import type { LocalBackend } from '../archive/backend.js';
 
 const log = logger.child({ module: 'documents' });
 
@@ -210,6 +211,8 @@ export async function receiveUploads(
   /** Hints from the form fields in another format (e.g. Paperless-ngx's post_document). */
   hintsFrom?: (fields: Record<string, string[]>) => Promise<IngestHints>,
   _fileField?: string,
+  /** Answer as soon as the files are kept (`queued`) and store them in the background (built-in archive). */
+  opts: { background?: boolean } = {},
 ): Promise<UploadResult[]> {
   if (!req.isMultipart()) throw badRequest('Send the files as multipart/form-data');
   const limit = ctx.cfg.archive.builtin.maxUploadMb * MB;
@@ -264,14 +267,14 @@ export async function receiveUploads(
     };
     if (!files.length) throw badRequest('No file received (form field "file")');
     const backend = ctx.backend(req.access!);
+    const archive = ctx.archive();
+    const queue = opts.background && archive.kind === 'builtin' ? (archive as LocalBackend).ingestService : null;
     const results: UploadResult[] = [];
     for (const [i, f] of files.entries()) {
       try {
-        const res = await backend.ingest(
-          { path: f.path, filename: f.filename, mimeType: f.mimeType },
-          channel,
-          { ...hints, ...(idempotency ? { channelRef: files.length > 1 ? `${idempotency}#${i}` : idempotency } : {}) },
-        );
+        const file = { path: f.path, filename: f.filename, mimeType: f.mimeType };
+        const fileHints = { ...hints, ...(idempotency ? { channelRef: files.length > 1 ? `${idempotency}#${i}` : idempotency } : {}) };
+        const res = queue ? await queue.enqueue(req.access!, file, channel, fileHints) : await backend.ingest(file, channel, fileHints);
         results.push({ filename: f.filename, ...res });
       } catch (err) {
         if (err instanceof HttpProblem && err.statusCode === 403) throw err;

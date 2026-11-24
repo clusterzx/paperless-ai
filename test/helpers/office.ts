@@ -160,8 +160,12 @@ export class FakeOfficeEngine implements OfficeEngine {
   behave: (call: number, ext: string) => Uint8Array | Promise<Uint8Array> = () => makePdf([this.lines]);
   lines = ['Mietvertrag für die Wohnung', 'Musterstraße 1, 12345 Musterstadt'];
 
+  /** How each start (1-based) goes; default: at once. */
+  startBehave: (start: number) => Promise<void> = async () => undefined;
+
   async start(): Promise<void> {
     this.starts++;
+    await this.startBehave(this.starts);
     this.loaded = true;
   }
 

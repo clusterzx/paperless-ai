@@ -28,6 +28,8 @@ Most channels authenticate with a personal API key: *Settings → API keys → N
 
 *Inbox*: drag files into the drop zone or choose them; on phones the camera is offered. Choose the library, tags for the uploads, or *Do not analyse with the AI*.
 
+Hundreds of files at once are fine: they are sent three at a time, the server keeps each file as soon as it has arrived and stores them in the background, in order – the analysis of the first ones starts while the others are still being sent, and a slow file (an Office document being converted) holds up none of the others. The upload goes on when you open another page (the sidebar shows it); only closing or reloading the tab before all files are sent would lose the rest, and the browser asks first. A file that was kept but not stored yet when Paperless-AI restarted shows as *failed* with **Retry**.
+
 ## REST
 
 ```bash
@@ -36,6 +38,8 @@ curl -H "x-api-key: $KEY" -F file=@scan.pdf -F library=Family -F tags=Taxes,2024
 ```
 
 Fields: `file` (several allowed), `libraryId` or `library`, `title`, `created` (YYYY-MM-DD), `tags` (comma-separated), `correspondent`, `documentType`, `skipAnalysis=true`, `prompt`. The answer lists each file with its status and document id. An `Idempotency-Key` header stores a request once (per user).
+
+For many files add `?background=true`: the answer comes as soon as the files are kept (`queued` with an `intakeId`), they are stored in the background; `GET /api/intake?ids=<id>,<id>` gives the outcome (`stored` with `documentId`, `duplicate`, `rejected` or `failed` with the reason).
 
 ## Paperless-ngx compatible upload
 
