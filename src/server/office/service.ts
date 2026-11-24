@@ -108,8 +108,11 @@ class ProcessEngine implements OfficeEngine {
     };
     child.stdout?.on('data', keep);
     child.stderr?.on('data', keep);
+    // What the process does while it starts (threads, CPU, memory) – logged when the start is slow.
+    const watch = new StartWatch(child.pid ?? null);
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
+        watch.stop();
         reject(new OfficeTimeout(`LibreOffice did not start within ${Math.round(timeoutMs / 1000)} s`));
         this.stop();
       }, timeoutMs);
@@ -129,6 +132,7 @@ class ProcessEngine implements OfficeEngine {
           if (msg.type === 'started') child.send({ type: 'init', dir: this.dir, fontsDir: this.fontsDir });
           else if (msg.type === 'ready') {
             clearTimeout(timer);
+            watch.stop();
             const s = (ms?: number) => `${((ms ?? 0) / 1000).toFixed(1)} s`;
             log.info(`LibreOffice loaded in ${s(msg.ms)} (${Math.round((msg.rss ?? 0) / 1048576)} MB)`);
             // Where the time of a slow start goes (waiting or computing) – and on which machine.
@@ -137,6 +141,8 @@ class ProcessEngine implements OfficeEngine {
               log.warn(
                 `LibreOffice started slowly: ${s(msg.ms)}, of which ${s(msg.cpuMs)} CPU time. Steps: ${steps}. Machine: ${machine()}`,
               );
+              const report = watch.report();
+              if (report) log.warn(`LibreOffice start in detail: ${report}`);
             }
             resolve();
           } else if (msg.type === 'failed' && msg.id == null) {
@@ -155,6 +161,7 @@ class ProcessEngine implements OfficeEngine {
       );
       child.on('exit', (code, signal) => {
         clearTimeout(timer);
+        watch.stop();
         if (this.child === child) this.child = null;
         const why = new Stopped(`LibreOffice stopped (${signal ?? `exit code ${code}`})${this.lastOutput()}`);
         reject(why);
@@ -533,6 +540,107 @@ async function linkDependency(packageDir: string, name: string): Promise<void> {
     await fsp.symlink(source, target, 'junction');
   } catch {
     await fsp.cp(source, target, { recursive: true });
+  }
+}
+
+/**
+ * Samples a starting LibreOffice process from /proc (Linux) every few seconds: its threads and what
+ * they do (R running, S sleeping, D waiting for the disk), CPU time in the program (user) and in the
+ * kernel (sys), memory – and at the end the threads that used the most CPU. It tells computing
+ * apart from waiting, and the kernel (memory, page faults) from the program.
+ */
+class StartWatch {
+  private readonly started = Date.now();
+  private readonly samples: string[] = [];
+  private last: { user: number; sys: number; faults: number } | null = null;
+  private timer: NodeJS.Timeout | null = null;
+  private final: string | null = null;
+
+  constructor(private readonly pid: number | null) {
+    if (!pid || !fs.existsSync(`/proc/${pid}/task`)) return;
+    this.timer = setInterval(() => this.sample(), 3000);
+    this.timer.unref();
+  }
+
+  /** utime, stime (clock ticks), state and name of a /proc stat line. */
+  private static parse(stat: string): { name: string; state: string; user: number; sys: number; faults: number } | null {
+    const close = stat.lastIndexOf(')');
+    if (close < 0) return null;
+    const rest = stat.slice(close + 2).split(' ');
+    return {
+      name: stat.slice(stat.indexOf('(') + 1, close),
+      state: rest[0],
+      user: Number(rest[11]),
+      sys: Number(rest[12]),
+      faults: Number(rest[7]) + Number(rest[9]),
+    };
+  }
+
+  private threads(): { tid: string; name: string; state: string; user: number; sys: number; faults: number }[] {
+    const out: { tid: string; name: string; state: string; user: number; sys: number; faults: number }[] = [];
+    try {
+      for (const tid of fs.readdirSync(`/proc/${this.pid}/task`)) {
+        try {
+          const t = StartWatch.parse(fs.readFileSync(`/proc/${this.pid}/task/${tid}/stat`, 'utf8'));
+          if (t) out.push({ tid, ...t });
+        } catch {
+          /* the thread ended */
+        }
+      }
+    } catch {
+      /* the process ended */
+    }
+    return out;
+  }
+
+  private sample(): void {
+    const threads = this.threads();
+    if (!threads.length) return;
+    const p = (() => {
+      try {
+        return StartWatch.parse(fs.readFileSync(`/proc/${this.pid}/stat`, 'utf8'));
+      } catch {
+        return null;
+      }
+    })();
+    const rss = (() => {
+      try {
+        return Number(/VmRSS:\s+(\d+)/.exec(fs.readFileSync(`/proc/${this.pid}/status`, 'utf8'))?.[1] ?? 0) * 1024;
+      } catch {
+        return 0;
+      }
+    })();
+    const count = (s: string) => threads.filter((t) => t.state === s).length;
+    // Clock ticks are 1/100 s on Linux.
+    const cpu = p ? { user: p.user / 100, sys: p.sys / 100, faults: p.faults } : null;
+    const delta =
+      cpu && this.last
+        ? `, CPU +${(cpu.user - this.last.user).toFixed(1)} s user +${(cpu.sys - this.last.sys).toFixed(1)} s sys, +${cpu.faults - this.last.faults} page faults`
+        : '';
+    if (cpu) this.last = cpu;
+    this.samples.push(
+      `${Math.round((Date.now() - this.started) / 1000)} s: ${threads.length} threads (${count('R')} R, ${count('S')} S, ${count('D')} D), ${Math.round(rss / 1048576)} MB${delta}`,
+    );
+  }
+
+  stop(): void {
+    if (!this.timer) return;
+    clearInterval(this.timer);
+    this.timer = null;
+    this.sample();
+    const top = this.threads()
+      .sort((a, b) => b.user + b.sys - (a.user + a.sys))
+      .slice(0, 6)
+      .map(
+        (t) =>
+          `${t.tid === String(this.pid) ? 'main thread' : `thread ${t.tid}`} ${((t.user + t.sys) / 100).toFixed(1)} s (${(t.sys / 100).toFixed(1)} sys)`,
+      );
+    this.final = top.length ? `busiest threads: ${top.join(', ')}` : null;
+  }
+
+  report(): string | null {
+    if (!this.samples.length) return null;
+    return `${this.samples.join(' | ')}${this.final ? ` | ${this.final}` : ''}`;
   }
 }
 
