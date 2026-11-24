@@ -19,6 +19,7 @@ import type { PromptRuleOverrides } from '../../shared/promptRules.js';
 import type { Action, DryRunResult, RunStep, Trigger, Workflow, WorkflowDefinition } from '../../shared/workflows.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
+import { localDay } from '../../shared/dates.js';
 
 /** The address webhook actions get in a dry run – never contacted. */
 const DRY_RUN_URL = 'https://dry-run.invalid/';
@@ -410,7 +411,7 @@ export class WorkflowEngine {
   }
 
   /** `date.reached`: documents whose date plus the offset is today (once per workflow, document and date). */
-  async checkDates(today = new Date().toISOString().slice(0, 10)): Promise<number> {
+  async checkDates(today = localDay()): Promise<number> {
     let queued = 0;
     for (const wf of this.ctx.repos.workflows.list({ trigger: 'date.reached', enabledOnly: true })) {
       if (wf.trigger.type !== 'date.reached') continue;

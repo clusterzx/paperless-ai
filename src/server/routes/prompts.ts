@@ -9,6 +9,7 @@ import type { PromptRatingRow, PromptRow } from '../db/promptsRepo.js';
 import { logger } from '../logger.js';
 import { rulePrompt } from '../processing/promptRules.js';
 import { lockedRuleWorkflows } from '../workflows/promptRules.js';
+import { localDay } from '../../shared/dates.js';
 
 const log = logger.child({ module: 'prompts' });
 
@@ -201,7 +202,7 @@ export const promptRoutes =
           const at = s.savedAt ?? Date.now();
           let promptId = repo.findByText(text)?.id;
           if (!promptId) {
-            promptId = repo.create({ name: `Saved prompt ${new Date(at).toISOString().slice(0, 10)}${req.body.prompts.length > 1 ? ` (${i + 1})` : ''}`, useCase: '', prompt: text }, at);
+            promptId = repo.create({ name: `Saved prompt ${localDay(new Date(at))}${req.body.prompts.length > 1 ? ` (${i + 1})` : ''}`, useCase: '', prompt: text }, at);
             imported++;
           }
           repo.addRating(promptId, { provider: '', model: '', score: s.rating, note: s.comment.trim(), documents: [], createdAt: at });

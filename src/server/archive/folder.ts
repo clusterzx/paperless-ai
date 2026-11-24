@@ -15,6 +15,7 @@ import type { AppConfig } from '../config/schema.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
 import type { LocalBackend } from './backend.js';
+import { localDay } from '../../shared/dates.js';
 
 const log = logger.child({ module: 'intake' });
 
@@ -293,7 +294,7 @@ export class FolderWatcher {
     log.info(`Watch folder: "${rel}" → ${res.status}${res.documentId ? ` (document ${res.documentId})` : ''}${res.reason ? ` (${res.reason})` : ''}`);
     try {
       if (res.status === 'rejected' || res.status === 'failed') await this.moveTo(folder, file, '.failed', res.reason ?? 'refused');
-      else if (folder.after === 'move') await this.moveTo(folder, file, path.join('.done', new Date().toISOString().slice(0, 10)));
+      else if (folder.after === 'move') await this.moveTo(folder, file, path.join('.done', localDay()));
       else await fsp.rm(file, { force: true });
       this.seen.delete(file);
     } catch (err) {

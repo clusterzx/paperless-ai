@@ -5,6 +5,7 @@
  *
  * Shared by the server (which resolves names to ids) and the browser (autocomplete, help).
  */
+import { localDay } from './dates.js';
 
 export type SearchKey = 'title' | 'text' | 'correspondent' | 'tag' | 'type' | 'created' | 'added' | 'asn' | 'id' | 'library';
 
@@ -165,7 +166,7 @@ function period(v: string): { from: string; to: string } | null {
 /** Date range of a created:/added: value; null when it cannot be read. `to` is inclusive. */
 export function parseDateRange(value: string, today = new Date()): { from?: string; to?: string } | null {
   const v = value.trim().toLowerCase();
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = localDay(today);
   if (v === 'today' || v === 'heute') return { from: todayIso, to: todayIso };
   if (v === 'yesterday' || v === 'gestern') return { from: shift(todayIso, -1), to: shift(todayIso, -1) };
   let m: RegExpExecArray | null;

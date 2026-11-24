@@ -10,6 +10,7 @@ import type { Db } from './database.js';
 import { metaLine } from '../rag/store.js';
 import { isQuantizedBlob, fromBlob, toBlob } from '../rag/vectorIndex.js';
 import { logger } from '../logger.js';
+import { localDay } from '../../shared/dates.js';
 
 const log = logger.child({ module: 'db' });
 
@@ -95,7 +96,7 @@ export function moveRagIndex(core: Db, index: Db, dataDir: string | null): void 
     if (dataDir) {
       const dir = path.join(dataDir, 'backups');
       fs.mkdirSync(dir, { recursive: true });
-      const target = path.join(dir, `pre-index-move-${new Date().toISOString().slice(0, 10)}.db`);
+      const target = path.join(dir, `pre-index-move-${localDay()}.db`);
       if (!fs.existsSync(target)) core.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
       // Keep the last three backups of moves.
       const old = fs.readdirSync(dir).filter((f) => f.startsWith('pre-index-move-')).sort();

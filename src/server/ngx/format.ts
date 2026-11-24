@@ -5,6 +5,7 @@
  */
 import type { FastifyRequest } from 'fastify';
 import type { ArchiveDocument, DocumentFilter, DocumentSort } from '../backend/types.js';
+import { localDay } from '../../shared/dates.js';
 
 /** API versions of Paperless-ngx this layer answers (Accept: application/json; version=N). */
 export const MIN_API_VERSION = 1;
@@ -151,13 +152,14 @@ export function filterFromQuery(q: Record<string, string | undefined>, today = n
 /** A point in time of Whoosh's relative syntax ("now", "-1 week", "-3 month", "-1 year", a date) as a day. */
 function relativeDay(expr: string, today: Date): string | null {
   const e = expr.trim().toLowerCase();
-  if (e === 'now' || e === 'today') return today.toISOString().slice(0, 10);
+  if (e === 'now' || e === 'today') return localDay(today);
   if (/^\d{4}-\d{2}-\d{2}$/.test(e)) return e;
   if (/^\d{8}$/.test(e)) return `${e.slice(0, 4)}-${e.slice(4, 6)}-${e.slice(6, 8)}`;
   const m = /^-?\s*(\d+)\s*(day|week|month|year)s?$/.exec(e);
   if (!m) return null;
   const n = Number(m[1]);
-  const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  // From the local day (TZ), then counted back as a date-only value.
+  const d = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
   if (m[2] === 'day') d.setUTCDate(d.getUTCDate() - n);
   if (m[2] === 'week') d.setUTCDate(d.getUTCDate() - 7 * n);
   if (m[2] === 'month') d.setUTCMonth(d.getUTCMonth() - n);
@@ -267,7 +269,7 @@ export function shownCreated(d: Pick<ArchiveDocument, 'created' | 'created_date'
   const own = d.created ?? d.created_date;
   if (own) return own.slice(0, 10);
   for (const v of [d.added, d.modified]) if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
-  return today.toISOString().slice(0, 10);
+  return localDay(today);
 }
 
 export function ngxDocument(d: ArchiveDocument, version: number, opts: { content?: boolean; truncate?: boolean; fields?: string[] | null; perms?: boolean } = {}): Record<string, unknown> {

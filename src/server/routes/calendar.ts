@@ -11,6 +11,7 @@ import type { CalendarEventRow } from '../db/calendarRepo.js';
 import { logger } from '../logger.js';
 import { readableLibraries } from '../access/scope.js';
 import { userScope } from '../access/context.js';
+import { localDay } from '../../shared/dates.js';
 
 const log = logger.child({ module: 'calendar' });
 
@@ -144,7 +145,7 @@ export const calendarRoutes =
         }
         const scope = userId !== null ? userScope(ctx, userId) : null;
         if (!scope) return reply.code(404).send({ error: 'Not found' });
-        const from = new Date(Date.now() - FEED_PAST_DAYS * 86_400_000).toISOString().slice(0, 10);
+        const from = localDay(new Date(Date.now() - FEED_PAST_DAYS * 86_400_000));
         const ics = buildIcs(
           repo.list({ from, libraryIds: readableLibraries(scope) }).map((r) => ({
             id: r.id,

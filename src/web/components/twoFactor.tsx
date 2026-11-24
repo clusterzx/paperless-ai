@@ -5,6 +5,7 @@ import { Alert, Badge, Button, Card, Field, Input, Modal, Skeleton, useToast } f
 import { errorMessage, get, post } from '../lib/api';
 import { useAsync } from '../lib/hooks';
 import { formatDate } from '../lib/format';
+import { localDay } from '@shared/dates';
 
 /** Two-factor authentication of the signed-in user (Settings → Account). */
 export function TwoFactorCard() {
@@ -236,7 +237,7 @@ function ConfirmModal({ action, onClose, onDone }: { action: 'disable' | 'codes'
 
 function RecoveryCodesModal({ codes, onClose }: { codes: string[] | null; onClose: () => void }) {
   const toast = useToast();
-  const text = codes ? `Paperless-AI recovery codes (${new Date().toISOString().slice(0, 10)})\nEach code works once.\n\n${codes.join('\n')}\n` : '';
+  const text = codes ? `Paperless-AI recovery codes (${localDay()})\nEach code works once.\n\n${codes.join('\n')}\n` : '';
   const download = () => {
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
     const a = document.createElement('a');

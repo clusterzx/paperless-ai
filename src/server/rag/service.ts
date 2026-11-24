@@ -35,6 +35,7 @@ import { LocalEmbedder, localEmbeddingsAvailable } from './localEmbedder.js';
 import { metaLine, RagStore, type ChunkWithMeta, type LibraryFilter, type RagDocumentMeta } from './store.js';
 import { asksForRecency, buildFtsQuery, makeSnippet, mentionedMonths, mentionedYears, queryTerms, stem } from './text.js';
 import { createVectorSearch } from './vectorSearch.js';
+import { localDay } from '../../shared/dates.js';
 
 const log = logger.child({ module: 'rag' });
 
@@ -712,7 +713,7 @@ export class RagService extends EventEmitter<{ status: [RagStatus] }> {
   // ------------------------------------------------------------------ chat
 
   private systemPrompt(): string {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDay();
     return `You are Paperless-AI, an assistant answering questions about the user's personal document archive (Paperless-ngx). Today is ${today}.
 Rules:
 - Answer ONLY with information from the numbered document excerpts provided with the question. Do not invent facts.

@@ -124,7 +124,8 @@ export class CalendarScanner {
 }
 
 function monthsAgo(months: number, now = new Date()): string {
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - months, now.getUTCDate()));
+  // From the local day (TZ), then counted back as a date-only value.
+  const d = new Date(Date.UTC(now.getFullYear(), now.getMonth() - months, now.getDate()));
   return d.toISOString().slice(0, 10);
 }
 
