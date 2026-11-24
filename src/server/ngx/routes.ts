@@ -635,21 +635,26 @@ export const ngxRoutes =
 
     app.get('/ngx/api/documents/:id/metadata/', auth, async (req) => {
       const doc = await documentOf(req);
-      const row = ctx.db
-        .prepare("SELECT f.blob_sha256, f.size, f.mime_type, f.original_filename FROM lib_document_files f WHERE f.document_id = ? AND f.kind = 'original' ORDER BY f.version DESC LIMIT 1")
-        .get(doc.id) as { blob_sha256: string; size: number; mime_type: string; original_filename: string } | undefined;
+      // The current version (the newest one if that is unknown).
+      const fileOf = (kind: 'original' | 'archive') =>
+        ctx.db
+          .prepare('SELECT f.blob_sha256, f.size, f.mime_type, f.original_filename FROM lib_document_files f WHERE f.document_id = ? AND f.kind = ? ORDER BY f.version = ? DESC, f.version DESC LIMIT 1')
+          .get(doc.id, kind, doc.current_version ?? 0) as { blob_sha256: string; size: number; mime_type: string; original_filename: string } | undefined;
+      const row = fileOf('original');
+      // The PDF made of an Office document or e-mail.
+      const archive = doc.archived_file_name ? fileOf('archive') : undefined;
       return {
         original_checksum: row?.blob_sha256 ?? '',
         original_size: row?.size ?? 0,
         original_mime_type: row?.mime_type ?? doc.mime_type ?? '',
         media_filename: row?.original_filename ?? doc.original_file_name ?? '',
-        has_archive_version: false,
+        has_archive_version: Boolean(archive),
         original_metadata: [],
-        archive_checksum: null,
-        archive_media_filename: null,
+        archive_checksum: archive?.blob_sha256 ?? null,
+        archive_media_filename: archive?.original_filename ?? null,
         original_filename: row?.original_filename ?? doc.original_file_name ?? '',
-        archive_size: null,
-        archive_metadata: null,
+        archive_size: archive?.size ?? null,
+        archive_metadata: archive ? [] : null,
         lang: 'de',
       };
     });

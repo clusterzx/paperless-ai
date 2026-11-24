@@ -20,6 +20,7 @@ import { applySearchSyntax } from '../http/searchSyntax.js';
 import { badRequest, HttpProblem } from '../http/helpers.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
+import { textEncoding } from '../archive/formats.js';
 
 const log = logger.child({ module: 'documents' });
 
@@ -299,7 +300,7 @@ function stripUndefined<T extends object>(o: T): T {
 // ---------------------------------------------------------------- serving files
 
 /** Types the browser may show inline. Everything else is a download (an HTML or SVG file must never run on our origin). */
-const INLINE = /^(application\/pdf|image\/(png|jpe?g|gif|webp|bmp|tiff)|text\/plain)(;|$)/i;
+const INLINE = /^(application\/pdf|image\/(png|jpe?g|gif|webp|bmp|tiff)|text\/(plain|html))(;|$)/i;
 
 function disposition(kind: 'inline' | 'attachment', filename: string): string {
   const ascii = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
@@ -307,6 +308,8 @@ function disposition(kind: 'inline' | 'attachment', filename: string): string {
 }
 
 export function sendFile(req: FastifyRequest, reply: FastifyReply, data: Uint8Array, contentType: string, filename: string, inline: boolean): FastifyReply {
+  // Text without a charset: the one of the file (browsers guess wrong for Windows-1252 and UTF-16).
+  if (/^text\//i.test(contentType) && !/charset=/i.test(contentType)) contentType = `${contentType}; charset=${textEncoding(data) ?? 'utf-8'}`;
   const safeInline = inline && INLINE.test(contentType);
   const buf = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
   reply

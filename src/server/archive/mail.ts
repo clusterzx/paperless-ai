@@ -1,14 +1,16 @@
 /**
  * E-mail intake of the built-in archive (docs/standalone/ingest.md): the IMAP accounts of the
- * libraries are checked every few minutes; attachments (PDF, images) of new messages are stored.
- * Rules per account add tags, store without analysis or ignore messages by sender / subject.
- * Every attachment has its own intake reference (account, UIDVALIDITY, UID, part), so a message is
- * never stored twice, also when it is fetched again after a crash.
+ * libraries are checked every few minutes; attachments that are documents (PDF, images, text, Office
+ * documents with the converter) of new messages are stored – and, when a rule says so, the e-mail
+ * itself (.eml). Rules per account add tags, store without analysis or ignore messages by sender /
+ * subject. Every attachment has its own intake reference (account, UIDVALIDITY, UID, part), so a
+ * message is never stored twice, also when it is fetched again after a crash.
  */
 import { ImapFlow } from 'imapflow';
 import { simpleParser, type Attachment, type ParsedMail } from 'mailparser';
 import type { LocalBackend } from './backend.js';
-import { imageSize, sniffType } from './files.js';
+import { imageSize } from './files.js';
+import { detectType, extensionFor, kindOf } from './formats.js';
 import { SYSTEM_SCOPE } from '../access/scope.js';
 import { open as openSecret, seal } from '../util/secretBox.js';
 import { describeError } from '../util/http.js';
@@ -28,6 +30,8 @@ export interface MailRule {
   ignore?: boolean;
   /** Store into this library instead of the account's (one mailbox for several libraries). */
   libraryId?: number;
+  /** Store the e-mail itself (.eml): never (default), only without an attachment that is a document, always. */
+  storeMail?: 'never' | 'no_attachments' | 'always';
 }
 
 export interface MailAccountRow {
@@ -228,7 +232,7 @@ export class MailWatcher {
           try {
             const msg = await client.fetchOne(String(uid), { source: true }, { uid: true });
             if (!msg || !msg.source) continue;
-            const outcome = await this.storeMessage(row, rules, await simpleParser(msg.source), `${row.id}:${folder}:${validity}:${uid}`);
+            const outcome = await this.storeMessage(row, rules, msg.source, await simpleParser(msg.source), `${row.id}:${folder}:${validity}:${uid}`);
             result.stored += outcome.stored;
             result.duplicates += outcome.duplicates;
             if (outcome.ignored) result.ignored++;
@@ -258,7 +262,7 @@ export class MailWatcher {
       this.ctx.db
         .prepare('UPDATE intake_mail_accounts SET state = ?, last_error = ?, last_checked_at = ? WHERE id = ?')
         .run(JSON.stringify(state), result.errors[0] ?? null, Date.now(), row.id);
-      if (result.stored) log.info(`E-mail account "${row.name}": ${result.stored} attachment(s) stored`);
+      if (result.stored) log.info(`E-mail account "${row.name}": ${result.stored} document(s) stored`);
     } catch (err) {
       const message = describeError(err);
       result.errors.push(message);
@@ -275,7 +279,7 @@ export class MailWatcher {
    * read again next time; attachments stored already are not stored twice); refused attachments are
    * returned, so the message is left in the mailbox.
    */
-  private async storeMessage(row: MailAccountRow, rules: MailRule[], mail: ParsedMail, ref: string): Promise<{ stored: number; duplicates: number; refused: string[]; ignored: boolean }> {
+  private async storeMessage(row: MailAccountRow, rules: MailRule[], source: Buffer, mail: ParsedMail, ref: string): Promise<{ stored: number; duplicates: number; refused: string[]; ignored: boolean }> {
     const from = mail.from?.text ?? '';
     const subject = mail.subject ?? '';
     const rule = rules.find((r) => (!r.from || from.toLowerCase().includes(r.from.toLowerCase())) && (!r.subject || subject.toLowerCase().includes(r.subject.toLowerCase())));
@@ -285,25 +289,49 @@ export class MailWatcher {
     const libraryId = ruleLibrary && !ruleLibrary.deleted_at ? ruleLibrary.id : row.library_id;
     let stored = 0;
     let duplicates = 0;
+    let documents = 0;
     const refused: string[] = [];
-    for (const [i, att] of mail.attachments.entries()) {
-      const type = sniffType(att.content);
-      if (!type) continue;
-      // Logos, icons and signatures are no documents.
-      if (type.startsWith('image/') && (await isMailDecoration(att))) continue;
-      const filename = att.filename || `attachment-${i + 1}.${type.split('/')[1]}`;
-      const res = await this.backend.ingest(SYSTEM_SCOPE, { data: att.content, filename }, 'mail', {
+    const store = async (data: Buffer, filename: string, channelRef: string, title?: string) => {
+      const res = await this.backend.ingest(SYSTEM_SCOPE, { data, filename }, 'mail', {
         libraryId,
         tags: rule?.tags,
         skipAnalysis: rule?.skipAnalysis,
-        channelRef: `${ref}:${i}`,
+        channelRef,
+        title,
         context: { mail_from: from, mail_subject: subject },
       });
       if (res.status === 'stored') stored++;
       else if (res.status === 'duplicate') duplicates++;
       else if (res.status === 'failed') throw new Error(`"${filename}" could not be stored (${res.reason ?? 'unknown error'}) – tried again with the next check`);
       else refused.push(`"${filename}" was refused (${res.reason ?? 'not accepted'})`);
+    };
+    for (const [i, att] of mail.attachments.entries()) {
+      const type = this.documentType(att);
+      if (!type) continue;
+      // Logos, icons and signatures are no documents.
+      if (type.startsWith('image/') && (await isMailDecoration(att))) continue;
+      documents++;
+      await store(att.content, att.filename || `attachment-${i + 1}.${extensionFor(type)}`, `${ref}:${i}`);
+    }
+    const storeMail = rule?.storeMail ?? 'never';
+    if (storeMail === 'always' || (storeMail === 'no_attachments' && documents === 0)) {
+      const printable = [...subject].filter((c) => c.charCodeAt(0) >= 32).join('');
+      const name = printable.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'E-mail';
+      await store(source, `${name}.eml`, `${ref}:mail`, subject.trim() || undefined);
     }
     return { stored, duplicates, refused, ignored: false };
+  }
+
+  /**
+   * Whether an attachment is a document the archive takes: PDFs, images, text files with a name,
+   * attached e-mails – Office documents only with the converter (otherwise they are left out, as
+   * before, rather than refused). HTML parts and unknown files are no documents.
+   */
+  private documentType(att: Attachment): string | null {
+    const type = detectType(att.content, att.filename ?? '');
+    if (typeof type !== 'string') return null;
+    const kind = kindOf(type);
+    const ok = kind === 'pdf' || kind === 'image' || kind === 'mail' || (kind === 'text' && Boolean(att.filename)) || (kind === 'office' && this.backend.office.enabled);
+    return ok ? type : null;
   }
 }

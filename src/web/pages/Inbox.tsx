@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { Link } from 'wouter';
 import { CheckCircle2, CircleAlert, FileUp, Loader2, RotateCcw, UploadCloud } from 'lucide-react';
 import type { AccountInfo, UploadResult } from '@shared/api';
+import { ACCEPT_ALWAYS, ACCEPT_OFFICE } from '@shared/fileTypes';
 import { Page } from '../components/Layout';
 import { Alert, Badge, Button, Card, EmptyState, Field, PageHeader, Select, Switch, TagInput, useToast } from '../components/ui';
 import { useArchive } from '../components/documents';
@@ -152,7 +153,8 @@ export default function InboxPage() {
             )}
           >
             <UploadCloud className="mb-3 size-10 text-accent" />
-            <p className="font-medium">Drop PDFs and images here</p>
+            <p className="font-medium">Drop documents here</p>
+            <p className="mt-1 max-w-md text-xs text-muted">PDF, images, text, HTML and e-mails (.eml){archive?.officeDocuments ? ', Word, Excel, PowerPoint and OpenDocument' : ''}</p>
             <p className="mt-1 text-sm text-muted">or</p>
             <Button className="mt-3" variant="primary" icon={<FileUp className="size-4" />} onClick={() => input.current?.click()}>
               Choose files
@@ -161,7 +163,7 @@ export default function InboxPage() {
               ref={input}
               type="file"
               multiple
-              accept="application/pdf,image/*"
+              accept={archive?.officeDocuments ? `${ACCEPT_ALWAYS},${ACCEPT_OFFICE}` : ACCEPT_ALWAYS}
               capture={undefined}
               className="hidden"
               onChange={(e) => {

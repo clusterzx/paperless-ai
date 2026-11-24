@@ -1,12 +1,12 @@
 /**
  * Settings → Archive (built-in archive): storage, intake limits, trash, and the health of the store.
  */
-import { useState } from 'react';
-import { Archive, Download, HardDrive, Mail, ShieldCheck, Wrench } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Archive, Download, FileSpreadsheet, HardDrive, Mail, RotateCcw, ShieldCheck, Wrench } from 'lucide-react';
 import { Alert, Badge, Button, Card, Field, Input, NumberInput, Select, Skeleton, Switch, useToast } from './ui';
 import type { Config, Locked } from './settingsForms';
 import type { ExportResult } from '@shared/migration';
-import type { LibraryInfo } from '@shared/api';
+import type { LibraryInfo, OfficeStatus } from '@shared/api';
 import { errorMessage, get, post } from '../lib/api';
 import { useAsync } from '../lib/hooks';
 import { formatDate, formatNumber } from '../lib/format';
@@ -126,6 +126,8 @@ export function ArchiveSection({ draft, set, locked }: { draft: Config; set: (pa
         </div>
       </Card>
 
+      <OfficeCard draft={draft} set={set} locked={locked} />
+
       <ExportCard />
 
       <Card
@@ -175,6 +177,130 @@ export function ArchiveSection({ draft, set, locked }: { draft: Config; set: (pa
         )}
       </Card>
     </div>
+  );
+}
+
+/** Office documents: the optional converter (LibreOffice as WebAssembly, downloaded on first use). */
+function OfficeCard({ draft, set, locked }: { draft: Config; set: (path: string, value: unknown) => void; locked: Locked }) {
+  const toast = useToast();
+  const o = draft.archive.builtin.office;
+  const status = useAsync((signal) => get<OfficeStatus>('/api/archive/office', signal), []);
+  const s = status.data;
+  const { reload } = status;
+  // Unsaved: the saved state differs from the switch (until the settings are saved).
+  const unsaved = Boolean(s) && s!.enabled !== o.enabled;
+  // Follow the download while it runs, and the switch once it is saved.
+  const watch = s?.state === 'downloading' || s?.state === 'installing' || unsaved;
+  useEffect(() => {
+    if (!watch) return;
+    const t = setInterval(() => void reload(), 1500);
+    return () => clearInterval(t);
+  }, [watch, reload]);
+  const install = async () => {
+    try {
+      await post('/api/archive/office/install');
+      await reload();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  const lockedSwitch = locked['archive.builtin.office.enabled'];
+  return (
+    <Card
+      title="Office documents"
+      icon={<FileSpreadsheet className="size-4" />}
+      description="Word, Excel, PowerPoint, OpenDocument and RTF files become PDFs – with LibreOffice inside Paperless-AI, no extra service. The original file is kept."
+    >
+      <div className="space-y-4">
+        <Switch
+          checked={o.enabled}
+          onChange={(v) => set('archive.builtin.office.enabled', v)}
+          locked={lockedSwitch}
+          disabled={Boolean(lockedSwitch)}
+          label="Accept Office documents"
+          description="Switching it on downloads LibreOffice once (~80 MB, ~250 MB on disk in data/office). While it converts it needs about 1.3 GB of memory; it is unloaded again when idle. HTML pages and e-mails are then kept as PDF as well."
+        />
+        {unsaved && <Alert tone="info">Save the settings to {o.enabled ? 'download and use' : 'switch off'} the converter.</Alert>}
+        {s && s.enabled && (
+          <div className="space-y-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              Converter:{' '}
+              {s.state === 'ready' ? (
+                <Badge tone="success">ready</Badge>
+              ) : s.state === 'downloading' ? (
+                <Badge tone="info">downloading</Badge>
+              ) : s.state === 'installing' ? (
+                <Badge tone="info">installing</Badge>
+              ) : s.state === 'failed' ? (
+                <Badge tone="danger">not installed</Badge>
+              ) : (
+                <Badge>not installed yet</Badge>
+              )}
+              <span className="text-xs text-muted">
+                LibreOffice (converter {s.version})
+                {s.state === 'ready' &&
+                  (s.loaded
+                    ? ` · loaded${s.memoryMb ? ` (${formatNumber(s.memoryMb)} MB)` : ''}`
+                    : ' · not loaded (no memory used)')}
+                {s.conversions > 0 &&
+                  ` · ${formatNumber(s.conversions)} conversion(s)${s.lastMs !== null ? `, last ${(s.lastMs / 1000).toFixed(1)} s` : ''}`}
+                {s.failures > 0 && ` · ${formatNumber(s.failures)} failed`}
+              </span>
+            </div>
+            {s.state === 'downloading' && s.total ? (
+              <div
+                className="h-2 overflow-hidden rounded-full bg-surface-2 ring-1 ring-border"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(((s.received ?? 0) / s.total) * 100)}
+              >
+                <div
+                  className="h-full bg-accent transition-all"
+                  style={{ width: `${Math.min(100, ((s.received ?? 0) / s.total) * 100)}%` }}
+                />
+              </div>
+            ) : null}
+            {s.error && s.state !== 'downloading' && s.state !== 'installing' && <Alert tone="danger">{s.error}</Alert>}
+            {(s.state === 'failed' || s.state === 'not_installed') && (
+              <Button size="sm" icon={<RotateCcw className="size-4" />} onClick={install}>
+                {s.state === 'failed' ? 'Try again' : 'Download now'}
+              </Button>
+            )}
+          </div>
+        )}
+        {o.enabled && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Unload after (minutes idle)"
+              hint="Gives the memory back between conversions."
+              locked={locked['archive.builtin.office.idleMinutes']}
+            >
+              <NumberInput
+                value={o.idleMinutes}
+                min={1}
+                max={1440}
+                onChange={(v) => set('archive.builtin.office.idleMinutes', v)}
+                disabled={Boolean(locked['archive.builtin.office.idleMinutes'])}
+              />
+            </Field>
+            <Field
+              label="Longest conversion (seconds)"
+              hint="A conversion that takes longer is tried once more."
+              locked={locked['archive.builtin.office.timeoutSeconds']}
+            >
+              <NumberInput
+                value={o.timeoutSeconds}
+                min={10}
+                max={3600}
+                onChange={(v) => set('archive.builtin.office.timeoutSeconds', v)}
+                disabled={Boolean(locked['archive.builtin.office.timeoutSeconds'])}
+              />
+            </Field>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 

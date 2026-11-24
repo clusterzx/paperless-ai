@@ -121,7 +121,8 @@ nothing. Library names are unique (case ignored), as they address libraries in p
 | --- | --- | --- |
 | M3 | PDF; JPEG, PNG, TIFF (multi-page), WebP | as the OCR pipeline reads them today (`ocr/render.ts`: PDFium for PDFs, sharp for images) |
 | Later | HEIC (phone photos) | depends on what the sharp build decodes, or a conversion step |
-| Later, opt-in | Office (docx, xlsx, odt, …), e-mail bodies (HTML → PDF) | optional Gotenberg sidecar; without it these files are rejected with a clear reason |
+| Always (4.6) | text (txt, md, csv, tsv), HTML, e-mails (.eml) | text read directly (`archive/textFormats.ts`) |
+| Opt-in (4.6) | Office (docx, xlsx, pptx, odt, ods, odp, doc, xls, ppt, rtf), HTML and e-mails as PDF | LibreOffice as WebAssembly in a child process (`office/service.ts`), downloaded on first use; without it Office files are rejected with a clear reason |
 
 * **Text layer of digital PDFs:** most invoices and letters from portals are digital. Extracting
   their text instead of running OCR is faster and exact. PDFium has a text API. Whether
@@ -219,8 +220,9 @@ Behaviour:
   MIME parsing: `mailparser`.
 * **Rules** (evaluated in order): sender / recipient / subject contains / folder → library, tags,
   correspondent, `skipAnalysis`, or ignore.
-* **What is ingested:** attachments of the allowed types (default), optionally the mail body as a
-  document (needs the HTML → PDF step, later). Inline images below a size threshold (signatures,
+* **What is ingested:** attachments of the allowed types (default), optionally the e-mail itself as
+  a document (rule option `storeMail`: never / only without attachments / always – stored as .eml,
+  a PDF of it with the Office converter). Inline images below a size threshold (signatures,
   logos) are skipped.
 * **After processing:** mark as read, move to a folder, or delete (setting). Idempotency through
   `Message-ID` + attachment index.

@@ -291,7 +291,8 @@ export function ngxDocument(d: ArchiveDocument, version: number, opts: { content
     deleted_at: null,
     archive_serial_number: d.archive_serial_number ?? null,
     original_file_name: d.original_file_name ?? null,
-    archived_file_name: isPdf ? (d.original_file_name ?? `${d.id}.pdf`) : null,
+    // The PDF made of an Office document or e-mail; a PDF is its own archive version.
+    archived_file_name: d.archived_file_name ?? (isPdf ? (d.original_file_name ?? `${d.id}.pdf`) : null),
     owner: d.owner ?? null,
     user_can_change: d.user_can_change ?? true,
     is_shared_by_requester: false,

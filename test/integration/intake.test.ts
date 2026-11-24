@@ -51,7 +51,7 @@ describe('WebDAV inbox', () => {
     expect((await put('/dav/inbox/Familie/Steuer/2024/beleg.pdf', pdf)).statusCode).toBe(201);
     expect((await put('/dav/inbox/Familie/Steuer/2024/._beleg.pdf', Buffer.from('apple double'))).statusCode).toBe(201);
     expect((await put('/dav/inbox/scan%20001.pdf', makePdf([['Ohne Ordner']]))).statusCode).toBe(201);
-    expect((await put('/dav/inbox/notes.txt', Buffer.from('just text'), 'text/plain')).statusCode).toBe(415);
+    expect((await put('/dav/inbox/data.json', Buffer.from('{"just": "data"}'), 'application/json')).statusCode).toBe(415);
 
     expect(docs().map((d) => [d.original_filename, d.library_id])).toEqual([
       ['beleg.pdf', family],

@@ -18,6 +18,7 @@ import { assessText } from './quality.js';
 import type { PipelineOptions } from './pipeline.js';
 import { isPdf } from './render.js';
 import { ocrAvailable, OcrWorkerEngine, type OcrEngine, type OcrProgress, type OcrResult } from './runner.js';
+import { kindOf } from '../../shared/fileTypes.js';
 
 const log = logger.child({ module: 'ocr' });
 
@@ -147,6 +148,8 @@ export class OcrService {
   autoNeeded(doc: ArchiveDocument): boolean {
     const o = this.cfg;
     if (!o.enabled || o.mode === 'manual' || this.available === false) return false;
+    // Text files and e-mails come with their text (OCR could only read a PDF made of it).
+    if (['text', 'html', 'mail'].includes(kindOf(doc.mime_type) ?? '')) return false;
     // Already read this version (e.g. a re-analysis after the write-back).
     const r = this.ctx.repos.ocr.result(doc.id);
     if (r?.status === 'done' && !r.reverted_at && [r.source_modified, r.written_modified].includes(doc.modified ?? null)) return false;

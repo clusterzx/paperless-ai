@@ -12,6 +12,12 @@ docker compose pull && docker compose up -d
 
 An installation that uses Paperless-ngx stays in that mode. Nothing changes until you choose to [move to the built-in archive](built-in-archive.md#moving-from-paperless-ngx).
 
+### To 4.6
+
+- **Built-in archive – more file types:** text files (`.txt`, `.md`, `.csv`), HTML and e-mails (`.eml`) are taken everywhere (upload, watch folders, WebDAV, e-mail attachments). Watch folders that held such files next to the scans will import them now – before, they went to `.failed/`.
+- **Office documents** stay off until you switch them on (*Settings → Archive → Office documents* or `PAPERLESS_AI_OFFICE=true`): that downloads LibreOffice (WebAssembly, ~80 MB) once and needs about 1.3 GB of memory while it converts ([details](built-in-archive.md#office-documents)).
+- **Mail rules** can store the e-mail itself as a document; existing rules keep storing the attachments only.
+
 ### To 4.5
 
 - **First start:** the database migrations move the search index of *Ask your archive* into `data/index.db` (a backup goes to `data/backups/`); with a large archive the first start takes a little longer.

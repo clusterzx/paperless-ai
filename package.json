@@ -1,6 +1,6 @@
 {
   "name": "paperless-ai",
-  "version": "4.5.2",
+  "version": "4.6.0",
   "description": "AI-powered document classification, tagging and RAG chat for Paperless-ngx",
   "type": "module",
   "bin": {
@@ -26,7 +26,7 @@
     "dev:server": "tsx watch --clear-screen=false src/server/index.ts",
     "dev:web": "vite",
     "build": "npm run build:web && npm run build:server",
-    "build:server": "tsc -p tsconfig.server.json && node -e \"require('node:fs').copyFileSync('src/server/mcp/bridge.mjs', 'dist/server/mcp/bridge.mjs')\"",
+    "build:server": "tsc -p tsconfig.server.json && node -e \"const fs=require('node:fs');fs.copyFileSync('src/server/mcp/bridge.mjs','dist/server/mcp/bridge.mjs');fs.copyFileSync('src/server/office/host.mjs','dist/server/office/host.mjs')\"",
     "build:web": "vite build",
     "fixture:archive": "tsx e2e/perf/fixture.ts",
     "perf": "tsx e2e/perf/run.ts",
@@ -56,6 +56,7 @@
     "dotenv": "^17.2.3",
     "fastify": "^5.12.5",
     "fastify-type-provider-zod": "^7.0.0",
+    "html-to-text": "^10.0.1",
     "imapflow": "^2.10.2",
     "jose": "^6.2.12",
     "mailparser": "^3.14.2",
@@ -79,6 +80,7 @@
     "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/better-sqlite3": "^9.6.0",
+    "@types/html-to-text": "^9.0.4",
     "@types/mailparser": "^3.9.0",
     "@types/node": "^22.20.4",
     "@types/nodemailer": "^8.0.2",

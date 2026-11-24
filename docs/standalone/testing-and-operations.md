@@ -64,9 +64,7 @@ services:
       - paperless-ai_data:/app/data             # databases – keep on a local disk
       - /srv/archive:/app/data/library          # blob store – may live on a separate (large) disk
       - /srv/scans:/consume                     # watch folder (scanner, SMB/FTP sidecar)
-  # optional, for Office documents (later):
-  # gotenberg:
-  #   image: gotenberg/gotenberg:8
+  # Office documents need no extra service: PAPERLESS_AI_OFFICE=true (LibreOffice as WebAssembly, in the app).
 volumes:
   paperless-ai_data:
 ```

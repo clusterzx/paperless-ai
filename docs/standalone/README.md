@@ -81,7 +81,7 @@ back to Paperless-ngx.
 | Postgres / MariaDB support | SQLite handles the target size (measured). A second database would double the test matrix and require making the whole repository layer async. Revisit only for multi-instance / HA needs. |
 | Switching the mode at runtime, or a hybrid of both | One source of truth per instance. Switching works through the migration assistant. |
 | Paperless-ngx REST API compatibility | A second API under `/ngx/api/` speaks the Paperless-ngx REST API (version 9) for the mobile apps made for Paperless-ngx; Paperless-AI's own API stays as it is – see [docs/guide/mobile-apps.md](../guide/mobile-apps.md) and `src/server/ngx/`. |
-| Office documents in the first release | PDF and images first, since the OCR pipeline already reads them. Office formats later via an optional Gotenberg sidecar. |
+| Office documents in the first release | PDF and images first, since the OCR pipeline already reads them. Office formats came in 4.6 – not via a Gotenberg sidecar but with LibreOffice as WebAssembly inside the app, downloaded on first use (see guide/built-in-archive.md). |
 | Horizontal scaling, several app instances | Self-hosted single-container product. |
 | Own native mobile apps | PWA (install, share target, camera upload), the REST API for scanner apps, and the existing Paperless-ngx apps through the compatible API ([mobile-apps.md](../guide/mobile-apps.md)). |
 | Barcode / separator page splitting, notes, share links | Later, after the core is stable. |
@@ -219,8 +219,8 @@ modes working.
 ### Later
 
 Searchable archive PDF (text layer from OCR boxes), folder projection (storage path templates),
-Office formats via Gotenberg, per-user mapping in companion mode, separator page splitting, notes,
-share links.
+per-user mapping in companion mode, separator page splitting, notes, share links. (Office formats:
+done in 4.6, without Gotenberg.)
 
 ### Implementation status
 
@@ -241,8 +241,11 @@ while building:
   ([mobile-apps.md](../guide/mobile-apps.md)) and an MCP server for AI agents with finer API key
   permissions (`delete`, `metadata`, `mcp`, rate limits – [mcp.md](../guide/mcp.md),
   [access-control.md §5](access-control.md#5-api-keys)).
-* Still open from the plan, in "Later": folder projection, searchable PDF/A, Office formats,
-  per-user mapping in companion mode, notes (exported to `data/migration/notes.json` for now).
+* 4.6: text files, HTML and e-mails (.eml) always; Office documents with the optional converter
+  (LibreOffice as WebAssembly in a child process, downloaded on first use; `office/service.ts`);
+  mail rules can store the e-mail itself ([built-in-archive.md](../guide/built-in-archive.md#file-formats)).
+* Still open from the plan, in "Later": folder projection, searchable PDF/A, per-user mapping in
+  companion mode, notes (exported to `data/migration/notes.json` for now).
 
 ## 8. Decision log
 
@@ -264,7 +267,7 @@ while building:
 | Q2 | Prompt rules: migrate into workflows or keep both? | Migrate; keep a simplified "Prompt rules" view that edits the matching workflows. |
 | Q3 | Folder projection (human-readable folders from metadata) in which milestone? | After M7, as a read-only export view (hardlinks). |
 | Q4 | Searchable archive PDF (PDF/A with text layer): needed for v1? | No; the viewer shows the original, search uses the stored text. Later. |
-| Q5 | Office formats: optional Gotenberg sidecar? | Yes, later, opt-in. |
+| Q5 | Office formats: optional Gotenberg sidecar? | Opt-in, but without a sidecar: LibreOffice as WebAssembly inside the app (4.6). |
 | Q6 | Default retention of file versions? | Keep all; per-library limit (N versions / X days) is optional. |
 | Q7 | Do workflows ship in companion mode at the same time? | Yes – a good way to test the engine with real users before the built-in archive is stable. |
 | Q8 | Product name: does "Paperless-AI" still fit a standalone archive? | Out of scope for this plan; noted. |

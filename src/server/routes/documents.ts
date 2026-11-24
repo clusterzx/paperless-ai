@@ -57,6 +57,7 @@ export const documentRoutes =
       added: d.added,
       url: ctx.documentLink(d.id),
       current_version: d.current_version,
+      has_archive: Boolean(d.archived_file_name),
       role: scope.libraries && d.library_id != null ? roleIn(scope, d.library_id) : null,
     });
 

@@ -4,7 +4,7 @@
 
 With Paperless-ngx as the archive, documents arrive through Paperless-ngx (its consume folder, mail rules, apps); uploads in Paperless-AI are handed to it. The channels below are those of the [built-in archive](built-in-archive.md).
 
-Every file goes through the same intake: type check (PDF, JPEG, PNG, TIFF, WebP), duplicate check (an identical file is stored once per library), text layer and thumbnail, then OCR when needed and the AI analysis. **Inbox → Recent intake** lists every attempt with its channel (`upload`, `api`, `webdav`, `folder`, `mail`, `share`) and status: `stored`, `duplicate`, `rejected` (type, size, rights – with the reason) or `failed` (a passing error, with **Retry**).
+Every file goes through the same intake: type check (PDF, images, text, HTML, e-mails and – with the [Office converter](built-in-archive.md#office-documents) – Office documents; see [File formats](built-in-archive.md#file-formats)), duplicate check (an identical file is stored once per library), text layer and thumbnail, then OCR when needed and the AI analysis. **Inbox → Recent intake** lists every attempt with its channel (`upload`, `api`, `webdav`, `folder`, `mail`, `share`) and status: `stored`, `duplicate`, `rejected` (type, size, rights – with the reason) or `failed` (a passing error, with **Retry**).
 
 ## Which library a file goes to
 
@@ -89,10 +89,11 @@ cd /data/coolify/applications/<app id> && rmdir scans && ln -s /srv/scans scans
 
 *Libraries → library → E-mail* (administrators set accounts up): server, port, security, user name and password (stored encrypted), *Test connection*, then the folders (e.g. `INBOX`).
 
-- **What is stored:** attachments (PDF, images). Logos, icons and pictures embedded in the text are left out (decided by their size); photos sent from a phone stay.
+- **What is stored:** attachments that are documents – PDFs, images, text files, attached e-mails and, with the [Office converter](built-in-archive.md#office-documents), Office documents (without it they are left out). Logos, icons and pictures embedded in the text are left out (decided by their size); photos sent from a phone stay.
+- **The e-mail itself:** a rule can also store the message as a document (`.eml`, title = subject, date = the day it was sent): *the attachments – or the e-mail when it has none* (e.g. bank statements sent as text) or *the attachments and the e-mail itself*. With the Office converter the e-mail is kept as a PDF as well.
 - **Afterwards:** *Mark as read*, *Move to a folder* or *Delete*. Only the processed message is ever changed, and only when all its attachments were stored: an attachment that failed is tried again with the next check; a refused one (too large) leaves the message untouched and the account shows why. On servers without UIDPLUS a deletion only flags the message, a move falls back to marking it read.
 - **Only e-mails that arrive from now on:** the first check skips the messages already in the folders. Without it, all of them are imported – read or not – and then marked, moved or deleted. Use *Mark as read* while trying it out.
-- **Rules** (the first match applies): sender / subject contains → tags, *store only* (no analysis), *ignore*, or **into another library** – one mailbox for several libraries. One account per mailbox.
+- **Rules** (the first match applies; empty sender and subject match every message): sender / subject contains → tags, *store only* (no analysis), *ignore*, **into another library** – one mailbox for several libraries – and whether the e-mail itself is stored. One account per mailbox.
 - Checked every 5 minutes (*Settings → Archive*, `PAPERLESS_AI_MAIL_POLL`) or with *Check now*.
 
 ## Phone

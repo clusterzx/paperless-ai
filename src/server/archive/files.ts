@@ -1,39 +1,17 @@
 /**
- * File handling of the intake: type detection by magic bytes, page count and text layer of PDFs
- * (PDFium), thumbnails (PDFium + sharp). The native/WASM libraries are optional dependencies; without
- * them documents are still stored, only without text layer and thumbnail.
+ * File handling of the intake: page count and text layer of PDFs (PDFium), thumbnails (PDFium +
+ * sharp). The native/WASM libraries are optional dependencies; without them documents are still
+ * stored, only without text layer and thumbnail. The file types: formats.ts.
  */
 import { setImmediate as yieldTick } from 'node:timers/promises';
 import { logger } from '../logger.js';
 
 const log = logger.child({ module: 'archive' });
 
-/** File types the archive accepts (the OCR pipeline reads them). */
-export const ACCEPTED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff', 'image/webp', 'image/gif', 'image/bmp'] as const;
+export { sniffBinary as sniffType, extensionFor } from './formats.js';
 
 const MAX_TEXT_PAGES = 1000;
 const THUMB_WIDTH = 480;
-
-/** The real type of a file from its first bytes (the name and the declared type are not trusted). */
-export function sniffType(bytes: Uint8Array): string | null {
-  const b = Buffer.from(bytes.buffer, bytes.byteOffset, Math.min(bytes.byteLength, 1024));
-  const head = b.toString('latin1');
-  if (head.includes('%PDF-')) return 'application/pdf';
-  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
-  if (b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
-  if (head.startsWith('II*\0') || head.startsWith('MM\0*')) return 'image/tiff';
-  if (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP') return 'image/webp';
-  if (head.startsWith('GIF87a') || head.startsWith('GIF89a')) return 'image/gif';
-  if (head.startsWith('BM')) return 'image/bmp';
-  return null;
-}
-
-export function extensionFor(mime: string): string {
-  return (
-    { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/tiff': 'tif', 'image/webp': 'webp', 'image/gif': 'gif', 'image/bmp': 'bmp' }[mime] ??
-    'bin'
-  );
-}
 
 type PdfiumLibrary = InstanceType<(typeof import('@hyzyla/pdfium'))['PDFiumLibrary']>;
 let pdfium: Promise<PdfiumLibrary | null> | null = null;
@@ -141,6 +119,47 @@ export async function renderThumbnail(bytes: Uint8Array, mime: string): Promise<
       .rotate()
       .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
       .flatten({ background: '#ffffff' })
+      .webp({ quality: 78 })
+      .toBuffer();
+  } catch (err) {
+    log.debug(`No thumbnail: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * Thumbnail of a text (plain text, HTML, e-mail without a PDF): the outline of its first lines as
+ * bars – no fonts needed (the image has none). E-mails get an envelope.
+ */
+export async function textThumbnail(text: string, kind: 'text' | 'html' | 'mail'): Promise<Buffer | null> {
+  const s = await sharp();
+  if (!s) return null;
+  const width = 300;
+  const height = 400;
+  const margin = 26;
+  const perRow = 58;
+  const rowHeight = 10;
+  const top = kind === 'mail' ? 74 : margin;
+  const rows: { len: number; strong: boolean }[] = [];
+  let header = kind === 'mail';
+  for (const line of text.split('\n')) {
+    if (rows.length * rowHeight > height - top - margin) break;
+    if (header && !line.trim()) header = false;
+    const clean = line.replace(/\s+/g, ' ').trim();
+    if (!clean) {
+      rows.push({ len: 0, strong: false });
+      continue;
+    }
+    for (let i = 0; i < clean.length && rows.length * rowHeight <= height - top - margin; i += perRow) rows.push({ len: Math.min(perRow, clean.length - i), strong: header });
+  }
+  const bar = (r: { len: number; strong: boolean }, i: number) =>
+    `<rect x="${margin}" y="${top + i * rowHeight}" width="${Math.max(6, ((width - 2 * margin) * r.len) / perRow).toFixed(1)}" height="4" rx="2" fill="${r.strong ? '#8b90a0' : '#c3c7d1'}"/>`;
+  const bars = rows.map((r, i) => (r.len ? bar(r, i) : '')).join('');
+  const envelope = kind === 'mail' ? `<g fill="none" stroke="#6b7080" stroke-width="3" stroke-linejoin="round"><rect x="${margin}" y="24" width="44" height="30" rx="3"/><path d="M${margin} 27l22 15 22-15"/></g>` : '';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#ffffff"/>${envelope}${bars}</svg>`;
+  try {
+    return await s(Buffer.from(svg), { density: (72 * THUMB_WIDTH) / width })
+      .resize({ width: THUMB_WIDTH })
       .webp({ quality: 78 })
       .toBuffer();
   } catch (err) {

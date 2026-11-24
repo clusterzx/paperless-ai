@@ -747,7 +747,10 @@ function MailTab({ library, admin }: { library: LibraryInfo; admin: boolean }) {
             </div>
             <div className="space-y-2">
               <div className="text-sm font-medium text-fg">Rules</div>
-              <p className="text-xs text-muted">The first rule whose sender and subject match applies. A rule can store into another library – one mailbox for several libraries.</p>
+              <p className="text-xs text-muted">
+                The first rule whose sender and subject match applies (empty: every message). A rule can store into another
+                library – one mailbox for several libraries – and keep the e-mail itself as a document.
+              </p>
               {editing.rules.map((r, i) => (
                 <div key={i} className="grid gap-2 rounded-lg bg-surface-2 p-2 ring-1 ring-border sm:grid-cols-[1fr_1fr_1fr_auto]">
                   <Input aria-label="Sender contains" placeholder="Sender contains" value={r.from ?? ''} onChange={(e) => setRule(i, { from: e.target.value || undefined })} />
@@ -761,8 +764,15 @@ function MailTab({ library, admin }: { library: LibraryInfo; admin: boolean }) {
                     <Trash2 className="size-4" />
                   </IconButton>
                   {!r.ignore && (
-                    <div className="grid gap-2 sm:col-span-4 sm:grid-cols-[2fr_1fr]">
-                      <TagInput value={r.tags ?? []} onChange={(tags) => setRule(i, { tags })} placeholder="Tags for these documents" />
+                    <div className="grid gap-2 sm:col-span-4 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <TagInput value={r.tags ?? []} onChange={(tags) => setRule(i, { tags })} placeholder="Tags for these documents" />
+                      </div>
+                      <Select aria-label="What is stored" value={r.storeMail ?? 'never'} onChange={(e) => setRule(i, { storeMail: e.target.value as MailRuleInfo['storeMail'] })}>
+                        <option value="never">the attachments</option>
+                        <option value="no_attachments">the attachments – or the e-mail when it has none</option>
+                        <option value="always">the attachments and the e-mail itself</option>
+                      </Select>
                       {otherLibraries.length > 0 && (
                         <Select aria-label="Library" value={r.libraryId ?? ''} onChange={(e) => setRule(i, { libraryId: e.target.value ? Number(e.target.value) : undefined })}>
                           <option value="">into this library</option>

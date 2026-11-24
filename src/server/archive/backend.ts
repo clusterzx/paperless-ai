@@ -41,7 +41,9 @@ import { buildFtsQuery, queryTerms, stem } from '../rag/text.js';
 import { BlobStore } from './blobs.js';
 import { displayValue, fromColumns, parseOptions, toColumns, type FieldColumns } from './fields.js';
 import { LibraryMetadataSource, METADATA_TABLE } from './metadataSource.js';
-import { PLACEHOLDER_THUMB, renderThumbnail } from './files.js';
+import { PLACEHOLDER_THUMB, renderThumbnail, textThumbnail } from './files.js';
+import { kindOf } from './formats.js';
+import { OfficeService } from '../office/service.js';
 import { IngestService } from './ingest.js';
 import { ArchiveMaintenance } from './maintenance.js';
 import { FolderWatcher } from './folder.js';
@@ -113,6 +115,8 @@ export class LocalBackend implements DocumentBackend {
   readonly maintenance: ArchiveMaintenance;
   readonly folders: FolderWatcher;
   readonly mail: MailWatcher;
+  /** The optional Office converter (LibreOffice, WebAssembly). */
+  readonly office: OfficeService;
   /** Heavy reads (lists, full text, counts, facets) in worker threads. */
   readonly reader: ReadPool;
   /** Above this many full text matches only the newest are ranked by bm25 (see queryDocuments). */
@@ -134,6 +138,7 @@ export class LocalBackend implements DocumentBackend {
     this.maintenance = new ArchiveMaintenance(this, !opts.passive);
     this.folders = new FolderWatcher(this);
     this.mail = new MailWatcher(this);
+    this.office = new OfficeService(ctx, { watchConfig: !opts.passive });
     if (opts.passive) return;
     this.ingestService.recoverInterrupted();
     this.ensureDefaultLibrary();
@@ -192,6 +197,7 @@ export class LocalBackend implements DocumentBackend {
     this.folders.stop();
     this.mail.stop();
     await this.ingestService.stop();
+    this.office.close();
     this.maintenance.stop();
     await this.reader.close();
   }
@@ -296,9 +302,21 @@ export class LocalBackend implements DocumentBackend {
     return out;
   }
 
+  /** File names of the archived PDFs of the current versions (Office documents, e-mails …). */
+  archivesOf(ids: number[]): Map<number, string> {
+    const out = new Map<number, string>();
+    if (!ids.length) return out;
+    const rows = this.db
+      .prepare(`SELECT f.document_id, f.original_filename FROM lib_document_files f JOIN lib_documents d ON d.id = f.document_id AND f.version = d.current_version WHERE f.kind = 'archive' AND f.document_id ${IN_IDS}`)
+      .all(json(ids)) as { document_id: number; original_filename: string | null }[];
+    for (const r of rows) out.set(r.document_id, r.original_filename ?? `${r.document_id}.pdf`);
+    return out;
+  }
+
   /** API objects for rows (tags, custom fields and – when asked for – the text). */
   toDocuments(rows: DocRow[], scope: AccessScope | null, withContent: boolean): ArchiveDocument[] {
     const ids = rows.map((r) => r.id);
+    const archives = this.archivesOf(ids);
     const tags = this.tagsOf(ids);
     const fields = this.fieldsOf(ids);
     const content = withContent ? this.contentOf(ids) : null;
@@ -316,6 +334,7 @@ export class LocalBackend implements DocumentBackend {
       added: r.added,
       archive_serial_number: r.archive_serial_number,
       original_file_name: r.original_filename,
+      archived_file_name: archives.get(r.id) ?? null,
       owner: r.owner_id,
       user_can_change: scope ? canEdit(scope, r.library_id) : true,
       custom_fields: fields.get(r.id) ?? [],
@@ -906,19 +925,39 @@ export class LocalBackend implements DocumentBackend {
     return { data, contentType: file.mime_type, filename: file.original_filename ?? row.original_filename ?? `document-${id}` };
   }
 
+  /** Thumbnail of a file: the first page of its PDF (the archived one first), or the outline of its text. */
+  async renderThumbnail(f: { bytes: Uint8Array; mime: string; archive: Uint8Array | null; text: string }): Promise<Buffer | null> {
+    if (f.archive) return renderThumbnail(f.archive, 'application/pdf');
+    const kind = kindOf(f.mime);
+    if (kind === 'text' || kind === 'html' || kind === 'mail') return textThumbnail(f.text, kind);
+    if (kind === 'office') return null;
+    return renderThumbnail(f.bytes, f.mime);
+  }
+
   async thumbnail(scope: AccessScope, id: number): Promise<FileData> {
     const row = this.readableRow(scope, id);
     const cached = this.blobs.thumbPath(id, row.current_version);
     if (fs.existsSync(cached)) return { data: fs.readFileSync(cached), contentType: 'image/webp' };
     const file = this.fileRow(id, row.current_version, 'original');
     if (file) {
-      const thumb = await renderThumbnail(await this.blobs.read(file.blob_sha256), file.mime_type);
+      const archive = this.fileRow(id, row.current_version, 'archive');
+      const kind = kindOf(file.mime_type);
+      const thumb = await this.renderThumbnail({
+        bytes: archive || kind === 'office' ? new Uint8Array() : await this.blobs.read(file.blob_sha256),
+        mime: file.mime_type,
+        archive: archive ? await this.blobs.read(archive.blob_sha256) : null,
+        text: kind === 'text' || kind === 'html' || kind === 'mail' ? this.versionTextOf(id, row.current_version) : '',
+      });
       if (thumb) {
         fs.writeFileSync(cached, thumb);
         return { data: thumb, contentType: 'image/webp' };
       }
     }
     return { data: PLACEHOLDER_THUMB, contentType: 'image/svg+xml' };
+  }
+
+  private versionTextOf(id: number, version: number): string {
+    return (this.db.prepare('SELECT text FROM lib_document_text WHERE document_id = ? AND version = ?').get(id, version) as { text: string } | undefined)?.text ?? '';
   }
 
   documentLink(id: number): string {

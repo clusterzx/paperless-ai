@@ -140,6 +140,8 @@ export interface DocumentDetail extends DocumentSummary {
   /** Link that opens the document (the Paperless-ngx UI or the document page of the built-in archive). */
   url: string;
   mime_type?: string | null;
+  /** There is an archived PDF of the file (shown instead of it: Office documents, e-mails; Paperless-ngx: its archive version). */
+  has_archive?: boolean;
   page_count?: number | null;
   archive_serial_number?: number | null;
   storage_path?: number | null;
@@ -442,6 +444,8 @@ export interface ArchiveInfo {
   capabilities: BackendCapabilities;
   /** The trash page of an external archive (Paperless-ngx), for the menu. */
   trashUrl?: string | null;
+  /** Office documents can be added (built-in archive: the Office converter is on; Paperless-ngx decides itself). */
+  officeDocuments?: boolean;
 }
 
 export interface SessionInfo {
@@ -808,6 +812,8 @@ export interface MailRuleInfo {
   ignore?: boolean;
   /** Store into this library instead of the account's. */
   libraryId?: number;
+  /** Store the e-mail itself as a document: never (default), only when it has no attachment that is one, or always. */
+  storeMail?: 'never' | 'no_attachments' | 'always';
 }
 
 export interface MailAccountInfo {
@@ -827,4 +833,24 @@ export interface MailAccountInfo {
   skipExisting: boolean;
   lastError: string | null;
   lastCheckedAt: number | null;
+}
+
+export type OfficeState = 'off' | 'not_installed' | 'downloading' | 'installing' | 'ready' | 'failed';
+
+/** The Office converter of the built-in archive (Settings → Archive). */
+export interface OfficeStatus {
+  enabled: boolean;
+  state: OfficeState;
+  version: string;
+  /** Download progress (bytes). */
+  received: number | null;
+  total: number | null;
+  error: string | null;
+  /** LibreOffice is loaded right now (and holds memory). */
+  loaded: boolean;
+  memoryMb: number | null;
+  conversions: number;
+  failures: number;
+  lastMs: number | null;
+  dir: string;
 }
