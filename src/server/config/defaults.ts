@@ -1,5 +1,7 @@
 import { DEFAULT_EMBEDDING_MODELS } from '../../shared/embeddingPrompts.js';
 
+export { DEFAULT_OPENAI_MODEL } from '../../shared/openaiModels.js';
+
 export const DEFAULT_SYSTEM_PROMPT = `You are a personalized document analyzer. Your task is to analyze documents and extract relevant information.
 
 Analyze the document content and extract the following information into a structured JSON object:
@@ -43,7 +45,6 @@ For the language:
 
 export const DEFAULT_SCAN_INTERVAL = '*/30 * * * *';
 export const DEFAULT_PROCESSED_TAG = 'ai-processed';
-export const DEFAULT_OPENAI_MODEL = 'gpt-5-mini';
 export const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 export const DEFAULT_OLLAMA_MODEL = 'llama3.2';
 /** Fixed num_ctx for Ollama: room for a long document, small enough for 8 GB GPUs. */

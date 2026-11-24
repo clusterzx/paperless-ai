@@ -4,6 +4,7 @@ import type { AppConfig } from '../../server/config/schema';
 import type { ConnectionTestResult } from '@shared/api';
 import { effectiveOcrModel, OCR_LANGUAGE_LABELS, OCR_LANGUAGES, OCR_MODEL_SIZE_LABELS, OCR_MODEL_SIZES, OCR_QUALITY, OCR_QUALITY_PRESETS, OCR_RELEASE, OCR_RELEASE_LABELS } from '@shared/ocr';
 import { buildWizardPrompt } from '@shared/promptWizard';
+import { DEFAULT_OPENAI_MODEL } from '@shared/openaiModels';
 import { autoEmbeddingPrompts, DEFAULT_EMBEDDING_MODELS, promptTemplate } from '@shared/embeddingPrompts';
 import type { RagStatus } from '@shared/api';
 import { errorMessage, get, post } from '../lib/api';
@@ -149,7 +150,7 @@ const PROVIDERS: { id: Config['ai']['provider']; label: string; description: str
 ];
 
 // Suggestions only – "Load" lists every model of the account.
-const OPENAI_MODELS = ['gpt-5-mini', 'gpt-5-nano', 'gpt-5.5', 'gpt-5.4', 'gpt-5', 'gpt-4.1-mini', 'gpt-4o-mini'];
+const OPENAI_MODELS = [DEFAULT_OPENAI_MODEL, 'gpt-6.1-terra', 'gpt-5.5', 'gpt-5.4', 'gpt-4.1-mini', 'gpt-4o-mini'];
 const ANTHROPIC_MODELS = ['claude-haiku-4-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-sonnet-4-6'];
 
 const MODEL_PATHS: Record<Config['ai']['provider'], string> = {
@@ -253,7 +254,7 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
             <Field label="API key" locked={locked['ai.openai.apiKey']}>
               <SecretInput value={draft.ai.openai.apiKey} onChange={(v) => set('ai.openai.apiKey', v)} disabled={Boolean(locked['ai.openai.apiKey'])} placeholder="sk-…" />
             </Field>
-            {modelInput('Model', 'gpt-5-mini', 'gpt-5-mini offers the best value for document analysis. Reasoning models (GPT-5.x, o-series) work with low reasoning effort.')}
+            {modelInput('Model', DEFAULT_OPENAI_MODEL, `${DEFAULT_OPENAI_MODEL} is the low-cost default for document analysis. If you set gpt-5, gpt-5-mini, or gpt-5-nano, switch before December 11, 2026.`)}
           </>
         )}
         {provider === 'anthropic' && (

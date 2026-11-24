@@ -25,6 +25,18 @@ afterEach(() => {
 
 const readJson = (file: string) => JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
+describe('OpenAI model defaults', () => {
+  it('uses a current model when no OpenAI model is configured', () => {
+    expect(defaultConfig().ai.openai.model).toBe('gpt-6-luna');
+    expect(lenientParse({ ai: { openai: { apiKey: 'test-key' } } }).config.ai.openai.model).toBe('gpt-6-luna');
+  });
+
+  it('preserves a saved model and an explicit environment model override', () => {
+    expect(lenientParse({ ai: { openai: { model: 'gpt-5-mini' } } }).config.ai.openai.model).toBe('gpt-5-mini');
+    expect(lenientParse(configFromEnv({ OPENAI_MODEL: 'gpt-6.1-terra' }).values).config.ai.openai.model).toBe('gpt-6.1-terra');
+  });
+});
+
 describe('lenientParse', () => {
   it('drops invalid values and keeps the valid ones', () => {
     const { config, dropped } = lenientParse({
