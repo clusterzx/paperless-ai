@@ -849,7 +849,16 @@ export interface OfficeStatus {
   error: string | null;
   /** LibreOffice is loaded right now (and holds memory). */
   loaded: boolean;
+  /** LibreOffice is being started. */
+  starting: boolean;
+  /** Memory LibreOffice holds right now (MB), null when not loaded. */
   memoryMb: number | null;
+  /** Memory it held the last time it was loaded (MB). */
+  lastMemoryMb: number | null;
+  /** How long its last start took (ms). */
+  lastStartMs: number | null;
+  /** It is kept loaded (idle minutes 0). */
+  keepLoaded: boolean;
   conversions: number;
   failures: number;
   lastMs: number | null;

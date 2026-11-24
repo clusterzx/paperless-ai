@@ -189,13 +189,13 @@ function OfficeCard({ draft, set, locked }: { draft: Config; set: (path: string,
   const { reload } = status;
   // Unsaved: the saved state differs from the switch (until the settings are saved).
   const unsaved = Boolean(s) && s!.enabled !== o.enabled;
-  // Follow the download while it runs, and the switch once it is saved.
-  const watch = s?.state === 'downloading' || s?.state === 'installing' || unsaved;
+  // Follow the download while it runs and the switch once it is saved; the memory while it is loaded.
+  const every = s?.state === 'downloading' || s?.state === 'installing' || s?.starting || unsaved ? 1500 : s?.loaded || s?.keepLoaded ? 5000 : null;
   useEffect(() => {
-    if (!watch) return;
-    const t = setInterval(() => void reload(), 1500);
+    if (!every) return;
+    const t = setInterval(() => void reload(), every);
     return () => clearInterval(t);
-  }, [watch, reload]);
+  }, [every, reload]);
   const install = async () => {
     try {
       await post('/api/archive/office/install');
@@ -239,9 +239,12 @@ function OfficeCard({ draft, set, locked }: { draft: Config; set: (path: string,
               <span className="text-xs text-muted">
                 LibreOffice (converter {s.version})
                 {s.state === 'ready' &&
-                  (s.loaded
-                    ? ` · loaded${s.memoryMb ? ` (${formatNumber(s.memoryMb)} MB)` : ''}`
-                    : ' · not loaded (no memory used)')}
+                  (s.starting
+                    ? ` · starting${s.memoryMb ? ` (${formatNumber(s.memoryMb)} MB so far)` : ''}`
+                    : s.loaded
+                    ? ` · loaded, uses ${s.memoryMb ? `${formatNumber(s.memoryMb)} MB` : 'some'} of memory`
+                    : ` · not loaded, uses no memory${s.lastMemoryMb ? ` (${formatNumber(s.lastMemoryMb)} MB while loaded)` : ''}`)}
+                {s.lastStartMs !== null && ` · start took ${(s.lastStartMs / 1000).toFixed(1)} s`}
                 {s.conversions > 0 &&
                   ` · ${formatNumber(s.conversions)} conversion(s)${s.lastMs !== null ? `, last ${(s.lastMs / 1000).toFixed(1)} s` : ''}`}
                 {s.failures > 0 && ` · ${formatNumber(s.failures)} failed`}
@@ -270,20 +273,22 @@ function OfficeCard({ draft, set, locked }: { draft: Config; set: (path: string,
           </div>
         )}
         {o.enabled && (
+          <Switch
+            checked={o.idleMinutes === 0}
+            onChange={(v) => set('archive.builtin.office.idleMinutes', v ? 0 : 5)}
+            locked={locked['archive.builtin.office.idleMinutes']}
+            disabled={Boolean(locked['archive.builtin.office.idleMinutes'])}
+            label="Keep LibreOffice loaded"
+            description={`Loaded when Paperless-AI starts, so no Office document waits for it${s?.lastStartMs ? ` (its start took ${(s.lastStartMs / 1000).toFixed(0)} s last time)` : ''} – in exchange it keeps using about ${formatNumber(s?.memoryMb ?? s?.lastMemoryMb ?? 1300)} MB of memory all the time.`}
+          />
+        )}
+        {o.enabled && (
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field
-              label="Unload after (minutes idle)"
-              hint="Gives the memory back between conversions."
-              locked={locked['archive.builtin.office.idleMinutes']}
-            >
-              <NumberInput
-                value={o.idleMinutes}
-                min={1}
-                max={1440}
-                onChange={(v) => set('archive.builtin.office.idleMinutes', v)}
-                disabled={Boolean(locked['archive.builtin.office.idleMinutes'])}
-              />
-            </Field>
+            {o.idleMinutes > 0 && (
+              <Field label="Unload after (minutes idle)" hint="Gives the memory back between conversions." locked={locked['archive.builtin.office.idleMinutes']}>
+                <NumberInput value={o.idleMinutes} min={1} max={1440} onChange={(v) => set('archive.builtin.office.idleMinutes', v)} disabled={Boolean(locked['archive.builtin.office.idleMinutes'])} />
+              </Field>
+            )}
             <Field
               label="Longest conversion (seconds)"
               hint="A conversion that takes longer is tried once more."

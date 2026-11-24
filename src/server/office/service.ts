@@ -13,6 +13,7 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
@@ -41,20 +42,17 @@ const MARKER = '.paperless-ai.json';
 const HOST = fileURLToPath(new URL('./host.mjs', import.meta.url));
 /** A failed download is tried again by itself after this long. */
 const RETRY_AFTER_MS = 10 * 60_000;
-/**
- * Loading LibreOffice (with a first conversion) takes a few seconds – but now and then it hangs for
- * about 80 s at the start (seen at random, also on fast machines). A start that takes longer than
- * QUICK_START_MS (or 4 × the last normal start) is given up and LibreOffice is started again; a
- * fresh start is almost always quick. The third attempt waits up to START_TIMEOUT_MS (slow machines).
- */
-const QUICK_START_MS = 30_000;
-const START_TIMEOUT_MS = 180_000;
-const START_ATTEMPTS = 3;
+/** Loading LibreOffice takes a few seconds; on some machines over a minute (the log then shows where the time goes). */
+const START_TIMEOUT_MS = 300_000;
+/** A start slower than this is logged with its steps and the machine. */
+const SLOW_START_MS = 15_000;
 
 /** Runs the conversions – the LibreOffice process, or a fake in tests. */
 export interface OfficeEngine {
   readonly loaded: boolean;
   readonly rss: number | null;
+  /** The process LibreOffice runs in (its memory is read from /proc). */
+  readonly pid?: number | null;
   start(timeoutMs: number): Promise<void>;
   convert(data: Uint8Array, ext: string, timeoutMs: number): Promise<Uint8Array>;
   stop(): void;
@@ -83,6 +81,10 @@ class ProcessEngine implements OfficeEngine {
 
   get loaded(): boolean {
     return this.child !== null;
+  }
+
+  get pid(): number | null {
+    return this.child?.pid ?? null;
   }
 
   private lastOutput(): string {
@@ -120,17 +122,22 @@ class ProcessEngine implements OfficeEngine {
           message?: string;
           rss?: number;
           ms?: number;
-          loadMs?: number;
-          warmUpMs?: number;
+          cpuMs?: number;
+          phases?: [number, string][];
         }) => {
           if (msg.rss) this.rss = msg.rss;
           if (msg.type === 'started') child.send({ type: 'init', dir: this.dir, fontsDir: this.fontsDir });
           else if (msg.type === 'ready') {
             clearTimeout(timer);
             const s = (ms?: number) => `${((ms ?? 0) / 1000).toFixed(1)} s`;
-            log.info(
-              `LibreOffice loaded in ${s(msg.ms)} (start ${s(msg.loadMs)}, first conversion ${s(msg.warmUpMs)}; ${Math.round((msg.rss ?? 0) / 1048576)} MB)`,
-            );
+            log.info(`LibreOffice loaded in ${s(msg.ms)} (${Math.round((msg.rss ?? 0) / 1048576)} MB)`);
+            // Where the time of a slow start goes (waiting or computing) – and on which machine.
+            if ((msg.ms ?? 0) > SLOW_START_MS) {
+              const steps = (msg.phases ?? []).map(([t, step]) => `${s(t)} ${step}`).join(' → ');
+              log.warn(
+                `LibreOffice started slowly: ${s(msg.ms)}, of which ${s(msg.cpuMs)} CPU time. Steps: ${steps}. Machine: ${machine()}`,
+              );
+            }
             resolve();
           } else if (msg.type === 'failed' && msg.id == null) {
             clearTimeout(timer);
@@ -199,18 +206,40 @@ export class OfficeService {
   private failedAt = 0;
   private stats = { conversions: 0, failures: 0, lastMs: null as number | null };
   private closed = false;
-  /** How long the last start took (it sets how long the next one may take before it is retried). */
+  /** How long the last start of LibreOffice took and how much memory it held (shown in the settings). */
   private lastStartMs: number | null = null;
-  private readonly quickStartMs: number;
+  private lastMemory: number | null = null;
+  /** The service of the running archive (not a passive one): it loads LibreOffice in advance. */
+  private active = false;
+  /** LibreOffice is being started. */
+  private starting = false;
 
   constructor(
     private readonly ctx: AppContext,
-    opts: { watchConfig?: boolean; quickStartMs?: number } = {},
+    opts: { watchConfig?: boolean } = {},
   ) {
-    this.quickStartMs = opts.quickStartMs ?? QUICK_START_MS;
     if (!opts.watchConfig) return;
+    this.active = true;
     ctx.config.on('change', this.onConfig);
     if (this.enabled && !this.installed()) void this.install().catch(() => undefined);
+    else this.preload();
+  }
+
+  /** "Keep LibreOffice loaded" (idle minutes 0): no waiting for it to start, its memory stays in use. */
+  get keepLoaded(): boolean {
+    return this.ctx.cfg.archive.builtin.office.idleMinutes === 0;
+  }
+
+  /** Load LibreOffice in the background when it is to be kept loaded (at start, when switched on, after the download). */
+  private preload(): void {
+    if (!this.active || this.closed || !this.ready() || !this.keepLoaded || this.engine?.loaded) return;
+    const run = this.chain.then(() => (this.engine?.loaded ? undefined : this.load()));
+    this.chain = run.catch(() => undefined);
+    run.catch((err: unknown) =>
+      log.warn(
+        `LibreOffice could not be loaded in advance: ${describeError(err)} – it is tried again with the next Office document`,
+      ),
+    );
   }
 
   get dir(): string {
@@ -241,9 +270,29 @@ export class OfficeService {
       return;
     }
     if (!this.installed()) void this.install().catch(() => undefined);
+    else if (this.keepLoaded) this.preload();
+    // From "keep loaded" back to unloading when idle.
+    else if (this.engine?.loaded && !this.idleTimer) this.armIdle();
   };
 
+  /** Memory of the LibreOffice process right now (from /proc where there is one), else as it last reported. */
+  private memory(): number | null {
+    const engine = this.engine;
+    if (!engine?.loaded) return null;
+    if (engine.pid) {
+      try {
+        const kb = /VmRSS:\s+(\d+)\s+kB/.exec(fs.readFileSync(`/proc/${engine.pid}/status`, 'utf8'))?.[1];
+        if (kb) return Number(kb) * 1024;
+      } catch {
+        /* no /proc (macOS, Windows) */
+      }
+    }
+    return engine.rss;
+  }
+
   status(): OfficeStatus {
+    const memory = this.memory();
+    if (memory && !this.starting) this.lastMemory = memory;
     const state: OfficeState = !this.enabled
       ? 'off'
       : this.phase
@@ -260,8 +309,12 @@ export class OfficeService {
       received: this.progress?.received ?? null,
       total: this.progress?.total ?? null,
       error: this.installError,
-      loaded: Boolean(this.engine?.loaded),
-      memoryMb: this.engine?.rss ? Math.round(this.engine.rss / 1048576) : null,
+      loaded: Boolean(this.engine?.loaded) && !this.starting,
+      starting: this.starting,
+      memoryMb: memory ? Math.round(memory / 1048576) : null,
+      lastMemoryMb: this.lastMemory ? Math.round(this.lastMemory / 1048576) : null,
+      lastStartMs: this.lastStartMs,
+      keepLoaded: this.keepLoaded,
       ...this.stats,
       dir: this.packageDir,
     };
@@ -327,6 +380,9 @@ export class OfficeService {
           await fsp.rm(path.join(this.dir, name), { recursive: true, force: true });
       }
       log.info(`Office converter installed (${files} files in ${this.packageDir})`);
+      this.installing = null;
+      this.phase = null;
+      this.preload();
     } catch (err) {
       this.installError = describeError(err);
       this.failedAt = Date.now();
@@ -418,30 +474,24 @@ export class OfficeService {
       await fsp.rm(path.join(this.packageDir, 'node_modules', 'zod'), { recursive: true, force: true });
       await linkDependency(this.packageDir, 'zod');
     }
-    const quick = Math.max(this.quickStartMs, 4 * (this.lastStartMs ?? 0));
-    for (let attempt = 1; ; attempt++) {
-      const limit = attempt < START_ATTEMPTS ? quick : START_TIMEOUT_MS;
-      const engine = this.engineFactory ? this.engineFactory() : new ProcessEngine(this.packageDir, path.join(this.dir, 'fonts'));
-      this.engine = engine;
-      const started = Date.now();
-      try {
-        await withTimeout(engine.start(limit), limit);
-        this.lastStartMs = Date.now() - started;
-        return engine;
-      } catch (err) {
-        engine.stop();
-        this.engine = null;
-        if (!(err instanceof OfficeTimeout) || attempt >= START_ATTEMPTS) throw err;
-        log.warn(
-          `LibreOffice was not ready after ${Math.round(limit / 1000)} s (it sometimes hangs while starting) – starting it again (attempt ${attempt + 1} of ${START_ATTEMPTS})`,
-        );
-      }
+    const engine = this.engineFactory ? this.engineFactory() : new ProcessEngine(this.packageDir, path.join(this.dir, 'fonts'));
+    this.engine = engine;
+    const started = Date.now();
+    this.starting = true;
+    try {
+      await engine.start(START_TIMEOUT_MS);
+    } finally {
+      this.starting = false;
     }
+    this.lastStartMs = Date.now() - started;
+    this.lastMemory = this.memory() ?? this.lastMemory;
+    this.armIdle();
+    return engine;
   }
 
   private armIdle(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
-    if (this.closed || !this.engine?.loaded) return;
+    if (this.closed || !this.engine?.loaded || this.keepLoaded) return;
     const minutes = this.ctx.cfg.archive.builtin.office.idleMinutes;
     this.idleTimer = setTimeout(() => this.unload(`after ${minutes} min without work`), minutes * 60_000);
     this.idleTimer.unref();
@@ -451,10 +501,12 @@ export class OfficeService {
   unload(reason: string): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
+    const memory = this.memory();
+    if (memory) this.lastMemory = memory;
     const engine = this.engine;
     this.engine = null;
     if (engine?.loaded) {
-      log.info(`LibreOffice unloaded ${reason}`);
+      log.info(`LibreOffice unloaded ${reason}${memory ? ` (${Math.round(memory / 1048576)} MB given back)` : ''}`);
       engine.stop();
     }
   }
@@ -484,11 +536,30 @@ async function linkDependency(packageDir: string, name: string): Promise<void> {
   }
 }
 
-/** The promise, or an OfficeTimeout after `ms`. */
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new OfficeTimeout(`LibreOffice did not start within ${Math.round(ms / 1000)} s`)), ms);
-  });
-  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+/** The machine, for the log of a slow start: CPU, cores, memory and the limits of the container. */
+export function machine(): string {
+  const read = (file: string) => {
+    try {
+      return fs.readFileSync(file, 'utf8').trim();
+    } catch {
+      return null;
+    }
+  };
+  const cpus = os.cpus();
+  const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
+  const memLimit = read('/sys/fs/cgroup/memory.max') ?? read('/sys/fs/cgroup/memory/memory.limit_in_bytes');
+  const cpuLimit = read('/sys/fs/cgroup/cpu.max');
+  return [
+    `${cpus.length}× ${cpus[0]?.model?.trim() || 'unknown CPU'} (${os.arch()}, ${os.availableParallelism()} usable)`,
+    `memory ${gb(os.totalmem())}, ${gb(os.freemem())} free`,
+    memLimit && /^\d+$/.test(memLimit) && Number(memLimit) < 2 ** 60 ? `container memory limit ${gb(Number(memLimit))}` : null,
+    cpuLimit && !cpuLimit.startsWith('max') ? `container CPU limit ${cpuLimit}` : null,
+    `load ${os
+      .loadavg()
+      .map((l) => l.toFixed(1))
+      .join('/')}`,
+    `Node ${process.versions.node}`,
+  ]
+    .filter(Boolean)
+    .join(', ');
 }

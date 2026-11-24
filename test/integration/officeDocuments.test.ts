@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DocumentDetail, DocumentVersionInfo, OfficeStatus, UploadResult } from '../../src/shared/api.js';
 import type { LocalBackend } from '../../src/server/archive/backend.js';
 import type { AppContext } from '../../src/server/context.js';
-import { OfficeRefused, OfficeService, OfficeTimeout } from '../../src/server/office/service.js';
+import { OfficeRefused, OfficeService } from '../../src/server/office/service.js';
 import { createHarness, makeTempDir, type Harness } from '../helpers/appHarness.js';
 import { FakeOfficeEngine, makeDocx } from '../helpers/office.js';
 
@@ -248,36 +248,39 @@ describe('Office documents', () => {
 });
 
 describe('OfficeService', () => {
-  it('starts LibreOffice again when it hangs while starting (instead of waiting for it)', async () => {
-    const ctx = {
-      cfg: { archive: { builtin: { office: { enabled: true, idleMinutes: 5, timeoutSeconds: 60 } } } },
-      dataDir: makeTempDir(),
-      config: new EventEmitter(),
-    } as unknown as AppContext;
-    const service = new OfficeService(ctx, { quickStartMs: 50 });
-    const engine = new FakeOfficeEngine();
-    // The first start never gets ready, the second one does.
-    engine.startBehave = (n) => (n === 1 ? new Promise<void>(() => undefined) : Promise.resolve());
-    service.engineFactory = () => engine;
-    const started = Date.now();
-    const pdf = await service.toPdf(Buffer.from('x'), 'docx');
-    expect(Buffer.from(pdf).subarray(0, 5).toString('latin1')).toBe('%PDF-');
-    expect(engine.starts).toBe(2);
-    expect(engine.stops).toBe(1);
-    expect(Date.now() - started).toBeLessThan(5000);
+  it('keeps LibreOffice loaded when asked to: loaded in advance, never unloaded, its memory shown', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const config = new EventEmitter();
+      const cfg = { archive: { builtin: { office: { enabled: true, idleMinutes: 5, timeoutSeconds: 60 } } } };
+      const ctx = { cfg, dataDir: makeTempDir(), config } as unknown as AppContext;
+      const service = new OfficeService(ctx, { watchConfig: true });
+      const engine = new FakeOfficeEngine();
+      engine.rss = 1200 * 1048576;
+      service.engineFactory = () => engine;
+      expect(service.status()).toMatchObject({ loaded: false, memoryMb: null, keepLoaded: false });
 
-    // Three hanging starts in a row: given up.
-    service.unload('test');
-    engine.startBehave = () => new Promise<void>(() => undefined);
-    const quick = new OfficeService(ctx, { quickStartMs: 20 });
-    const stuck = new FakeOfficeEngine();
-    stuck.startBehave = (n) =>
-      n < 3 ? new Promise<void>(() => undefined) : Promise.reject(new OfficeTimeout('LibreOffice did not start within 180 s'));
-    quick.engineFactory = () => stuck;
-    await expect(quick.toPdf(Buffer.from('x'), 'docx')).rejects.toMatchObject({ status: 503 });
-    expect(stuck.starts).toBe(6); // three starts for each of the two attempts of the conversion
-    service.close();
-    quick.close();
+      // "Keep LibreOffice loaded": loaded right away, before any Office document arrives.
+      cfg.archive.builtin.office.idleMinutes = 0;
+      config.emit('change', cfg);
+      await vi.waitFor(() => expect(engine.loaded).toBe(true));
+      expect(engine.starts).toBe(1);
+      expect(service.status()).toMatchObject({ loaded: true, memoryMb: 1200, keepLoaded: true, lastStartMs: expect.any(Number) });
+      await service.toPdf(Buffer.from('x'), 'docx');
+      vi.advanceTimersByTime(24 * 60 * 60_000);
+      expect(engine.loaded).toBe(true);
+      expect(engine.starts).toBe(1);
+
+      // Back to unloading when idle: the memory is given back, the settings still know how much it was.
+      cfg.archive.builtin.office.idleMinutes = 5;
+      config.emit('change', cfg);
+      vi.advanceTimersByTime(5 * 60_000);
+      expect(engine.loaded).toBe(false);
+      expect(service.status()).toMatchObject({ loaded: false, memoryMb: null, lastMemoryMb: 1200 });
+      service.close();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('unloads LibreOffice when idle and when switched off', async () => {
