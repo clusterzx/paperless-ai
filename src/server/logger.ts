@@ -63,9 +63,22 @@ const jsonOutput = process.env.LOG_FORMAT === 'json';
 
 const IGNORED_KEYS = new Set(['level', 'time', 'pid', 'hostname', 'msg', 'module', 'v', 'reqId']);
 
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * Time of a log line: date and time from one clock – the local time (TZ) – with its offset, e.g.
+ * `2026-11-25 00:30:00 +01:00` (#1036: the date was UTC and the time local, a day apart after midnight).
+ */
+export function logTimestamp(d: Date, offsetMinutes = -d.getTimezoneOffset()): string {
+  const local = new Date(d.getTime() + offsetMinutes * 60_000);
+  const date = `${local.getUTCFullYear()}-${pad(local.getUTCMonth() + 1)}-${pad(local.getUTCDate())}`;
+  const time = `${pad(local.getUTCHours())}:${pad(local.getUTCMinutes())}:${pad(local.getUTCSeconds())}`;
+  const abs = Math.abs(offsetMinutes);
+  return `${date} ${time} ${offsetMinutes < 0 ? '-' : '+'}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+}
+
 function formatLine(entry: Omit<LogEntry, 'id'>): string {
-  const d = new Date(entry.time);
-  const ts = `${d.toISOString().slice(0, 10)} ${d.toTimeString().slice(0, 8)}`;
+  const ts = logTimestamp(new Date(entry.time));
   const lvl = entry.level.toUpperCase().padEnd(5);
   const mod = entry.module ? `[${entry.module}] ` : '';
   let extra = '';
