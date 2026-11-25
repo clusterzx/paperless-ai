@@ -20,6 +20,8 @@ import { applySearchSyntax } from '../http/searchSyntax.js';
 import { badRequest, HttpProblem } from '../http/helpers.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
+import { textEncoding } from '../archive/formats.js';
+import type { LocalBackend } from '../archive/backend.js';
 
 const log = logger.child({ module: 'documents' });
 
@@ -209,6 +211,8 @@ export async function receiveUploads(
   /** Hints from the form fields in another format (e.g. Paperless-ngx's post_document). */
   hintsFrom?: (fields: Record<string, string[]>) => Promise<IngestHints>,
   _fileField?: string,
+  /** Answer as soon as the files are kept (`queued`) and store them in the background (built-in archive). */
+  opts: { background?: boolean } = {},
 ): Promise<UploadResult[]> {
   if (!req.isMultipart()) throw badRequest('Send the files as multipart/form-data');
   const limit = ctx.cfg.archive.builtin.maxUploadMb * MB;
@@ -263,14 +267,14 @@ export async function receiveUploads(
     };
     if (!files.length) throw badRequest('No file received (form field "file")');
     const backend = ctx.backend(req.access!);
+    const archive = ctx.archive();
+    const queue = opts.background && archive.kind === 'builtin' ? (archive as LocalBackend).ingestService : null;
     const results: UploadResult[] = [];
     for (const [i, f] of files.entries()) {
       try {
-        const res = await backend.ingest(
-          { path: f.path, filename: f.filename, mimeType: f.mimeType },
-          channel,
-          { ...hints, ...(idempotency ? { channelRef: files.length > 1 ? `${idempotency}#${i}` : idempotency } : {}) },
-        );
+        const file = { path: f.path, filename: f.filename, mimeType: f.mimeType };
+        const fileHints = { ...hints, ...(idempotency ? { channelRef: files.length > 1 ? `${idempotency}#${i}` : idempotency } : {}) };
+        const res = queue ? await queue.enqueue(req.access!, file, channel, fileHints) : await backend.ingest(file, channel, fileHints);
         results.push({ filename: f.filename, ...res });
       } catch (err) {
         if (err instanceof HttpProblem && err.statusCode === 403) throw err;
@@ -299,7 +303,7 @@ function stripUndefined<T extends object>(o: T): T {
 // ---------------------------------------------------------------- serving files
 
 /** Types the browser may show inline. Everything else is a download (an HTML or SVG file must never run on our origin). */
-const INLINE = /^(application\/pdf|image\/(png|jpe?g|gif|webp|bmp|tiff)|text\/plain)(;|$)/i;
+const INLINE = /^(application\/pdf|image\/(png|jpe?g|gif|webp|bmp|tiff)|text\/(plain|html))(;|$)/i;
 
 function disposition(kind: 'inline' | 'attachment', filename: string): string {
   const ascii = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
@@ -307,6 +311,8 @@ function disposition(kind: 'inline' | 'attachment', filename: string): string {
 }
 
 export function sendFile(req: FastifyRequest, reply: FastifyReply, data: Uint8Array, contentType: string, filename: string, inline: boolean): FastifyReply {
+  // Text without a charset: the one of the file (browsers guess wrong for Windows-1252 and UTF-16).
+  if (/^text\//i.test(contentType) && !/charset=/i.test(contentType)) contentType = `${contentType}; charset=${textEncoding(data) ?? 'utf-8'}`;
   const safeInline = inline && INLINE.test(contentType);
   const buf = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
   reply

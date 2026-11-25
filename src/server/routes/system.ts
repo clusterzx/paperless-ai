@@ -345,7 +345,8 @@ export function archiveInfo(ctx: AppContext): ArchiveInfo | null {
     // Paperless-ngx (2.10+) keeps deleted documents in its trash: the menu links there.
     const base = (ctx.cfg.paperless.publicUrl || ctx.cfg.paperless.url).replace(/\/+$/, '');
     const trashUrl = backend.capabilities.trash === 'external' && base ? `${base}/trash` : null;
-    return { mode: backend.kind, label: backend.label, capabilities: backend.capabilities, trashUrl };
+    const officeDocuments = backend.kind === 'builtin' ? ctx.cfg.archive.builtin.office.enabled : true;
+    return { mode: backend.kind, label: backend.label, capabilities: backend.capabilities, trashUrl, officeDocuments };
   } catch {
     return null;
   }

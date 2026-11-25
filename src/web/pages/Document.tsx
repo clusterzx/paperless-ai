@@ -15,6 +15,7 @@ import { useMetadata, type MetadataLookup } from '../lib/metadata';
 import { useLiveEvents } from '../lib/live';
 import { useSession } from '../lib/session';
 import { CustomFieldInput, fieldDraftValue } from '../components/customFieldInput';
+import { kindOf } from '@shared/fileTypes';
 
 type TabId = 'details' | 'text' | 'versions' | 'activity' | 'chat';
 
@@ -45,9 +46,17 @@ function draftOf(d: DocumentDetail, meta: MetadataLookup): Draft {
   };
 }
 
+/** Longest text shown in the viewer (a huge CSV export stays fast; the download has all of it). */
+const VIEWER_TEXT_CHARS = 200_000;
+
 function Viewer({ doc }: { doc: DocumentDetail }) {
   const url = `/api/documents/${doc.id}/file`;
   const type = doc.mime_type ?? '';
+  const kind = kindOf(type);
+  // The archived PDF of an Office document or e-mail is what the file URL gives by default.
+  if (doc.has_archive || kind === 'pdf' || !type) {
+    return <iframe title={doc.title} src={url} className="h-full w-full border-0 bg-surface-2" />;
+  }
   if (/^image\//.test(type) && !/tiff/.test(type)) {
     return (
       <div className="flex h-full items-start justify-center overflow-auto bg-surface-2 p-4">
@@ -55,8 +64,24 @@ function Viewer({ doc }: { doc: DocumentDetail }) {
       </div>
     );
   }
-  if (!type || /pdf/.test(type) || doc.mime_type === null) {
-    return <iframe title={doc.title} src={url} className="h-full w-full border-0 bg-surface-2" />;
+  // HTML as it was sent – without scripts, forms or remote content (sandbox here and in the file's own CSP).
+  if (kind === 'html') {
+    return <iframe title={doc.title} src={`${url}?original=true`} sandbox="" className="h-full w-full border-0 bg-white" />;
+  }
+  if (kind === 'text' || kind === 'mail') {
+    const text = doc.content ?? '';
+    return (
+      <div className="h-full overflow-auto bg-surface-2 p-4">
+        <pre className="mx-auto max-w-3xl whitespace-pre-wrap break-words rounded-xl bg-surface p-5 font-mono text-xs leading-relaxed text-fg shadow-card ring-1 ring-border">
+          {text.length > VIEWER_TEXT_CHARS ? `${text.slice(0, VIEWER_TEXT_CHARS)}\n\n…` : text || '(empty)'}
+        </pre>
+        <div className="mx-auto mt-3 flex max-w-3xl justify-end">
+          <LinkButton size="sm" variant="ghost" href={`${url}?original=true&inline=false`} icon={<Download className="size-4" />}>
+            Download {kind === 'mail' ? 'the e-mail' : 'the file'}
+          </LinkButton>
+        </div>
+      </div>
+    );
   }
   return (
     <div className="flex h-full items-center justify-center p-6">

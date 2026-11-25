@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHarness, type Harness } from '../helpers/appHarness.js';
 import { makePdf } from '../helpers/pdf.js';
+import { makeDocx } from '../helpers/office.js';
 import type { LocalBackend } from '../../src/server/archive/backend.js';
 import sharp from 'sharp';
 import { isMailDecoration, type MailClient } from '../../src/server/archive/mail.js';
@@ -119,6 +120,54 @@ afterEach(() => h.close());
 const local = () => h.ctx.archive() as LocalBackend;
 
 describe('e-mail intake', () => {
+  it('stores the e-mail itself when a rule says so – always, or only without an attachment that is a document', async () => {
+    const lib = local().ensureDefaultLibrary();
+    imap.add(message({ from: 'bank@example.com', subject: 'Kontoauszug März', attachments: [] }));
+    imap.add(message({ from: 'bank@example.com', subject: 'Rechnung', attachments: [{ name: 'r.pdf', data: makePdf([['Rechnung der Bank']]), type: 'application/pdf' }] }));
+    imap.add(message({ from: 'verein@example.com', subject: 'Protokoll: Sitzung 3/2025', attachments: [{ name: 'p.pdf', data: makePdf([['Protokoll der Sitzung']]), type: 'application/pdf' }] }));
+    // An Office document without the converter is left out (not refused) – the e-mail is kept instead.
+    imap.add(message({ from: 'chef@example.com', subject: 'Vertrag', attachments: [{ name: 'vertrag.docx', data: makeDocx(['Vertrag']), type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }] }));
+    const account = (
+      await h.inject({
+        method: 'POST',
+        url: `/api/libraries/${lib}/intake/mail`,
+        headers: { cookie },
+        payload: {
+          name: 'Post',
+          host: 'h',
+          username: 'u',
+          password: 'imap-secret',
+          rules: [
+            { from: 'bank@', tags: ['Bank'], storeMail: 'no_attachments', skipAnalysis: true },
+            { from: 'verein@', storeMail: 'always', skipAnalysis: true },
+            { storeMail: 'no_attachments', skipAnalysis: true },
+          ],
+        },
+      })
+    ).json() as MailAccountInfo;
+    expect(account.rules[0].storeMail).toBe('no_attachments');
+    const check = await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } });
+    expect(check.json()).toMatchObject({ messages: 4, stored: 5, errors: [] });
+    const docs = h.ctx.db.prepare("SELECT id, title, original_filename, mime_type FROM lib_documents WHERE source = 'mail' ORDER BY id").all() as { id: number; title: string; original_filename: string; mime_type: string }[];
+    expect(docs.map((d) => [d.original_filename, d.title, d.mime_type])).toEqual([
+      ['Kontoauszug März.eml', 'Kontoauszug März', 'message/rfc822'],
+      ['r.pdf', 'r', 'application/pdf'],
+      ['p.pdf', 'p', 'application/pdf'],
+      ['Protokoll Sitzung 3 2025.eml', 'Protokoll: Sitzung 3/2025', 'message/rfc822'],
+      ['Vertrag.eml', 'Vertrag', 'message/rfc822'],
+    ]);
+    const mail = await h.ctx.backend().getDocument(docs[0].id);
+    expect(mail.content).toContain('From: bank@example.com');
+    expect(mail.content).toContain('Siehe Anhang.');
+    const meta = h.ctx.metadata(lib);
+    await meta.snapshot(true);
+    expect(mail.tags.map((t) => meta.tagName(t))).toEqual(['Bank']);
+    // Read again (a rebuilt folder): nothing is stored twice.
+    imap.folders.get('INBOX')!.uidValidity = 99;
+    await h.inject({ method: 'POST', url: `/api/intake/mail/${account.id}/check`, headers: { cookie } });
+    expect((h.ctx.db.prepare("SELECT COUNT(*) AS c FROM lib_documents WHERE source = 'mail'").get() as { c: number }).c).toBe(5);
+  });
+
   it('stores attachments once, applies rules and marks or moves the messages', async () => {
     const lib = local().ensureDefaultLibrary();
     const invoice = makePdf([['Rechnung 2024-11 der Stadtwerke']]);

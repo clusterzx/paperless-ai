@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { Link } from 'wouter';
 import { CheckCircle2, CircleAlert, FileUp, Loader2, RotateCcw, UploadCloud } from 'lucide-react';
-import type { AccountInfo, UploadResult } from '@shared/api';
+import type { AccountInfo } from '@shared/api';
+import { ACCEPT_ALWAYS, ACCEPT_OFFICE } from '@shared/fileTypes';
 import { Page } from '../components/Layout';
 import { Alert, Badge, Button, Card, EmptyState, Field, PageHeader, Select, Switch, TagInput, useToast } from '../components/ui';
 import { useArchive } from '../components/documents';
@@ -10,14 +11,7 @@ import { useAsync } from '../lib/hooks';
 import { cn, formatDate } from '../lib/format';
 import { useMetadata } from '../lib/metadata';
 import { useLiveEvents } from '../lib/live';
-
-interface Item {
-  key: string;
-  file: File;
-  progress: number;
-  result?: UploadResult;
-  error?: string;
-}
+import { clearFinishedUploads, enqueueUploads, useUploads, type UploadItem } from '../lib/uploads';
 
 interface IntakeRow {
   id: number;
@@ -35,27 +29,18 @@ interface LibraryOption {
   role: string | null;
 }
 
-/** Upload with progress (fetch cannot report upload progress). */
-function upload(file: File, fields: Record<string, string>, onProgress: (p: number) => void): Promise<UploadResult> {
-  return new Promise((resolve, reject) => {
-    const form = new FormData();
-    for (const [k, v] of Object.entries(fields)) form.append(k, v);
-    form.append('file', file, file.name);
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/documents/upload');
-    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
-    xhr.onload = () => {
-      try {
-        const body = JSON.parse(xhr.responseText) as { results?: UploadResult[]; error?: string };
-        if (xhr.status >= 400 || !body.results) reject(new Error(body.error ?? `Upload failed (HTTP ${xhr.status})`));
-        else resolve(body.results[0]);
-      } catch {
-        reject(new Error(`Upload failed (HTTP ${xhr.status})`));
-      }
-    };
-    xhr.onerror = () => reject(new Error('Network error'));
-    xhr.send(form);
-  });
+/** "12 of 200 stored · 3 being sent · 185 waiting" */
+function sessionSummary(items: UploadItem[]): string {
+  const count = (f: (i: UploadItem) => boolean) => items.filter(f).length;
+  const parts = [
+    `${count((i) => i.state === 'done' && (i.result?.status === 'stored' || i.result?.status === 'forwarded'))} of ${items.length} stored`,
+    `${count((i) => i.state === 'done' && i.result?.status === 'duplicate')} duplicate(s)`,
+    `${count((i) => i.state === 'error' || (i.state === 'done' && (i.result?.status === 'rejected' || i.result?.status === 'failed')))} not stored`,
+    `${count((i) => i.state === 'processing')} being stored`,
+    `${count((i) => i.state === 'sending')} being sent`,
+    `${count((i) => i.state === 'queued')} waiting`,
+  ];
+  return parts.filter((p, n) => n === 0 || !p.startsWith('0 ')).join(' · ');
 }
 
 const STATUS_TONE: Record<string, 'success' | 'warn' | 'danger' | 'info' | 'neutral'> = {
@@ -72,7 +57,8 @@ export default function InboxPage() {
   const meta = useMetadata();
   const archive = useArchive();
   const native = archive?.capabilities.upload === 'native';
-  const [items, setItems] = useState<Item[]>([]);
+  // Uploads go on in the background when another page is opened (lib/uploads.ts).
+  const items = useUploads();
   const [tags, setTags] = useState<string[]>([]);
   const [skipAnalysis, setSkipAnalysis] = useState(false);
   const [library, setLibrary] = useState('');
@@ -89,8 +75,15 @@ export default function InboxPage() {
   }, [toast]);
   const libraries = useAsync((signal) => (archive?.capabilities.libraries ? get<LibraryOption[]>('/api/libraries', signal) : Promise.resolve([])), [archive?.capabilities.libraries]);
   const intake = useAsync((signal) => (native ? get<IntakeRow[]>('/api/intake?limit=50', signal) : Promise.resolve([] as IntakeRow[])), [native]);
+  // At most one reload a second (hundreds of uploads send two events each).
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => void (reloadTimer.current && clearTimeout(reloadTimer.current)), []);
   useLiveEvents((e) => {
-    if (e.type === 'intake' || e.type === 'document.processed') void intake.reload();
+    if ((e.type !== 'intake' && e.type !== 'document.processed') || reloadTimer.current) return;
+    reloadTimer.current = setTimeout(() => {
+      reloadTimer.current = null;
+      void intake.reload();
+    }, 1000);
   }, native);
 
   // Libraries the user can add to (administrators are not members of every library: role null).
@@ -98,29 +91,27 @@ export default function InboxPage() {
   const account = useAsync((signal) => (archive?.capabilities.libraries ? get<AccountInfo>('/api/account', signal) : Promise.resolve(null)), [archive?.capabilities.libraries]);
   // Where "Default" goes: the user's default library, else the oldest one they can add to.
   const defaultLibrary = writable.find((l) => l.id === account.data?.defaultLibraryId) ?? [...writable].sort((a, b) => a.id - b.id)[0];
-  const start = async (files: File[]) => {
-    const fresh = files.map((file) => ({ key: `${file.name}-${file.size}-${Math.random()}`, file, progress: 0 }));
-    setItems((x) => [...fresh, ...x]);
+  const start = (files: File[]) => {
     const fields: Record<string, string> = {};
     if (tags.length) fields.tags = tags.join(',');
     if (skipAnalysis) fields.skipAnalysis = 'true';
     if (library) fields.libraryId = library;
-    for (const it of fresh) {
-      try {
-        const result = await upload(it.file, fields, (p) => setItems((x) => x.map((y) => (y.key === it.key ? { ...y, progress: p } : y))));
-        setItems((x) => x.map((y) => (y.key === it.key ? { ...y, progress: 1, result } : y)));
-      } catch (err) {
-        setItems((x) => x.map((y) => (y.key === it.key ? { ...y, error: errorMessage(err) } : y)));
-      }
-    }
-    meta.reload();
-    void intake.reload();
+    enqueueUploads(files, fields);
   };
+  // New tags and the intake list once uploads have finished.
+  const finished = items.filter((i) => i.state === 'done' || i.state === 'error').length;
+  const reloads = useRef({ meta: meta.reload, intake: intake.reload });
+  reloads.current = { meta: meta.reload, intake: intake.reload };
+  useEffect(() => {
+    if (!finished) return;
+    reloads.current.meta();
+    void reloads.current.intake();
+  }, [finished]);
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDrag(false);
     const files = [...e.dataTransfer.files];
-    if (files.length) void start(files);
+    if (files.length) start(files);
   };
   const retry = async (row: IntakeRow) => {
     try {
@@ -152,7 +143,8 @@ export default function InboxPage() {
             )}
           >
             <UploadCloud className="mb-3 size-10 text-accent" />
-            <p className="font-medium">Drop PDFs and images here</p>
+            <p className="font-medium">Drop documents here</p>
+            <p className="mt-1 max-w-md text-xs text-muted">PDF, images, text, HTML and e-mails (.eml){archive?.officeDocuments ? ', Word, Excel, PowerPoint and OpenDocument' : ''}</p>
             <p className="mt-1 text-sm text-muted">or</p>
             <Button className="mt-3" variant="primary" icon={<FileUp className="size-4" />} onClick={() => input.current?.click()}>
               Choose files
@@ -161,43 +153,58 @@ export default function InboxPage() {
               ref={input}
               type="file"
               multiple
-              accept="application/pdf,image/*"
+              accept={archive?.officeDocuments ? `${ACCEPT_ALWAYS},${ACCEPT_OFFICE}` : ACCEPT_ALWAYS}
               capture={undefined}
               className="hidden"
               onChange={(e) => {
                 const files = [...(e.target.files ?? [])];
                 e.target.value = '';
-                if (files.length) void start(files);
+                if (files.length) start(files);
               }}
             />
           </div>
 
           {items.length > 0 && (
-            <Card title="This session" bodyClassName="p-0">
-              <ul className="divide-y divide-border">
+            <Card
+              title="This session"
+              description={sessionSummary(items)}
+              actions={
+                items.some((i) => i.state === 'done' || i.state === 'error') ? (
+                  <Button size="sm" variant="ghost" onClick={clearFinishedUploads}>
+                    Clear finished
+                  </Button>
+                ) : undefined
+              }
+              bodyClassName="p-0"
+            >
+              <ul className="max-h-[32rem] divide-y divide-border overflow-auto">
                 {items.map((it) => {
-                  const status = it.error ? 'failed' : (it.result?.status ?? 'uploading');
+                  const final = it.state === 'done' ? it.result?.status : it.state === 'error' ? 'failed' : null;
+                  const bad = final === 'rejected' || final === 'failed';
                   return (
                     <li key={it.key} className="flex items-center gap-3 px-5 py-3 text-sm">
-                      {it.error || status === 'rejected' || status === 'failed' ? (
+                      {bad ? (
                         <CircleAlert className="size-4 shrink-0 text-danger" />
-                      ) : it.result ? (
+                      ) : final ? (
                         <CheckCircle2 className="size-4 shrink-0 text-success" />
                       ) : (
-                        <Loader2 className="size-4 shrink-0 animate-spin text-muted" />
+                        <Loader2 className={cn('size-4 shrink-0 text-muted', it.state !== 'queued' && 'animate-spin')} />
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-medium">{it.file.name}</div>
-                        {!it.result && !it.error && (
+                        {it.state === 'sending' && (
                           <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-3">
                             <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.round(it.progress * 100)}%` }} />
                           </div>
                         )}
-                        {(it.error || it.result?.reason) && <div className="text-xs text-danger">{it.error ?? it.result?.reason}</div>}
-                        {it.result?.status === 'forwarded' && <div className="text-xs text-muted">Handed to {archive?.label} – it appears in the list once it is consumed.</div>}
+                        {it.state === 'queued' && <div className="text-xs text-muted">Waiting to be sent</div>}
+                        {it.state === 'processing' && <div className="text-xs text-muted">Received – being stored and read</div>}
+                        {(it.error || (bad && it.result?.reason)) && <div className="text-xs text-danger">{it.error ?? it.result?.reason}</div>}
+                        {final === 'duplicate' && it.result?.reason && <div className="text-xs text-muted">{it.result.reason}</div>}
+                        {final === 'forwarded' && <div className="text-xs text-muted">Handed to {archive?.label} – it appears in the list once it is consumed.</div>}
                       </div>
-                      {it.result && <Badge tone={STATUS_TONE[it.result.status] ?? 'neutral'}>{it.result.status}</Badge>}
-                      {it.result?.documentId && (
+                      {final && <Badge tone={STATUS_TONE[final] ?? 'neutral'}>{final}</Badge>}
+                      {final && it.result?.documentId && (
                         <Link href={`/documents/${it.result.documentId}`} className="text-xs text-accent-text hover:underline">
                           Open
                         </Link>

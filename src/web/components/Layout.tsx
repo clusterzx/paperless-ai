@@ -42,6 +42,7 @@ import { Wordmark } from './Brand';
 import { SupportModal, useSupportReminder } from './SupportReminder';
 import { CommandPalette, type Command } from './CommandPalette';
 import { Avatar, rovingKeyDown, useConfirm, useDialog, useToast } from './ui';
+import { useUploads } from '../lib/uploads';
 
 export { Logo } from './Brand';
 
@@ -200,6 +201,25 @@ function UserMenu({ onLogout, onSupport }: { onLogout: () => void; onSupport: ()
         <ChevronsUpDown className="size-4 text-faint" />
       </button>
     </div>
+  );
+}
+
+/** Uploads still running (they go on while other pages are open) – leads to the inbox. */
+function UploadPulse() {
+  const uploads = useUploads();
+  const sending = uploads.filter((u) => u.state === 'queued' || u.state === 'sending').length;
+  const active = sending + uploads.filter((u) => u.state === 'processing').length;
+  if (!active) return null;
+  return (
+    <Link href="/inbox" className="block rounded-xl border border-border bg-surface/70 px-3 py-2.5 transition hover:bg-surface">
+      <div className="flex items-center gap-2 text-[13px] font-medium text-fg">
+        <span className="status-dot live bg-accent" />
+        <span className="truncate">
+          Uploading {active} file{active > 1 ? 's' : ''}
+        </span>
+      </div>
+      <div className="mt-1 text-[11.5px] text-faint">{sending ? 'Keep this tab open until they are sent' : 'Sent – being stored'}</div>
+    </Link>
   );
 }
 
@@ -417,6 +437,7 @@ export function Layout({ children }: { children: ReactNode }) {
         {secondary.map(renderItem)}
       </nav>
       <div className="space-y-2 p-3">
+        <UploadPulse />
         <ProcessingPulse />
         <UserMenu onLogout={() => void logout()} onSupport={support.show} />
       </div>

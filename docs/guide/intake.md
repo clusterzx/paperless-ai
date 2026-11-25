@@ -4,7 +4,7 @@
 
 With Paperless-ngx as the archive, documents arrive through Paperless-ngx (its consume folder, mail rules, apps); uploads in Paperless-AI are handed to it. The channels below are those of the [built-in archive](built-in-archive.md).
 
-Every file goes through the same intake: type check (PDF, JPEG, PNG, TIFF, WebP), duplicate check (an identical file is stored once per library), text layer and thumbnail, then OCR when needed and the AI analysis. **Inbox → Recent intake** lists every attempt with its channel (`upload`, `api`, `webdav`, `folder`, `mail`, `share`) and status: `stored`, `duplicate`, `rejected` (type, size, rights – with the reason) or `failed` (a passing error, with **Retry**).
+Every file goes through the same intake: type check (PDF, images, text, HTML, e-mails and – with the [Office converter](built-in-archive.md#office-documents) – Office documents; see [File formats](built-in-archive.md#file-formats)), duplicate check (an identical file is stored once per library), text layer and thumbnail, then OCR when needed and the AI analysis. **Inbox → Recent intake** lists every attempt with its channel (`upload`, `api`, `webdav`, `folder`, `mail`, `share`) and status: `stored`, `duplicate`, `rejected` (type, size, rights – with the reason) or `failed` (a passing error, with **Retry**).
 
 ## Which library a file goes to
 
@@ -28,6 +28,8 @@ Most channels authenticate with a personal API key: *Settings → API keys → N
 
 *Inbox*: drag files into the drop zone or choose them; on phones the camera is offered. Choose the library, tags for the uploads, or *Do not analyse with the AI*.
 
+Hundreds of files at once are fine: they are sent three at a time, the server keeps each file as soon as it has arrived and stores them in the background, in order – the analysis of the first ones starts while the others are still being sent, and a slow file (an Office document being converted) holds up none of the others. The upload goes on when you open another page (the sidebar shows it); only closing or reloading the tab before all files are sent would lose the rest, and the browser asks first. A file that was kept but not stored yet when Paperless-AI restarted shows as *failed* with **Retry**.
+
 ## REST
 
 ```bash
@@ -36,6 +38,8 @@ curl -H "x-api-key: $KEY" -F file=@scan.pdf -F library=Family -F tags=Taxes,2024
 ```
 
 Fields: `file` (several allowed), `libraryId` or `library`, `title`, `created` (YYYY-MM-DD), `tags` (comma-separated), `correspondent`, `documentType`, `skipAnalysis=true`, `prompt`. The answer lists each file with its status and document id. An `Idempotency-Key` header stores a request once (per user).
+
+For many files add `?background=true`: the answer comes as soon as the files are kept (`queued` with an `intakeId`), they are stored in the background; `GET /api/intake?ids=<id>,<id>` gives the outcome (`stored` with `documentId`, `duplicate`, `rejected` or `failed` with the reason).
 
 ## Paperless-ngx compatible upload
 
@@ -89,10 +93,11 @@ cd /data/coolify/applications/<app id> && rmdir scans && ln -s /srv/scans scans
 
 *Libraries → library → E-mail* (administrators set accounts up): server, port, security, user name and password (stored encrypted), *Test connection*, then the folders (e.g. `INBOX`).
 
-- **What is stored:** attachments (PDF, images). Logos, icons and pictures embedded in the text are left out (decided by their size); photos sent from a phone stay.
+- **What is stored:** attachments that are documents – PDFs, images, text files, attached e-mails and, with the [Office converter](built-in-archive.md#office-documents), Office documents (without it they are left out). Logos, icons and pictures embedded in the text are left out (decided by their size); photos sent from a phone stay.
+- **The e-mail itself:** a rule can also store the message as a document (`.eml`, title = subject, date = the day it was sent): *the attachments – or the e-mail when it has none* (e.g. bank statements sent as text) or *the attachments and the e-mail itself*. With the Office converter the e-mail is kept as a PDF as well.
 - **Afterwards:** *Mark as read*, *Move to a folder* or *Delete*. Only the processed message is ever changed, and only when all its attachments were stored: an attachment that failed is tried again with the next check; a refused one (too large) leaves the message untouched and the account shows why. On servers without UIDPLUS a deletion only flags the message, a move falls back to marking it read.
 - **Only e-mails that arrive from now on:** the first check skips the messages already in the folders. Without it, all of them are imported – read or not – and then marked, moved or deleted. Use *Mark as read* while trying it out.
-- **Rules** (the first match applies): sender / subject contains → tags, *store only* (no analysis), *ignore*, or **into another library** – one mailbox for several libraries. One account per mailbox.
+- **Rules** (the first match applies; empty sender and subject match every message): sender / subject contains → tags, *store only* (no analysis), *ignore*, **into another library** – one mailbox for several libraries – and whether the e-mail itself is stored. One account per mailbox.
 - Checked every 5 minutes (*Settings → Archive*, `PAPERLESS_AI_MAIL_POLL`) or with *Check now*.
 
 ## Phone

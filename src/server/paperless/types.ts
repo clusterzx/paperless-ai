@@ -24,6 +24,8 @@ export interface PaperlessDocument {
   added?: string;
   archive_serial_number?: number | null;
   original_file_name?: string | null;
+  /** Name of the archived PDF (Paperless-ngx: OCR'd or converted file; built-in archive: PDF of an Office document or e-mail); null without one. */
+  archived_file_name?: string | null;
   owner?: number | null;
   user_can_change?: boolean;
   custom_fields?: { field: number; value: unknown }[];

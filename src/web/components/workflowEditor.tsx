@@ -297,7 +297,7 @@ function ConditionEditor({ c, onChange, data }: { c: Condition; onChange: (c: Co
     case 'filename':
       return <Input aria-label="Pattern" placeholder="e.g. scan_*.pdf" value={c.pattern} onChange={(e) => onChange({ ...c, pattern: e.target.value })} />;
     case 'mime_type':
-      return <TagInput value={c.types} onChange={(types) => onChange({ ...c, types })} suggestions={['application/pdf', 'image/*', 'image/jpeg', 'image/png', 'image/tiff']} />;
+      return <TagInput value={c.types} onChange={(types) => onChange({ ...c, types })} suggestions={['application/pdf', 'image/*', 'image/jpeg', 'image/png', 'image/tiff', 'text/*', 'text/html', 'message/rfc822']} />;
     case 'page_count':
       return (
         <div className="grid grid-cols-2 gap-2">

@@ -18,7 +18,9 @@ import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
 import type { LocalBackend } from './backend.js';
 import { nextModified } from './backend.js';
-import { ACCEPTED_TYPES, inspectFile, renderThumbnail, sniffType } from './files.js';
+import { acceptedFormats } from '../../shared/fileTypes.js';
+import { detectType, kindOf, UnsupportedFormat } from './formats.js';
+import { prepareFile } from './prepare.js';
 
 const log = logger.child({ module: 'intake' });
 
@@ -29,10 +31,24 @@ interface IntakeRow {
   error: string | null;
 }
 
+/** An attempt that is recorded and has its target. */
+interface Opened {
+  intakeId: number;
+  libraryId: number;
+  replaces: number | null;
+  userId: number | null;
+}
+
+/** Files stored at the same time from the background queue (Office conversions take turns anyway). */
+const PARALLEL = 2;
+
 export class IngestService {
   private stopped = false;
   /** Intake attempts in progress (stop() waits for them). */
   private readonly running = new Set<Promise<unknown>>();
+  /** Files taken by enqueue() and waiting to be stored. */
+  private readonly jobs: (() => Promise<IngestResult>)[] = [];
+  private active = 0;
 
   constructor(private readonly backend: LocalBackend) {}
 
@@ -63,15 +79,19 @@ export class IngestService {
       .run(patch.status, patch.documentId ?? null, patch.error ?? null, patch.sha256 ?? null, patch.libraryId ?? null, patch.status === 'pending' ? null : Date.now(), id);
   }
 
-  private async run(scope: AccessScope, file: IngestFile, channel: IngestChannel, hints: IngestHints): Promise<IngestResult> {
+  /**
+   * Record the attempt and check where it goes (a refusal is recorded and thrown). An earlier attempt
+   * with the same channel reference answers instead (`done`).
+   */
+  private open(scope: AccessScope, file: IngestFile, channel: IngestChannel, hints: IngestHints): { done: IngestResult } | Opened {
     // The same channel reference (mail id, Idempotency-Key, file path + mtime) is stored once.
     if (hints.channelRef) {
       const prev = this.db.prepare('SELECT * FROM lib_intake WHERE channel = ? AND channel_ref = ?').get(channel, hints.channelRef) as IntakeRow | undefined;
       if (prev?.status === 'stored' || prev?.status === 'duplicate') {
-        return { status: prev.status, documentId: prev.document_id ?? undefined, intakeId: prev.id, reason: prev.error ?? undefined };
+        return { done: { status: prev.status, documentId: prev.document_id ?? undefined, intakeId: prev.id, reason: prev.error ?? undefined } };
       }
       // The same reference in progress right now (a request sent twice): the second one can come again.
-      if (prev?.status === 'pending') return { status: 'failed', intakeId: prev.id, reason: 'This file is being stored right now – send it again in a moment' };
+      if (prev?.status === 'pending') return { done: { status: 'failed', intakeId: prev.id, reason: 'This file is being stored right now – send it again in a moment' } };
       // Failed or refused before: try again (the rights or the file may have changed).
       if (prev) this.db.prepare('DELETE FROM lib_intake WHERE id = ?').run(prev.id);
     }
@@ -89,50 +109,122 @@ export class IngestService {
       libraryId = replaced ? replaced.library_id : this.backend.targetLibrary(scope, hints.libraryId);
     } catch (err) {
       this.setIntake(intakeId, { status: 'rejected', error: describeError(err) });
-      this.ctx.events.emitIntake({ intakeId, status: 'rejected', filename: file.filename, libraryId: null, createdBy: userId });
+      this.ctx.events.emitIntake({ intakeId, status: 'rejected', filename: file.filename, libraryId: null, createdBy: userId, reason: describeError(err) });
       log.warn(`Intake of "${file.filename}" (${channel}) refused: ${describeError(err)}`);
       throw err;
     }
     this.db.prepare('UPDATE lib_intake SET library_id = ? WHERE id = ?').run(libraryId, intakeId);
     this.ctx.events.emitIntake({ intakeId, status: 'pending', filename: file.filename, libraryId, createdBy: userId });
+    return { intakeId, libraryId, replaces: replaced?.id ?? null, userId };
+  }
+
+  private async run(scope: AccessScope, file: IngestFile, channel: IngestChannel, hints: IngestHints): Promise<IngestResult> {
+    const o = this.open(scope, file, channel, hints);
+    return 'done' in o ? o.done : this.complete(scope, file, channel, hints, o);
+  }
+
+  /** Store the file of an opened attempt. */
+  private async complete(scope: AccessScope, file: IngestFile, channel: IngestChannel, hints: IngestHints, o: Opened): Promise<IngestResult> {
     try {
-      const result = await this.store(scope, file, channel, hints, libraryId, intakeId, replaced?.id ?? null);
-      this.ctx.events.emitIntake({ intakeId, status: result.status === 'stored' ? 'stored' : result.status === 'duplicate' ? 'duplicate' : 'rejected', documentId: result.documentId ?? null, filename: file.filename, libraryId, createdBy: userId });
+      const result = await this.store(scope, file, channel, hints, o.libraryId, o.intakeId, o.replaces);
+      const status = result.status === 'stored' ? 'stored' : result.status === 'duplicate' ? 'duplicate' : 'rejected';
+      this.ctx.events.emitIntake({ intakeId: o.intakeId, status, documentId: result.documentId ?? null, filename: file.filename, libraryId: o.libraryId, createdBy: o.userId, reason: result.reason ?? null });
       return result;
     } catch (err) {
-      const status = statusOf(err);
-      // A refusal (type, size, rights) stays one; anything else is a passing failure that can be retried.
-      const rejected = status !== undefined && status < 500;
-      this.setIntake(intakeId, { status: rejected ? 'rejected' : 'failed', error: describeError(err) });
-      this.ctx.events.emitIntake({ intakeId, status: rejected ? 'rejected' : 'failed', filename: file.filename, libraryId, createdBy: userId });
-      log.warn(`Intake of "${file.filename}" (${channel}) failed: ${describeError(err)}`);
-      if (status === 403 || status === 404) throw err;
-      return { status: rejected ? 'rejected' : 'failed', intakeId, reason: describeError(err) };
+      return this.failed(o, file, channel, err);
     }
   }
 
-  private async head(file: IngestFile): Promise<Uint8Array> {
-    if (file.data) return file.data.subarray(0, 1024);
-    const fh = await fsp.open(file.path!, 'r');
+  /** Record why an attempt did not work: a refusal (type, size, rights) stays one, anything else can be retried. */
+  private failed(o: Opened, file: IngestFile, channel: IngestChannel, err: unknown): IngestResult {
+    const status = statusOf(err);
+    const rejected = status !== undefined && status < 500;
+    this.setIntake(o.intakeId, { status: rejected ? 'rejected' : 'failed', error: describeError(err) });
+    this.ctx.events.emitIntake({ intakeId: o.intakeId, status: rejected ? 'rejected' : 'failed', filename: file.filename, libraryId: o.libraryId, createdBy: o.userId, reason: describeError(err) });
+    log.warn(`Intake of "${file.filename}" (${channel}) failed: ${describeError(err)}`);
+    if (status === 403 || status === 404) throw err;
+    return { status: rejected ? 'rejected' : 'failed', intakeId: o.intakeId, reason: describeError(err) };
+  }
+
+  /**
+   * Take a file at once and store it in the background – uploads of hundreds of files from the web
+   * interface: the file goes into the blob store right away (a restart leaves it as a failed attempt
+   * that can be retried), the answer is `queued` with the intake id, the outcome follows as an intake
+   * event. A few files are stored at the same time, in the order they came.
+   */
+  async enqueue(scope: AccessScope, file: IngestFile, channel: IngestChannel, hints: IngestHints): Promise<IngestResult> {
+    if (this.stopped) throw new ArchiveError('The archive is shutting down', 503, 'shutting_down');
+    if (!file.data && !file.path) throw new ArchiveError('No file content', 400, 'empty');
+    const o = this.open(scope, file, channel, hints);
+    if ('done' in o) return o.done;
     try {
-      const buf = Buffer.alloc(1024);
-      const { bytesRead } = await fh.read(buf, 0, 1024, 0);
-      return buf.subarray(0, bytesRead);
-    } finally {
-      await fh.close();
+      const maxBytes = this.ctx.cfg.archive.builtin.maxUploadMb * 1024 * 1024;
+      if (file.data && file.data.byteLength > maxBytes) throw new ArchiveError(`The file is larger than ${this.ctx.cfg.archive.builtin.maxUploadMb} MB`, 413, 'too_large');
+      const blob = file.data ? await this.backend.blobs.putBytes(file.data) : await this.backend.blobs.putFile(file.path!, maxBytes);
+      if (blob.size === 0) throw new ArchiveError('The file is empty', 400, 'empty');
+      this.setIntake(o.intakeId, { status: 'pending', sha256: blob.sha256 });
+      const kept: IngestFile = { path: this.backend.blobs.pathOf(blob.sha256), filename: file.filename, mimeType: file.mimeType };
+      this.jobs.push(() => this.complete(scope, kept, channel, hints, o));
+      this.pump();
+      return { status: 'queued', intakeId: o.intakeId };
+    } catch (err) {
+      return this.failed(o, file, channel, err);
     }
+  }
+
+  /** Files waiting to be stored (enqueue). */
+  get waiting(): number {
+    return this.jobs.length + this.active;
+  }
+
+  private pump(): void {
+    while (!this.stopped && this.active < PARALLEL && this.jobs.length) {
+      const job = this.jobs.shift()!;
+      this.active++;
+      const p: Promise<unknown> = job()
+        .catch(() => undefined)
+        .finally(() => {
+          this.active--;
+          this.running.delete(p);
+          this.pump();
+        });
+      this.running.add(p);
+    }
+  }
+
+  /** The whole file (the size is checked first – no huge file is read into memory). */
+  private async readAll(file: IngestFile, maxBytes: number): Promise<Uint8Array> {
+    const tooLarge = () => new ArchiveError(`The file is larger than ${this.ctx.cfg.archive.builtin.maxUploadMb} MB`, 413, 'too_large');
+    if (file.data) {
+      if (file.data.byteLength > maxBytes) throw tooLarge();
+      return file.data;
+    }
+    if ((await fsp.stat(file.path!)).size > maxBytes) throw tooLarge();
+    const data = await fsp.readFile(file.path!);
+    if (data.byteLength > maxBytes) throw tooLarge();
+    return data;
+  }
+
+  /** The type of a file, or the reason it is not taken (415). */
+  private typeOf(bytes: Uint8Array, file: IngestFile): string {
+    const office = this.backend.office.enabled;
+    const detected = detectType(bytes, file.filename);
+    const what = path.extname(file.filename) || file.mimeType || 'unknown';
+    if (detected instanceof UnsupportedFormat) throw new ArchiveError(`This file is not supported: ${detected.reason}`, 415, 'unsupported_type');
+    if (!detected) throw new ArchiveError(`This file type is not supported (${what}) – supported are ${acceptedFormats(office)}`, 415, 'unsupported_type');
+    if (kindOf(detected) === 'office' && !office) {
+      throw new ArchiveError(`Office documents (${what}) need the Office converter – an administrator can switch it on in Settings → Archive`, 415, 'office_off');
+    }
+    return detected;
   }
 
   private async store(scope: AccessScope, file: IngestFile, channel: IngestChannel, hints: IngestHints, libraryId: number, intakeId: number, replaces: number | null): Promise<IngestResult> {
     if (!file.data && !file.path) throw new ArchiveError('No file content', 400, 'empty');
-    const mime = sniffType(await this.head(file));
-    if (!mime || !(ACCEPTED_TYPES as readonly string[]).includes(mime)) {
-      throw new ArchiveError(`This file type is not supported (${file.mimeType || path.extname(file.filename) || 'unknown'}) – PDF and images (JPEG, PNG, TIFF, WebP) are`, 415, 'unsupported_type');
-    }
     const maxBytes = this.ctx.cfg.archive.builtin.maxUploadMb * 1024 * 1024;
-    const blob = file.data ? await this.backend.blobs.putBytes(file.data) : await this.backend.blobs.putFile(file.path!, maxBytes);
-    if (blob.size > maxBytes) throw new ArchiveError(`The file is larger than ${this.ctx.cfg.archive.builtin.maxUploadMb} MB`, 413, 'too_large');
-    if (blob.size === 0) throw new ArchiveError('The file is empty', 400, 'empty');
+    const bytes = await this.readAll(file, maxBytes);
+    if (bytes.byteLength === 0) throw new ArchiveError('The file is empty', 400, 'empty');
+    const mime = this.typeOf(bytes, file);
+    const blob = await this.backend.blobs.putBytes(bytes);
     this.setIntake(intakeId, { status: 'pending', sha256: blob.sha256 });
 
     // Duplicate: the same original in the same library (unless the library allows it).
@@ -151,9 +243,11 @@ export class IngestService {
       }
     }
 
-    const bytes = await this.backend.blobs.read(blob.sha256);
-    const info = await inspectFile(bytes, mime);
+    // Text, pages – and for Office documents (HTML and e-mails with the converter) a PDF of the file.
+    const info = await prepareFile(bytes, mime, this.backend.office);
     const quality = info.text ? assessText(info.text, info.pages ?? undefined, this.ctx.cfg.ocr.poorBelow).score : 0;
+    const archive = info.archive ? await this.backend.blobs.putBytes(info.archive) : null;
+    const archiveName = `${path.basename(file.filename).replace(/\.[^.]+$/, '') || 'document'}.pdf`;
 
     // Names from the hints → ids of the library (created when missing).
     const meta = this.ctx.metadata(libraryId);
@@ -174,17 +268,26 @@ export class IngestService {
           ? { actor: 'import', ref: hints.channelRef ?? null }
           : { actor: 'system', ref: `${channel}:${intakeId}` };
     const now = new Date().toISOString();
-    const title = (hints.title?.trim() || path.basename(file.filename).replace(/\.[^.]+$/, '') || 'Document').slice(0, 512);
-    const created = hints.created ? normalizeDate(hints.created) : null;
+    const title = (hints.title?.trim() || info.title || path.basename(file.filename).replace(/\.[^.]+$/, '') || 'Document').slice(0, 512);
+    const created = hints.created ? normalizeDate(hints.created) : (info.created ?? null);
 
     const id = this.db.transaction(() => {
       this.db.prepare('INSERT OR IGNORE INTO blobs (sha256, size, mime_type, created_at) VALUES (?, ?, ?, ?)').run(blob.sha256, blob.size, mime, Date.now());
+      if (archive) this.db.prepare('INSERT OR IGNORE INTO blobs (sha256, size, mime_type, created_at) VALUES (?, ?, ?, ?)').run(archive.sha256, archive.size, 'application/pdf', Date.now());
+      // The PDF made of the file (Office documents, e-mails) belongs to the same version.
+      const addArchive = (docId: number, version: number) => {
+        if (!archive) return;
+        this.db
+          .prepare('INSERT INTO lib_document_files (document_id, version, kind, blob_sha256, original_filename, mime_type, size, page_count, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(docId, version, 'archive', archive.sha256, archiveName, 'application/pdf', archive.size, info.pages, userId, Date.now());
+      };
       if (replaces) {
         const row = this.backend.row(replaces)!;
         const version = (this.db.prepare('SELECT MAX(version) AS v FROM lib_document_files WHERE document_id = ?').get(replaces) as { v: number }).v + 1;
         this.db
           .prepare('INSERT INTO lib_document_files (document_id, version, kind, blob_sha256, original_filename, mime_type, size, page_count, comment, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
           .run(replaces, version, 'original', blob.sha256, file.filename, mime, blob.size, info.pages, hints.context?.comment ?? '', userId, Date.now());
+        addArchive(replaces, version);
         this.backend.setText(replaces, version, info.text, 'text_layer', info.text ? quality : null);
         this.db
           .prepare('UPDATE lib_documents SET current_version = ?, mime_type = ?, page_count = ?, original_filename = ?, modified = ? WHERE id = ?')
@@ -206,6 +309,7 @@ export class IngestService {
       this.db
         .prepare('INSERT INTO lib_document_files (document_id, version, kind, blob_sha256, original_filename, mime_type, size, page_count, created_by, created_at) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(docId, 'original', blob.sha256, file.filename, mime, blob.size, info.pages, userId, Date.now());
+      addArchive(docId, 1);
       this.backend.setText(docId, 1, info.text, 'text_layer', info.text ? quality : null);
       if (tagIds.length) this.backend.setTags(docId, libraryId, created, tagIds);
       if (fields.length) this.backend.setFields(docId, libraryId, fields);
@@ -215,11 +319,12 @@ export class IngestService {
       return docId;
     })();
 
-    log.info(`Stored "${file.filename}" as document ${id} (${mime}, ${info.pages ?? '?'} page(s), ${info.text ? `${info.text.length} characters of text` : 'no text layer'})`);
+    log.info(`Stored "${file.filename}" as document ${id} (${mime}${archive ? ', with a PDF' : ''}, ${info.pages ?? '?'} page(s), ${info.text ? `${info.text.length} characters of text` : 'no text layer'})`);
     if (replaces) this.ctx.events.emit({ type: 'document.version_added', id, version: this.backend.row(id)!.current_version, libraryId });
     else this.ctx.events.emit({ type: 'document.added', id, source: channel, libraryId, skipAnalysis: hints.skipAnalysis, prompt: hints.prompt, context: { ...hints.context, filename: file.filename } });
     // The thumbnail is made right away (the list shows it), but never delays or fails the intake.
-    void renderThumbnail(bytes, mime)
+    void this.backend
+      .renderThumbnail({ bytes, mime, archive: info.archive, text: info.text })
       .then((thumb) => {
         const version = this.backend.row(id, true)?.current_version ?? 1;
         if (thumb) fs.writeFileSync(this.backend.blobs.thumbPath(id, version), thumb);

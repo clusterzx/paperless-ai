@@ -382,7 +382,7 @@ export const metadataRoutes =
         const offIntake = ctx.events.onIntake((e) => {
           // An attempt without a library (refused before one was chosen): only for its sender and administrators.
           if (e.libraryId != null ? !canRead(scope, e.libraryId) : !(isAdmin(scope) || (e.createdBy != null && e.createdBy === userIdOf(scope)))) return;
-          push({ type: 'intake', intakeId: e.intakeId, status: e.status, documentId: e.documentId ?? null, filename: e.filename ?? null });
+          push({ type: 'intake', intakeId: e.intakeId, status: e.status, documentId: e.documentId ?? null, filename: e.filename ?? null, reason: e.reason ?? null });
         });
         try {
           while (!signal.aborted) {

@@ -40,7 +40,9 @@ export function VersionsPanel({
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
   const [compare, setCompare] = useState<{ from: number; to: number } | null>(null);
-  const list = versions.data ?? [];
+  // One row per version: the uploaded file; a PDF made of it (Office documents, e-mails) is offered with it.
+  const list = (versions.data ?? []).filter((v) => v.kind === 'original');
+  const withPdf = new Set((versions.data ?? []).filter((v) => v.kind === 'archive').map((v) => v.version));
 
   const run = async (what: () => Promise<unknown>, done: string) => {
     setBusy(true);
@@ -122,6 +124,14 @@ export function VersionsPanel({
                   >
                     <Download className="mr-1 size-3.5" /> File
                   </a>
+                  {withPdf.has(v.version) && (
+                    <a
+                      className="inline-flex items-center rounded-lg px-2 py-1 text-xs text-muted hover:bg-surface-2 hover:text-fg"
+                      href={`/api/documents/${docId}/file?inline=false&version=${v.version}`}
+                    >
+                      <Download className="mr-1 size-3.5" /> PDF
+                    </a>
+                  )}
                   {canEdit && !v.current && (
                     <Button size="sm" variant="ghost" disabled={busy} onClick={() => activate(v)}>
                       Make current

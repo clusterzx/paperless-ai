@@ -15,11 +15,11 @@ import { LocalBackend } from '../archive/backend.js';
 import { watchFolderProblemFor } from '../archive/folder.js';
 import { postDocumentHandler } from '../ngx/postDocument.js';
 import { receiveUploads } from './documentOps.js';
-import { notSupported, type ChangeOrigin } from '../backend/types.js';
+import { ArchiveError, notSupported, type ChangeOrigin } from '../backend/types.js';
 import { toRow } from '../http/documentQuery.js';
 import { diffLines } from '../archive/diff.js';
 
-import type { DocumentVersionInfo, LibraryCandidates, LibraryInfo, LibraryMember, MailAccountInfo, TextDiffLine, WatchFolder } from '../../shared/api.js';
+import type { DocumentVersionInfo, LibraryCandidates, LibraryInfo, LibraryMember, MailAccountInfo, OfficeStatus, TextDiffLine, WatchFolder } from '../../shared/api.js';
 import type { MailAccountRow } from '../archive/mail.js';
 
 const id = z.object({ id: z.coerce.number().int().positive() });
@@ -241,6 +241,7 @@ export const archiveRoutes =
       skipAnalysis: z.boolean().optional(),
       ignore: z.boolean().optional(),
       libraryId: z.number().int().positive().optional(),
+      storeMail: z.enum(['never', 'no_attachments', 'always']).optional(),
     });
     const mailBody = z.object({
       name: z.string().trim().min(1).max(100),
@@ -394,7 +395,16 @@ export const archiveRoutes =
 
     app.get(
       '/api/intake',
-      { schema: { querystring: z.object({ limit: z.coerce.number().int().min(1).max(500).default(50), status: z.string().max(20).optional() }) } },
+      {
+        schema: {
+          querystring: z.object({
+            limit: z.coerce.number().int().min(1).max(500).default(50),
+            status: z.string().max(20).optional(),
+            /** Only these attempts (comma-separated ids) – e.g. the uploads of a page that waits for them. */
+            ids: z.string().max(5000).regex(/^\d+(,\d+)*$/).optional(),
+          }),
+        },
+      },
       async (req) => {
         local('The inbox');
         const scope = req.access!;
@@ -406,9 +416,9 @@ export const archiveRoutes =
             `SELECT * FROM lib_intake
              WHERE (? IS NULL OR library_id IN (SELECT value FROM json_each(?)) OR created_by = ?
                     OR (? = 1 AND (library_id IS NULL OR library_id IN (SELECT id FROM libraries WHERE deleted_at IS NOT NULL))))
-               AND (? IS NULL OR status = ?) ORDER BY id DESC LIMIT ?`,
+               AND (? IS NULL OR status = ?) AND (? IS NULL OR id IN (SELECT value FROM json_each(?))) ORDER BY id DESC LIMIT ?`,
           )
-          .all(libs ? 1 : null, JSON.stringify(libs ?? []), userIdOf(scope), isAdmin(scope) ? 1 : 0, req.query.status ?? null, req.query.status ?? null, req.query.limit) as {
+          .all(libs ? 1 : null, JSON.stringify(libs ?? []), userIdOf(scope), isAdmin(scope) ? 1 : 0, req.query.status ?? null, req.query.status ?? null, req.query.ids ? 1 : null, JSON.stringify((req.query.ids ?? '').split(',').filter(Boolean).map(Number)), req.query.limit) as {
           id: number;
           channel: string;
           filename: string | null;
@@ -571,4 +581,15 @@ export const archiveRoutes =
     });
 
     app.post('/api/archive/maintenance', async () => local('Archive maintenance').maintenance.run());
+
+    // ---------------------------------------------------------------- Office converter
+
+    app.get('/api/archive/office', { schema: { description: 'State of the Office converter (LibreOffice, WebAssembly): installed, downloading, loaded.' } }, async (): Promise<OfficeStatus> => local('The Office converter').office.status());
+
+    app.post('/api/archive/office/install', { schema: { description: 'Download and install the Office converter now (it is also installed when switched on).' } }, async (): Promise<OfficeStatus> => {
+      const office = local('The Office converter').office;
+      if (!office.enabled) throw new ArchiveError('Switch the Office converter on first (and save)', 409, 'office_off');
+      void office.install({ force: true }).catch(() => undefined);
+      return office.status();
+    });
   };

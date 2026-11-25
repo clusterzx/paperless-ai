@@ -38,6 +38,8 @@ export interface IntakeEvent {
   libraryId?: number | null;
   /** The user who sent the file (an attempt without a library is shown to them and administrators). */
   createdBy?: number | null;
+  /** Why it was refused, failed or is a duplicate. */
+  reason?: string | null;
 }
 
 export class DocumentEvents {

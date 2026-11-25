@@ -71,7 +71,11 @@ export class ArchiveMaintenance {
       report.purged = this.purgeTrash();
       report.versionsRemoved = this.applyVersionRetention();
       report.blobsRemoved = await this.collectBlobs();
-      report.orphanFiles = (await this.backend.blobs.gc((sha) => Boolean(this.db.prepare('SELECT 1 FROM blobs WHERE sha256 = ?').get(sha)))).orphans;
+      // Files of attempts still waiting or failed recently (they can be retried) are kept as well.
+      const waiting = new Set(
+        (this.db.prepare("SELECT DISTINCT sha256 FROM lib_intake WHERE sha256 IS NOT NULL AND (status = 'pending' OR (status = 'failed' AND created_at > ?))").all(Date.now() - 30 * 86_400_000) as { sha256: string }[]).map((r) => r.sha256),
+      );
+      report.orphanFiles = (await this.backend.blobs.gc((sha) => waiting.has(sha) || Boolean(this.db.prepare('SELECT 1 FROM blobs WHERE sha256 = ?').get(sha)))).orphans;
       const verify = await this.verifySome();
       report.verified = verify.verified;
       report.corrupt = verify.corrupt;

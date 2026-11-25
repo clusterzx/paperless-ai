@@ -230,8 +230,8 @@ export interface IngestHints {
 }
 
 export interface IngestResult {
-  /** rejected: refused for good (type, size, rights); failed: a passing error – sending it again can work. */
-  status: 'stored' | 'duplicate' | 'rejected' | 'failed' | 'forwarded';
+  /** rejected: refused for good (type, size, rights); failed: a passing error – sending it again can work; queued: taken, stored in the background. */
+  status: 'stored' | 'duplicate' | 'rejected' | 'failed' | 'forwarded' | 'queued';
   documentId?: number;
   intakeId?: number;
   /** Paperless-ngx consumption task (forwarded uploads). */

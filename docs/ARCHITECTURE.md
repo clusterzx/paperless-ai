@@ -33,7 +33,10 @@ src/
     ai/                  OpenAI-compatible/Azure, Anthropic and Ollama clients, JSON extraction, token estimation
     processing/          prompt builder, analyzer, applier (+ undo), engine (queue/scheduler), external API
     rag/                 chunker, SQLite store (FTS5), vector index (worker), local embedder (worker), service, document chat
-    archive/             built-in archive: LocalBackend, blob store, intake (upload, folder, mail), maintenance, counters
+    archive/             built-in archive: LocalBackend, blob store, intake (upload, folder, mail), file formats
+                         (type by content, text of text files, HTML and e-mails), maintenance, counters
+    office/              optional Office converter: LibreOffice as WebAssembly in a child process (host.mjs),
+                         downloaded on first use and checked by SHA-512; timeout + retry, unloaded when idle
     workflows/           triggers → conditions → actions, analysis.before (prompt rules), run log, notifications
     ngx/                 Paperless-ngx compatible API (/ngx/api/, version 9) for the mobile apps (built-in archive)
     mcp/                 MCP server (/mcp, Streamable HTTP): JSON-RPC, tools behind API key scopes, stdio bridge (bridge.mjs)

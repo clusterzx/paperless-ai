@@ -126,6 +126,9 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'PAPERLESS_AI_CONSUME_POLL', path: 'archive.builtin.consumePollSeconds', parse: i },
   { env: 'PAPERLESS_AI_MAIL_POLL', path: 'archive.builtin.mailPollMinutes', parse: i },
   { env: 'PAPERLESS_AI_MAX_UPLOAD_MB', path: 'archive.builtin.maxUploadMb', parse: i },
+  { env: 'PAPERLESS_AI_OFFICE', path: 'archive.builtin.office.enabled', parse: b },
+  { env: 'PAPERLESS_AI_OFFICE_IDLE_MINUTES', path: 'archive.builtin.office.idleMinutes', parse: i },
+  { env: 'PAPERLESS_AI_OFFICE_TIMEOUT', path: 'archive.builtin.office.timeoutSeconds', parse: i },
 
   { env: 'AI_PROVIDER', path: 'ai.provider', parse: (v) => v.trim().toLowerCase() },
   { env: 'OPENAI_API_KEY', path: 'ai.openai.apiKey', parse: s },

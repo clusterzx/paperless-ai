@@ -4,7 +4,7 @@
 
 Paperless-AI can be the archive itself – no Paperless-ngx, Redis or Postgres needed. Choose *Built-in archive* in the setup (or set `PAPERLESS_AI_ARCHIVE=builtin`). Installations that use Paperless-ngx keep running as they are; they can [move over](#moving-from-paperless-ngx) at any time.
 
-What it brings: upload, watch folders, e-mail (IMAP), a WebDAV inbox and sharing from the phone ([Getting documents in](intake.md)); full-text search built for 200,000+ documents; file versions with text comparison; a change log with undo for every change; a trash; libraries with members and roles for families and teams; exports in the Paperless-ngx format or as plain folders.
+What it brings: upload, watch folders, e-mail (IMAP), a WebDAV inbox and sharing from the phone ([Getting documents in](intake.md)); PDFs, images, text files, e-mails and – optionally – Office documents ([File formats](#file-formats)); full-text search built for 200,000+ documents; file versions with text comparison; a change log with undo for every change; a trash; libraries with members and roles for families and teams; exports in the Paperless-ngx format or as plain folders.
 
 ## Storage
 
@@ -20,10 +20,44 @@ Files are stored content-addressed in `data/library` – or on another disk with
 | `PAPERLESS_AI_CONSUME_POLL` | seconds between two looks at the watch folders (default `10`) |
 | `PAPERLESS_AI_MAIL_POLL` | minutes between two checks of the e-mail accounts (default `5`) |
 | `PAPERLESS_AI_MAX_UPLOAD_MB` | largest file (default `200`) |
+| `PAPERLESS_AI_OFFICE` | `true`: accept Office documents (downloads the [converter](#office-documents) on first start) |
+| `PAPERLESS_AI_OFFICE_IDLE_MINUTES` | minutes without a conversion before LibreOffice is unloaded (default `5`); `0` keeps it loaded |
+| `PAPERLESS_AI_OFFICE_TIMEOUT` | longest conversion in seconds, tried once more in a fresh process (default `120`) |
+| `PAPERLESS_AI_OFFICE_URL` | another address of the converter package (a mirror); its SHA-512 is checked all the same |
 | `PAPERLESS_AI_SCANS_DIR` | `docker-compose.yml` of the repository: host folder that appears as `/scans` in the container (default `./scans`) |
 | `PAPERLESS_AI_EXPORT_DIR` | another directory exports may be written to (e.g. a mounted volume); default: only below `data/exports` |
 | `PAPERLESS_AI_SMTP_HOST`, `_PORT`, `_SECURITY`, `_USER`, `_PASSWORD`, `_FROM` | e-mail for workflow notifications |
 | `PAPERLESS_AI_URL` | public address, used in links of e-mails and webhooks |
+
+## File formats
+
+The type of a file is read from its content – the name and the declared type are only hints.
+
+| Format | What the archive does |
+| --- | --- |
+| PDF | stored as it is; text from its text layer, or OCR when it has none |
+| Images (JPEG, PNG, TIFF, WebP, GIF, BMP) | stored as they are; text by OCR |
+| Text (`.txt`, `.md`, `.csv`, `.tsv`) | the text is read directly – UTF-8, UTF-16 or Windows-1252 (Excel exports) |
+| HTML (`.html`) | its text; shown without scripts or anything loaded from elsewhere |
+| E-mails (`.eml`) | sender, recipients, date, subject, message and the names of the attachments; the subject becomes the title, the day it was sent the date |
+| Office documents (Word, Excel, PowerPoint, OpenDocument, RTF) | only with the [Office converter](#office-documents): kept as a PDF next to the original |
+
+Other files are refused with the reason (also password-protected Office documents and Outlook `.msg` files – save the e-mail as `.eml`).
+
+### Office documents
+
+*Settings → Archive → Office documents* (or `PAPERLESS_AI_OFFICE=true`) turns `.docx`, `.doc`, `.xlsx`, `.xls`, `.pptx`, `.ppt`, `.odt`, `.ods`, `.odp` and `.rtf` into PDFs – with LibreOffice compiled to WebAssembly, running inside Paperless-AI. No Gotenberg, no Tika, nothing to add to the compose file.
+
+- **Download on first use:** switching it on downloads the converter once (~80 MB from the npm registry, ~250 MB in `data/office`), checked against a fixed SHA-512. Without internet access, put `libreoffice-converter-2.7.2.tgz` (from `https://registry.npmjs.org/@matbee/libreoffice-converter/-/libreoffice-converter-2.7.2.tgz`) into `data/office/` – it is installed from there.
+- **What you get:** the PDF is what you see, search and download; the original stays and is offered under *Download → original*. The text of the PDF is the document text (OCR is not needed). Apps using the [Paperless-ngx API](mobile-apps.md) get the PDF as the archived version.
+- **HTML pages and e-mails** are kept as PDF too while the converter is on (layout, tables and embedded pictures as sent; pictures from the internet are never loaded). Their text is read from the file itself either way.
+- **Memory:** LibreOffice runs in a process of its own and needs about **1–1.3 GB of memory while it is loaded** (*Settings → Archive* shows how much). After 5 idle minutes (`PAPERLESS_AI_OFFICE_IDLE_MINUTES`) it is unloaded and the memory is free again; the next Office document waits for it to start. Leave it off on machines with less than 2 GB of free memory.
+- **Keep LibreOffice loaded** (or `PAPERLESS_AI_OFFICE_IDLE_MINUTES=0`): it is loaded when Paperless-AI starts and stays loaded – no Office document ever waits for it; in exchange its memory stays in use (and a few percent of one CPU core).
+- **Start time:** a few seconds. The WebAssembly build of LibreOffice could hang for up to ~80 s while starting (its main thread did not hand out new threads while it waited for one); Paperless-AI adjusts the converter once after the download – and existing installations before their next start – so this no longer happens. A start slower than 15 s is logged with its steps, the CPU time it used and the machine (`[office] LibreOffice started slowly …`) – please add those lines to a bug report.
+- **Hangs:** a conversion that takes longer than 120 s (`PAPERLESS_AI_OFFICE_TIMEOUT`) is tried once more in a fresh process; if that fails as well, the intake is marked *failed* and can be retried in the inbox. A file LibreOffice cannot read is refused with its error. Other files are stored meanwhile – an Office document never holds up the PDFs behind it.
+- **Fonts:** the common Latin, Greek, Cyrillic, Arabic and Hebrew fonts are included. For Chinese, Japanese or Korean documents put the font files (`.ttf`, `.otf`, `.ttc`, e.g. Noto Sans CJK) into `data/office/fonts/`; they are used from the next load on.
+- **Known limits:** numbers in spreadsheets are formatted the English way (`84.15 €`); macros never run.
+- The converter is [@matbee/libreoffice-converter](https://www.npmjs.com/package/@matbee/libreoffice-converter) (MPL-2.0), a build of LibreOffice (MPL-2.0).
 
 ## Libraries, users and roles
 

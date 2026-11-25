@@ -88,7 +88,7 @@ describe('intake', () => {
     const [first] = await upload([{ name: 'scan.pdf', data: invoice }], { skipAnalysis: 'true' });
     const [dup] = await upload([{ name: 'copy.pdf', data: invoice }], { skipAnalysis: 'true' });
     expect(dup).toMatchObject({ status: 'duplicate', documentId: first.documentId });
-    const [txt] = await upload([{ name: 'evil.html', data: Buffer.from('<script>alert(1)</script>'), type: 'text/html' }]);
+    const [txt] = await upload([{ name: 'data.json', data: Buffer.from('{"script": "alert(1)"}'), type: 'application/json' }]);
     expect(txt.status).toBe('rejected');
     expect(txt.reason).toMatch(/not supported/);
 
@@ -349,11 +349,11 @@ describe('watch folder', () => {
     expect(list.results[0].tags.map((t) => meta.tagName(t))).toContain('Steuer');
 
     // refused files go to .failed with the reason
-    fs.writeFileSync(path.join(dir, 'notes.txt'), 'plain text');
+    fs.writeFileSync(path.join(dir, 'export.zip'), Buffer.from('PK\x03\x04 not a document', 'latin1'));
     await watcher.poll();
     await watcher.poll();
-    expect(fs.existsSync(path.join(dir, '.failed', 'notes.txt'))).toBe(true);
-    expect(fs.readFileSync(path.join(dir, '.failed', 'notes.txt.error.txt'), 'utf8')).toMatch(/not supported/);
+    expect(fs.existsSync(path.join(dir, '.failed', 'export.zip'))).toBe(true);
+    expect(fs.readFileSync(path.join(dir, '.failed', 'export.zip.error.txt'), 'utf8')).toMatch(/not supported/);
   });
 });
 

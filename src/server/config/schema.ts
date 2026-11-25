@@ -175,6 +175,19 @@ export const configSchema = z.object({
           webdav: bool(true),
           /** Minutes between two checks of the e-mail accounts of the libraries. */
           mailPollMinutes: z.coerce.number().int().min(1).max(1440).default(5),
+          /**
+           * Office documents (Word, Excel, PowerPoint, OpenDocument, RTF): converted to PDF by LibreOffice
+           * (WebAssembly build, downloaded on first use, ~1.3 GB of memory while loaded).
+           */
+          office: z
+            .object({
+              enabled: bool(false),
+              /** Minutes without a conversion before LibreOffice is unloaded (gives the memory back); 0 = keep it loaded. */
+              idleMinutes: z.coerce.number().int().min(0).max(1440).default(5),
+              /** Longest a conversion may take; it is tried once more in a fresh process. */
+              timeoutSeconds: z.coerce.number().int().min(10).max(3600).default(120),
+            })
+            .prefault({}),
         })
         .prefault({}),
     })
