@@ -179,8 +179,9 @@ function IntegrationsTab({ locked }: { locked: Locked }) {
         <ol start={3} className="list-decimal space-y-2 pl-5 text-sm text-muted">
           <li>
             Enable <b className="text-fg">Use parameters for webhook body</b> and add the parameter{' '}
-            <code className="kbd">url</code> = <code className="kbd">{'{doc_url}'}</code> – or send JSON{' '}
-            <code className="kbd">{'{"url": "{doc_url}"}'}</code>.
+            <code className="kbd">url</code> = <code className="kbd">{'{{ doc_url }}'}</code> – or send JSON{' '}
+            <code className="kbd">{'{"url": "{{ doc_url }}"}'}</code>. Older Paperless-ngx versions write the placeholder with single braces:{' '}
+            <code className="kbd">{'{doc_url}'}</code>.
           </li>
           <li>
             Add the header <code className="kbd">x-api-key</code> with the API key above.

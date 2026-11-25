@@ -67,7 +67,7 @@ With Paperless-ngx as the archive, create a dedicated user in Paperless-ngx with
 Without it, new documents are picked up by the scheduled scan. To process them as soon as Paperless-ngx has consumed them:
 
 1. Paperless-ngx → *Workflows* → *Add workflow*, trigger **Document Added**
-2. Action **Webhook**: URL `http://paperless-ai:3000/api/webhook/document`, body parameter `url` = `{doc_url}`
+2. Action **Webhook**: URL `http://paperless-ai:3000/api/webhook/document`, *Use parameters for webhook body*, parameter `url` = `{{ doc_url }}` (older Paperless-ngx versions write placeholders with single braces: `{doc_url}`; if the placeholder arrives unreplaced, Paperless-AI answers 400 and its log says so)
 3. Header `x-api-key: <API key from Settings → API & webhooks>`
 
 ## Behind a reverse proxy
