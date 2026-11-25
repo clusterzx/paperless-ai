@@ -175,15 +175,22 @@ export const processingRoutes =
       {
         schema: {
           description:
-            'Queue a document for AI processing. Call it from a Paperless-ngx workflow ("Webhook" action, trigger "Document Added") with the document URL ({doc_url}) or id.',
+            'Queue a document for AI processing. Call it from a Paperless-ngx workflow ("Webhook" action, trigger "Document Added") with the document URL – placeholder {{ doc_url }} (older Paperless-ngx versions: {doc_url}) – or id.',
           body: webhookBody,
         },
       },
       async (req, reply) => {
         const b = req.body;
         const id = documentIdFrom(b.document_id) ?? documentIdFrom(b.id) ?? documentIdFrom(b.url) ?? documentIdFrom(b.doc_url);
-        if (!id)
-          throw badRequest('Missing or invalid document reference: send {"url": "<document url>"} or {"document_id": 123}');
+        if (!id) {
+          // A placeholder Paperless-ngx did not replace: its syntax differs between versions.
+          const raw = [b.url, b.doc_url, b.document_id, b.id].find((v) => typeof v === 'string' && /\{[^{}]*\}/.test(v));
+          const problem = raw
+            ? `The placeholder ${JSON.stringify(raw)} arrived unreplaced – write it as {{ doc_url }} in the Paperless-ngx workflow (older Paperless-ngx versions: {doc_url})`
+            : 'Missing or invalid document reference: send {"url": "<document url>"} or {"document_id": 123}';
+          log.warn(`Webhook refused: ${problem}`);
+          throw badRequest(problem);
+        }
         if (!ctx.isConfigured()) return reply.code(409).send({ error: 'Paperless-AI is not configured yet' });
         const accepted = engine.enqueue(id, { source: 'webhook', prompt: b.prompt, force: b.force });
         log.info(`Webhook: document ${id} ${accepted ? 'queued' : 'already queued'}`);

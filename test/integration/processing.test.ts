@@ -694,6 +694,12 @@ describe('webhook', () => {
       const res = await hh.inject({ method: 'POST', url: '/api/webhook/document', headers: hh.apiKeyHeaders(), payload });
       expect(res.statusCode, JSON.stringify(payload)).toBe(400);
     }
+    // A placeholder Paperless-ngx did not replace (#1037): the answer says how to write it.
+    for (const url of ['{doc_url}', '{{ doc_url }}']) {
+      const res = await hh.inject({ method: 'POST', url: '/api/webhook/document', headers: hh.apiKeyHeaders(), payload: { url } });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain('arrived unreplaced – write it as {{ doc_url }}');
+    }
   });
 
   it('answers 409 when the app is not configured', async () => {
