@@ -22,6 +22,7 @@ import { DocumentEvents } from './events.js';
 import { activeModel, aiConfigProblem, createLlmClient, withModel } from './ai/factory.js';
 import type { CompletionResult, LlmClient, Usage } from './ai/types.js';
 import { logger } from './logger.js';
+import { retirementOf } from '../shared/aiModels.js';
 
 /**
  * The version of Paperless-AI. Kept in package.json only (`npm version x.y.z --no-git-tag-version`),
@@ -70,6 +71,7 @@ export class AppContext {
     this.repos = createRepos(this.db);
     if (!opts.memoryDb) importLegacyDatabase(this.db, path.join(opts.dataDir, 'documents.db'));
     this.config.on('change', (next, prev) => this.onConfigChange(next, prev));
+    warnRetiringModel(this.cfg);
     // Prompt rules of older versions (in config.json) are workflows now.
     moveConfigRulesToWorkflows(this);
   }
@@ -89,6 +91,7 @@ export class AppContext {
     if (JSON.stringify(next.ai) !== JSON.stringify(prev.ai)) {
       this.llmCache = null;
       this.modelClients.clear();
+      warnRetiringModel(next);
     }
     logger.child({ module: 'config' }).info('Configuration updated');
   }
@@ -253,4 +256,17 @@ export class AppContext {
       /* already closed */
     }
   }
+}
+
+/** A configured model its provider shuts down (or has shut down): said in the log at start and when changed. */
+export function warnRetiringModel(cfg: AppConfig): void {
+  const ai = cfg.ai;
+  const model = ai.provider === 'openai' ? ai.openai.model : ai.provider === 'custom' ? ai.custom.model : '';
+  const r = model ? retirementOf(model) : null;
+  if (!r) return;
+  logger
+    .child({ module: 'ai' })
+    .warn(
+      `The AI model ${model} ${r.retired ? 'was shut down' : 'is shut down'} by OpenAI on ${r.date}${r.retired ? ' – requests to it fail' : ''}. Choose another one in Settings → AI provider (recommended replacement: ${r.replacement}).`,
+    );
 }

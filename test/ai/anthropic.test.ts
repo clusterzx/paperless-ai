@@ -57,6 +57,15 @@ describe('AnthropicClient.complete', () => {
     expect(body.thinking).toBeUndefined();
   });
 
+  it('treats Haiku 5.5 like the other Claude 5 models (no temperature, low effort, room for thinking)', async () => {
+    await client('claude-haiku-5-5').complete(messages, { temperature: 0.2, maxTokens: 500 });
+    const body = bodies()[0];
+    expect(body.temperature).toBeUndefined();
+    expect(body.output_config).toEqual({ effort: 'low' });
+    expect(body.max_tokens).toBe(500 + 8192);
+    expect(bodies()).toHaveLength(1); // no rejected first attempt
+  });
+
   it('drops parameters the model rejects and remembers it', async () => {
     llm.reply((req) =>
       (req.body.output_config as { effort?: string } | undefined)?.effort
@@ -147,10 +156,10 @@ describe('AnthropicClient models', () => {
 
   it('is created by the factory', () => {
     const ai = configSchema.parse({ ai: { provider: 'anthropic' } }).ai;
-    expect(ai.anthropic.model).toBe('claude-haiku-4-5');
+    expect(ai.anthropic.model).toBe('claude-haiku-5-5');
     expect(aiConfigProblem(ai)).toBe('Anthropic API key is missing');
     const c = createLlmClient({ ...ai, anthropic: { ...ai.anthropic, apiKey: 'sk-ant' } });
     expect(c).toBeInstanceOf(AnthropicClient);
-    expect(c).toMatchObject({ provider: 'anthropic', model: 'claude-haiku-4-5', contextWindow: 128_000 });
+    expect(c).toMatchObject({ provider: 'anthropic', model: 'claude-haiku-5-5', contextWindow: 128_000 });
   });
 });

@@ -43,13 +43,14 @@ For the language:
 
 export const DEFAULT_SCAN_INTERVAL = '*/30 * * * *';
 export const DEFAULT_PROCESSED_TAG = 'ai-processed';
-export const DEFAULT_OPENAI_MODEL = 'gpt-5-mini';
+/** Small and fast – plenty for extracting document metadata (gpt-5-mini is shut down on 2026-12-11). */
+export const DEFAULT_OPENAI_MODEL = 'gpt-6-luna';
 export const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
 export const DEFAULT_OLLAMA_MODEL = 'llama3.2';
 /** Fixed num_ctx for Ollama: room for a long document, small enough for 8 GB GPUs. */
 export const DEFAULT_OLLAMA_CONTEXT = 16_384;
 /** Fast and inexpensive – plenty for extracting document metadata. */
-export const DEFAULT_ANTHROPIC_MODEL = 'claude-haiku-4-5';
+export const DEFAULT_ANTHROPIC_MODEL = 'claude-haiku-5-5';
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21';
 export const DEFAULT_LOCAL_EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODELS.local;
 export const DEFAULT_OPENAI_EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODELS.openai;
