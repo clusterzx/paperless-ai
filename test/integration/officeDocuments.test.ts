@@ -3,11 +3,13 @@
  * a fake engine (test/helpers/office.ts); the real one: test/office/libreoffice.test.ts (opt-in).
  */
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DocumentDetail, DocumentVersionInfo, OfficeStatus, UploadResult } from '../../src/shared/api.js';
 import type { LocalBackend } from '../../src/server/archive/backend.js';
 import type { AppContext } from '../../src/server/context.js';
-import { OfficeRefused, OfficeService } from '../../src/server/office/service.js';
+import { MAIN_THREAD_WAIT, OfficeRefused, OfficeService, patchMainThreadWait } from '../../src/server/office/service.js';
 import { createHarness, makeTempDir, type Harness } from '../helpers/appHarness.js';
 import { FakeOfficeEngine, makeDocx } from '../helpers/office.js';
 
@@ -248,6 +250,25 @@ describe('Office documents', () => {
 });
 
 describe('OfficeService', () => {
+  it('adjusts the converter so its main thread keeps serving the other threads (no hang at the start)', async () => {
+    const dir = makeTempDir();
+    fs.mkdirSync(path.join(dir, 'wasm'));
+    const file = path.join(dir, MAIN_THREAD_WAIT.file);
+    fs.writeFileSync(
+      file,
+      `var a=1;function __emscripten_init_main_thread_js(tb){${MAIN_THREAD_WAIT.from}2097152,false)}var b=2;`,
+    );
+    expect(await patchMainThreadWait(dir)).toBe('patched');
+    expect(fs.readFileSync(file, 'utf8')).toBe(
+      `var a=1;function __emscripten_init_main_thread_js(tb){${MAIN_THREAD_WAIT.to}2097152,false)}var b=2;`,
+    );
+    expect(await patchMainThreadWait(dir)).toBe('already');
+    // Another version of the converter: left alone.
+    fs.writeFileSync(file, 'var other=1;');
+    expect(await patchMainThreadWait(dir)).toBe('unknown');
+    expect(fs.readFileSync(file, 'utf8')).toBe('var other=1;');
+  });
+
   it('keeps LibreOffice loaded when asked to: loaded in advance, never unloaded, its memory shown', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {

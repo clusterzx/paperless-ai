@@ -216,6 +216,7 @@ export class OfficeService {
   /** How long the last start of LibreOffice took and how much memory it held (shown in the settings). */
   private lastStartMs: number | null = null;
   private lastMemory: number | null = null;
+  private patched = false;
   /** The service of the running archive (not a passive one): it loads LibreOffice in advance. */
   private active = false;
   /** LibreOffice is being started. */
@@ -375,6 +376,7 @@ export class OfficeService {
         skip: (f) => /\.(map|d\.ts|d\.cts)$/.test(f) || /^dist\/browser/.test(f),
       });
       await linkDependency(part, 'zod');
+      await patchMainThreadWait(part);
       await fsp.writeFile(
         path.join(part, MARKER),
         JSON.stringify({ name: CONVERTER_PACKAGE.name, version, integrity, installedAt: new Date().toISOString() }),
@@ -476,6 +478,11 @@ export class OfficeService {
 
   private async load(): Promise<OfficeEngine> {
     if (this.engine?.loaded) return this.engine;
+    // Installations from before the fix get it here (once per process).
+    if (!this.engineFactory && !this.patched) {
+      await patchMainThreadWait(this.packageDir);
+      this.patched = true;
+    }
     // The link to the app's own dependency breaks when the app moved (another image, another folder).
     if (!this.engineFactory && !fs.existsSync(path.join(this.packageDir, 'node_modules', 'zod', 'package.json'))) {
       await fsp.rm(path.join(this.packageDir, 'node_modules', 'zod'), { recursive: true, force: true });
@@ -523,6 +530,45 @@ export class OfficeService {
     this.ctx.config.off('change', this.onConfig);
     this.unload('at shutdown');
   }
+}
+
+/**
+ * The fix for a hang of up to ~80 s at the start (and now and then at the first conversion).
+ *
+ * LibreOffice threads that start another thread hand that to the main thread and wait for it
+ * (Emscripten: pthread_create from a pthread is proxied synchronously to the main thread). Under
+ * Node the Emscripten main thread is allowed to block, so while LibreOffice's main thread waits for
+ * one of its threads it sleeps in Atomics.wait and does not see the request – both wait until the
+ * main thread's wait times out. Seen on every start on some servers (32 cores, 12 usable) and in
+ * 5 of 6 starts here with the process on one CPU; with this change: none in 16 starts.
+ *
+ * The change makes the main thread wait the way it does in a browser: it keeps handling the
+ * requests of the other threads while it waits. It spins only while LibreOffice works (a start, a
+ * conversion) – an idle LibreOffice uses no more CPU than before.
+ */
+export const MAIN_THREAD_WAIT = {
+  file: path.join('wasm', 'soffice.cjs'),
+  from: '__emscripten_thread_init(tb,!ENVIRONMENT_IS_WORKER,1,!ENVIRONMENT_IS_WEB,',
+  to: '__emscripten_thread_init(tb,!ENVIRONMENT_IS_WORKER,1,0,',
+};
+
+/** Apply MAIN_THREAD_WAIT to an unpacked converter (idempotent). */
+export async function patchMainThreadWait(packageDir: string): Promise<'patched' | 'already' | 'unknown'> {
+  const file = path.join(packageDir, MAIN_THREAD_WAIT.file);
+  const code = await fsp.readFile(file, 'utf8');
+  if (code.includes(MAIN_THREAD_WAIT.to)) return 'already';
+  const at = code.indexOf(MAIN_THREAD_WAIT.from);
+  if (at < 0 || code.indexOf(MAIN_THREAD_WAIT.from, at + 1) >= 0) {
+    log.warn('The Office converter could not be adjusted (unexpected code) – its start may take up to a minute and a half');
+    return 'unknown';
+  }
+  const tmp = `${file}.${process.pid}.tmp`;
+  await fsp.writeFile(tmp, code.slice(0, at) + MAIN_THREAD_WAIT.to + code.slice(at + MAIN_THREAD_WAIT.from.length));
+  await fsp.rename(tmp, file);
+  log.info(
+    'Office converter adjusted: its main thread keeps serving the other threads while it waits (no more hang at the start)',
+  );
+  return 'patched';
 }
 
 async function sha512(file: string): Promise<string> {
