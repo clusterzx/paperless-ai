@@ -4,12 +4,13 @@ import type { AppConfig } from '../../server/config/schema';
 import type { ConnectionTestResult } from '@shared/api';
 import { effectiveOcrModel, OCR_LANGUAGE_LABELS, OCR_LANGUAGES, OCR_MODEL_SIZE_LABELS, OCR_MODEL_SIZES, OCR_QUALITY, OCR_QUALITY_PRESETS, OCR_RELEASE, OCR_RELEASE_LABELS } from '@shared/ocr';
 import { buildWizardPrompt } from '@shared/promptWizard';
+import { retirementOf } from '@shared/aiModels';
 import { autoEmbeddingPrompts, DEFAULT_EMBEDDING_MODELS, promptTemplate } from '@shared/embeddingPrompts';
 import type { RagStatus } from '@shared/api';
 import { errorMessage, get, post } from '../lib/api';
 import { useAsync } from '../lib/hooks';
 import { getIn, SECRET_MASK, type Setter } from '../lib/draft';
-import { cn } from '../lib/format';
+import { cn, formatDate } from '../lib/format';
 import { Link } from 'wouter';
 import { Alert, Badge, Button, buttonClass, Field, Input, NumberInput, Select, Switch, TagInput, Textarea } from './ui';
 
@@ -148,9 +149,8 @@ const PROVIDERS: { id: Config['ai']['provider']; label: string; description: str
   { id: 'azure', label: 'Azure OpenAI', description: 'Deployments in Azure', icon: <Cloud className="size-5" /> },
 ];
 
-// Suggestions only – "Load" lists every model of the account.
-const OPENAI_MODELS = ['gpt-5-mini', 'gpt-5-nano', 'gpt-5.5', 'gpt-5.4', 'gpt-5', 'gpt-4.1-mini', 'gpt-4o-mini'];
-const ANTHROPIC_MODELS = ['claude-haiku-4-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-sonnet-4-6'];
+// No fixed model lists (they age within months): the suggestions are the models of the account,
+// loaded when the section opens.
 
 const MODEL_PATHS: Record<Config['ai']['provider'], string> = {
   openai: 'ai.openai.model',
@@ -183,28 +183,37 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
   const provider = draft.ai.provider;
   const modelPath = MODEL_PATHS[provider];
 
-  const loadModels = async () => {
-    setLoadingModels(true);
+  /** The models of the account; `quiet` (when the section opens): no error shown, no spinner. */
+  const loadModels = async (quiet = false) => {
+    if (!quiet) setLoadingModels(true);
     setModelError(null);
     try {
       const res = await post<{ models: string[]; error?: string }>(`/api/${apiBase}/models`, { ai: draft.ai });
       setModels(res.models);
+      if (quiet) return;
       if (res.error) setModelError(res.error);
       else if (!res.models.length) setModelError('The provider returned no models');
     } catch (err) {
-      setModelError(errorMessage(err));
+      if (!quiet) setModelError(errorMessage(err));
     } finally {
-      setLoadingModels(false);
+      if (!quiet) setLoadingModels(false);
     }
   };
+  // Current suggestions without a click (a stored key or a reachable Ollama is enough).
+  useEffect(() => {
+    setModels([]);
+    if (provider !== 'azure') void loadModels(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider]);
+  const retirement = provider === 'openai' || provider === 'custom' ? retirementOf(modelOf(draft.ai)) : null;
 
-  const suggestions = models.length ? models : provider === 'openai' ? OPENAI_MODELS : provider === 'anthropic' ? ANTHROPIC_MODELS : [];
+  const suggestions = models;
   const modelInput = (label: string, placeholder: string, hint?: ReactNode) => (
     <Field label={label} locked={locked[modelPath]} hint={modelError ? <span className="text-danger">{modelError}</span> : hint}>
       <div className="flex gap-2">
         <Input list="model-suggestions" placeholder={placeholder} {...bind(draft, set, locked, modelPath)} />
         {provider !== 'azure' && (
-          <Button onClick={loadModels} loading={loadingModels} title="Load the models offered by the provider">
+          <Button onClick={() => void loadModels()} loading={loadingModels} title="Load the models offered by the provider">
             Load
           </Button>
         )}
@@ -214,6 +223,22 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
           <option key={m} value={m} />
         ))}
       </datalist>
+      {retirement && (
+        <Alert
+          tone={retirement.retired ? 'danger' : 'warn'}
+          className="mt-2"
+          action={
+            !locked[modelPath] && (
+              <Button size="sm" onClick={() => set(modelPath, retirement.replacement)}>
+                Use {retirement.replacement}
+              </Button>
+            )
+          }
+        >
+          OpenAI {retirement.retired ? 'shut' : 'shuts'} {retirement.model} down on {formatDate(retirement.date)}
+          {retirement.retired ? ' – requests to it fail.' : '.'} Its recommended replacement is {retirement.replacement}.
+        </Alert>
+      )}
     </Field>
   );
 
@@ -253,7 +278,7 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
             <Field label="API key" locked={locked['ai.openai.apiKey']}>
               <SecretInput value={draft.ai.openai.apiKey} onChange={(v) => set('ai.openai.apiKey', v)} disabled={Boolean(locked['ai.openai.apiKey'])} placeholder="sk-…" />
             </Field>
-            {modelInput('Model', 'gpt-5-mini', 'gpt-5-mini offers the best value for document analysis. Reasoning models (GPT-5.x, o-series) work with low reasoning effort.')}
+            {modelInput('Model', 'gpt-6-luna', 'A small, fast model is enough for document analysis – the suggestions are the models of your account. Reasoning models run with low reasoning effort.')}
           </>
         )}
         {provider === 'anthropic' && (
@@ -266,11 +291,7 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
                 placeholder="sk-ant-…"
               />
             </Field>
-            {modelInput(
-              'Model',
-              'claude-haiku-4-5',
-              'claude-haiku-4-5 is fast and inexpensive for document analysis; claude-sonnet-5-5 is more thorough for difficult documents.',
-            )}
+            {modelInput('Model', 'claude-haiku-5-5', 'Haiku is fast and inexpensive for document analysis; Sonnet and Opus are more thorough for difficult documents – the suggestions are the current models.')}
             <Field label="Base URL (optional)" locked={locked['ai.anthropic.baseUrl']} hint="Only for an API gateway or proxy – leave empty for api.anthropic.com.">
               <Input placeholder="https://api.anthropic.com" {...bind(draft, set, locked, 'ai.anthropic.baseUrl')} />
             </Field>
@@ -281,7 +302,7 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
             <Field label="Ollama URL" locked={locked['ai.ollama.url']} hint="From Docker use e.g. http://host.docker.internal:11434">
               <Input placeholder="http://localhost:11434" {...bind(draft, set, locked, 'ai.ollama.url')} />
             </Field>
-            {modelInput('Model', 'llama3.2', 'Models with JSON/structured output support work best, e.g. qwen3, llama3.x, mistral, gemma3.')}
+            {modelInput('Model', 'llama3.2', 'Models with JSON / structured output support work best – the suggestions are the models installed in Ollama.')}
             <Field
               label="Context size (num_ctx)"
               locked={locked['ai.ollama.contextSize']}
@@ -350,7 +371,7 @@ export function AiSection({ draft, set, locked, apiBase }: SectionProps & { apiB
             <Field label="API key" locked={locked['ai.azure.apiKey']}>
               <SecretInput value={draft.ai.azure.apiKey} onChange={(v) => set('ai.azure.apiKey', v)} disabled={Boolean(locked['ai.azure.apiKey'])} />
             </Field>
-            {modelInput('Deployment name', 'gpt-4o-mini')}
+            {modelInput('Deployment name', 'my-deployment')}
             <Field label="API version" locked={locked['ai.azure.apiVersion']}>
               <Input placeholder="2024-10-21" {...bind(draft, set, locked, 'ai.azure.apiVersion')} />
             </Field>

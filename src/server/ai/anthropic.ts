@@ -37,9 +37,9 @@ const learned = new Map<string, Capabilities>();
 /** Models from before effort and adaptive thinking (Claude 3, Haiku 4.5, Sonnet/Opus 4.0–4.1, Sonnet 4.5). */
 const LEGACY = /claude-(3|haiku-4|(sonnet|opus)-4-[01]|sonnet-4-5)/i;
 /** Models that still accept temperature (sampling parameters were removed with Opus 4.7 and the 5.x models). */
-const SAMPLING = /claude-(3|haiku|(sonnet|opus)-4-[0-6])/i;
-/** Models that think by default (Claude 5 family: Opus, Sonnet, Fable, Mythos). */
-const THINKING = /claude-(opus|sonnet|fable|mythos)-5/i;
+const SAMPLING = /claude-(3|haiku-4|(sonnet|opus)-4-[0-6])/i;
+/** Models that think by default (Claude 5 family: Opus, Sonnet, Haiku, Fable, Mythos). */
+const THINKING = /claude-(opus|sonnet|haiku|fable|mythos)-5/i;
 /** Extra max_tokens for thinking (an upper bound – only tokens actually generated are billed). */
 const THINKING_RESERVE = 8192;
 
