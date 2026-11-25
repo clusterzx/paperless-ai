@@ -17,6 +17,8 @@ An installation that uses Paperless-ngx stays in that mode. Nothing changes unti
 - **Built-in archive – more file types:** text files (`.txt`, `.md`, `.csv`), HTML and e-mails (`.eml`) are taken everywhere (upload, watch folders, WebDAV, e-mail attachments). Watch folders that held such files next to the scans will import them now – before, they went to `.failed/`.
 - **Office documents** stay off until you switch them on (*Settings → Archive → Office documents* or `PAPERLESS_AI_OFFICE=true`): that downloads LibreOffice (WebAssembly, ~80 MB) once and needs about 1.3 GB of memory while it converts ([details](built-in-archive.md#office-documents)).
 - **Mail rules** can store the e-mail itself as a document; existing rules keep storing the attachments only.
+- **AI models:** OpenAI shuts `gpt-5`, `gpt-5-mini`, `gpt-5-nano` and `o3` down on 11 December 2026 and `gpt-4o(-mini)` and `gpt-4.1(-mini)` on 14 January 2027. *Settings → AI provider* warns about a configured one and offers its replacement with one click; the log says it at every start. The defaults for new installations are `gpt-6-luna` and `claude-haiku-5-5`. Existing installations keep the model they have stored – also when it was only the old default `gpt-5-mini`: switch it before 11 December.
+- **Paperless-ngx webhook:** current Paperless-ngx versions need the placeholder as `{{ doc_url }}`; the single-brace `{doc_url}` of the earlier instructions arrives unreplaced (the webhook answered 400). Older Paperless-ngx versions keep `{doc_url}`.
 
 ### To 4.5
 
