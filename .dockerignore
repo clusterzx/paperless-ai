@@ -17,3 +17,4 @@ playwright-report
 *.md
 .env
 .env.*
+!THIRD_PARTY_NOTICES.md
