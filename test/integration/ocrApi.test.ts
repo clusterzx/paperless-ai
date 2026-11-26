@@ -1,8 +1,9 @@
 /**
- * Remote OCR for Paperless-ngx: Paperless-ngx (PAPERLESS_REMOTE_OCR_ENGINE=azureai) sends the scans
- * it consumes to Paperless-AI in the protocol of Azure AI Document Intelligence and gets the text
- * and a searchable PDF back. The requests are the ones the Azure SDK makes (recorded from it); with
- * PAI_AZURE_SDK_PYTHON=<python with azure-ai-documentintelligence> the real SDK is used as well.
+ * OCR API server: other applications send files to be read and get the text and a searchable PDF
+ * back, whatever the archive mode and whether Paperless-AI reads its own documents. Paperless-ngx
+ * (PAPERLESS_REMOTE_OCR_ENGINE=azureai) speaks the Azure AI Document Intelligence API – the requests
+ * here are the ones its SDK makes (recorded from it); with PAI_AZURE_SDK_PYTHON=<python with
+ * azure-ai-documentintelligence> the real SDK is used as well. Other apps use POST /api/ocr/read.
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -12,7 +13,15 @@ import sharp from 'sharp';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { OcrStatus } from '../../src/shared/api.js';
 import { inspectFile } from '../../src/server/archive/files.js';
-import { analysisJson, createHarness, makeTempDir, TEST_USER, waitFor, type Harness } from '../helpers/appHarness.js';
+import {
+  analysisJson,
+  createHarness,
+  makeTempDir,
+  TEST_USER,
+  waitFor,
+  type Harness,
+  type HarnessOptions,
+} from '../helpers/appHarness.js';
 import { makeScanPdf } from '../helpers/pdf.js';
 
 let h: Harness | null = null;
@@ -25,8 +34,9 @@ const OCR_TEXT = 'Rechnung Nr. 4711 der Stadtwerke Musterstadt über 106,72 EUR 
 const ANALYZE =
   '/documentintelligence/documentModels/prebuilt-read:analyze?api-version=2024-11-30&outputContentFormat=text&output=pdf';
 
-async function harness(remoteEndpoint = true): Promise<{ hh: Harness; key: string }> {
-  h = await createHarness({ config: { ocr: { enabled: true, mode: 'always', remoteEndpoint } } });
+/** The OCR API server on; OCR of the own documents off unless `ownOcr` (it works without). */
+async function harness(apiServer = true, ownOcr = false, opts: HarnessOptions = {}): Promise<{ hh: Harness; key: string }> {
+  h = await createHarness({ ...opts, config: { ocr: { enabled: ownOcr, mode: 'always', apiServer } } });
   h.llm.reply(analysisJson({ title: 'Stromrechnung November 2026' }));
   await h.login();
   const admin = h.ctx.repos.users.byUsername(TEST_USER)!;
@@ -68,7 +78,7 @@ async function analyze(hh: Harness, key: string, file: Buffer) {
   return { result, pdf, location };
 }
 
-describe('remote OCR for Paperless-ngx', () => {
+describe('OCR API server – Azure AI Document Intelligence API (Paperless-ngx)', () => {
   it('reads a scan and gives back its text and a searchable PDF, as the Azure SDK asks for them', async () => {
     const { hh, key } = await harness();
     const scan = makeScanPdf(2);
@@ -89,7 +99,8 @@ describe('remote OCR for Paperless-ngx', () => {
 
     const cookie = await hh.login();
     const status = (await hh.inject({ method: 'GET', url: '/api/ocr/status', headers: { cookie } })).json() as OcrStatus;
-    expect(status.remote).toMatchObject({ enabled: true, readToday: 1, lastAt: expect.any(Number) });
+    expect(status.api).toMatchObject({ enabled: true, readToday: 1, lastAt: expect.any(Number) });
+    expect(status.enabled).toBe(false); // the own documents are not read – the API works all the same
   });
 
   it('turns a photo into a PDF', async () => {
@@ -103,7 +114,7 @@ describe('remote OCR for Paperless-ngx', () => {
   });
 
   it('does not read the document again when it arrives from Paperless-ngx with that text', async () => {
-    const { hh, key } = await harness();
+    const { hh, key } = await harness(true, true);
     await analyze(hh, key, makeScanPdf());
     expect(hh.ocrEngine.calls).toHaveLength(1);
     // Paperless-ngx stored the text (white space may differ) and calls the webhook.
@@ -239,5 +250,108 @@ describe('remote OCR for Paperless-ngx', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('works next to the built-in archive', async () => {
+    const { hh, key } = await harness(true, false, { archive: 'builtin' });
+    const { result } = await analyze(hh, key, makeScanPdf());
+    expect(result.analyzeResult!.content).toBe(OCR_TEXT);
+  });
+});
+
+describe('OCR API server – simple API (/api/ocr/read)', () => {
+  const multipart = (file: Buffer, name = 'scan.pdf', type = 'application/pdf') => {
+    const boundary = 'OCRBOUNDARY';
+    return {
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.concat([
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: ${type}\r\n\r\n`,
+        ),
+        file,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]),
+    };
+  };
+
+  it('reads a file and answers with the text and where each line is', async () => {
+    const { hh, key } = await harness();
+    const body = multipart(makeScanPdf());
+    const res = await hh.inject({
+      method: 'POST',
+      url: '/api/ocr/read',
+      headers: { ...body.headers, 'x-api-key': key },
+      payload: body.payload,
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const json = res.json();
+    expect(json).toMatchObject({
+      text: OCR_TEXT,
+      pages: [{ page: 1, text: OCR_TEXT, lines: [{ text: OCR_TEXT, box: expect.any(Array) }] }],
+    });
+    expect(json.pages[0].lines[0].box).toHaveLength(8);
+  });
+
+  it('answers with plain text or the searchable PDF, the file sent as the body', async () => {
+    const { hh, key } = await harness();
+    const text = await hh.inject({
+      method: 'POST',
+      url: '/api/ocr/read?format=text',
+      headers: { 'x-api-key': key, 'content-type': 'application/pdf' },
+      payload: makeScanPdf(),
+    });
+    expect(text.statusCode).toBe(200);
+    expect(text.headers['content-type']).toMatch(/^text\/plain/);
+    expect(text.body).toBe(OCR_TEXT);
+    const jpeg = await sharp({ create: { width: 600, height: 800, channels: 3, background: '#ffffff' } })
+      .jpeg()
+      .toBuffer();
+    const pdf = await hh.inject({
+      method: 'POST',
+      url: '/api/ocr/read?format=pdf',
+      headers: { 'x-api-key': key, 'content-type': 'image/jpeg' },
+      payload: jpeg,
+    });
+    expect(pdf.statusCode).toBe(200);
+    expect((await inspectFile(pdf.rawPayload, 'application/pdf')).text).toContain(OCR_TEXT);
+  });
+
+  it('says so when the file cannot be read', async () => {
+    const { hh, key } = await harness();
+    hh.ocrEngine.error = new Error('The PDF is password protected');
+    const res = await hh.inject({
+      method: 'POST',
+      url: '/api/ocr/read',
+      headers: { 'x-api-key': key, 'content-type': 'application/pdf' },
+      payload: makeScanPdf(),
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error).toMatch(/password protected/);
+  });
+
+  it('needs the OCR API server and the OCR permission', async () => {
+    const { hh, key } = await harness(false);
+    const off = await hh.inject({
+      method: 'POST',
+      url: '/api/ocr/read',
+      headers: { 'x-api-key': key, 'content-type': 'application/pdf' },
+      payload: makeScanPdf(),
+    });
+    expect(off.statusCode).toBe(403);
+    expect(off.json().error).toMatch(/switched off/);
+    hh.ctx.config.update({ ocr: { apiServer: true } });
+    const reader = hh.ctx.repos.apiKeys.create(hh.ctx.repos.users.byUsername(TEST_USER)!.id, {
+      name: 'reader',
+      scopes: ['read'],
+    }).key;
+    const res = await hh.inject({
+      method: 'POST',
+      url: '/api/ocr/read',
+      headers: { 'x-api-key': reader, 'content-type': 'application/pdf' },
+      payload: makeScanPdf(),
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('scope_missing');
+    expect(hh.ocrEngine.calls).toHaveLength(0);
   });
 });

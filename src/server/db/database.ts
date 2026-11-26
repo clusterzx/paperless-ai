@@ -493,11 +493,11 @@ const MIGRATIONS: Migration[] = [
   },
   {
     version: 20,
-    name: 'remote OCR for Paperless-ngx',
+    name: 'OCR API server',
     up: (db) =>
       db.exec(`
-        -- Texts read for Paperless-ngx while it consumed a file (remote OCR): a document with such a
-        -- text is not read again when it arrives here
+        -- Texts read by the OCR API server (e.g. for Paperless-ngx while it consumed a file): a document
+        -- with such a text is not read again when it arrives here
         CREATE TABLE ocr_remote_reads (
           -- SHA-256 of the text with every run of white space made one space
           text_hash TEXT PRIMARY KEY,

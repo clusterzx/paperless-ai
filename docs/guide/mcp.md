@@ -78,7 +78,7 @@ Each key has its own permissions; it can never do more than its user, and in eac
 | Ask & chat | ask the AI about documents, search by meaning |
 | MCP (AI agents) | use the MCP server – its tools follow the permissions above |
 | Webhook | the document webhook |
-| OCR for Paperless-ngx | Paperless-ngx sends its scans to be read ([remote OCR](ocr.md#ocr-while-paperless-ngx-consumes-remote-ocr)) – nothing else |
+| OCR API | send files to the [OCR API server](ocr.md#ocr-api-server) to be read (Paperless-ngx remote OCR, other apps) – nothing else |
 | Administration | settings, users, libraries (administrators only) |
 
 Besides: **libraries** (the key only sees these), **expiry** and **requests per minute** (above the limit the key gets `429 Too many requests` with `Retry-After`). The limits apply to the whole API, not only to MCP.

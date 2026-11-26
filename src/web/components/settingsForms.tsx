@@ -969,8 +969,8 @@ const OCR_MODE_OPTIONS: { value: Config['ocr']['mode']; label: string; hint: str
   { value: 'manual', label: 'Manual', hint: 'OCR only runs when you start it on the OCR page (or via the API). The documents are analyzed by the AI afterwards.' },
 ];
 
-/** What to set in Paperless-ngx so it sends its scans here (remote OCR engine "azureai"). */
-function RemoteOcrSetup() {
+/** How to use the OCR API server: Paperless-ngx (remote OCR engine "azureai") and other apps. */
+function OcrApiSetup() {
   const [key, setKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -978,38 +978,50 @@ function RemoteOcrSetup() {
     setBusy(true);
     setError(null);
     try {
-      setKey((await post<{ key: string }>('/api/me/api-keys', { name: 'Paperless-ngx remote OCR', scopes: ['ocr'] })).key);
+      setKey((await post<{ key: string }>('/api/me/api-keys', { name: 'OCR API', scopes: ['ocr'] })).key);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
   };
-  const env = [
+  const origin = window.location.origin;
+  const shownKey = key ?? '<API key with the permission "OCR API">';
+  const paperless = [
     'PAPERLESS_REMOTE_OCR_ENGINE=azureai',
-    `PAPERLESS_REMOTE_OCR_ENDPOINT=${window.location.origin}`,
-    `PAPERLESS_REMOTE_OCR_API_KEY=${key ?? '<API key with the permission "OCR for Paperless-ngx">'}`,
+    `PAPERLESS_REMOTE_OCR_ENDPOINT=${origin}`,
+    `PAPERLESS_REMOTE_OCR_API_KEY=${shownKey}`,
   ].join('\n');
+  const curl = `curl -H "x-api-key: ${shownKey}" -F file=@scan.pdf "${origin}/api/ocr/read?format=pdf" -o scan-searchable.pdf`;
   return (
     <div className="space-y-3 rounded-xl border border-border p-4 text-sm">
-      <div className="font-medium">Set up Paperless-ngx</div>
+      <div className="font-medium">Paperless-ngx</div>
       <p className="text-muted">
-        Add these lines to the environment of Paperless-ngx (e.g. its <code className="kbd">docker-compose.yml</code>) and restart it. The endpoint is the address at
-        which Paperless-ngx reaches Paperless-AI – in the same Docker network for example <code className="kbd">http://paperless-ai:3000</code>.
+        Add these lines to the environment of Paperless-ngx (e.g. its <code className="kbd">docker-compose.yml</code>) and restart it: it then sends the scans and photos it
+        consumes here instead of reading them with Tesseract. The endpoint is the address at which Paperless-ngx reaches Paperless-AI – in the same Docker network for
+        example <code className="kbd">http://paperless-ai:3000</code>.
       </p>
-      <CopySnippet text={env} />
+      <CopySnippet text={paperless} />
+      <p className="text-xs text-muted">
+        Digital PDFs keep their own text and are not sent. While Paperless-AI cannot be reached, Paperless-ngx cannot consume scans – it stops with an error instead of storing
+        a document without text.
+      </p>
+      <div className="pt-1 font-medium">Other apps</div>
+      <p className="text-muted">
+        Send a file to <code className="kbd">POST /api/ocr/read</code> and get its text back (<code className="kbd">format=json</code> with the lines and where they are,{' '}
+        <code className="kbd">text</code>, or <code className="kbd">pdf</code> for the searchable PDF). Apps that support Azure AI Document Intelligence use the address of
+        Paperless-AI as their endpoint (model <code className="kbd">prebuilt-read</code>).
+      </p>
+      <CopySnippet text={curl} />
       {error && <Alert tone="danger">{error}</Alert>}
       {key ? (
-        <p className="text-xs text-muted">The key is shown only now – copy the lines. It can only read files sent to it, nothing else; revoke it under Settings → API keys.</p>
+        <p className="text-xs text-muted">The key is shown only now – copy the lines. It can only have files read, nothing else; revoke it under Settings → API keys.</p>
       ) : (
         <Button size="sm" icon={<KeyRound className="size-3.5" />} onClick={createKey} disabled={busy}>
           Create the API key
         </Button>
       )}
-      <p className="text-xs text-muted">
-        Save the settings first. Digital PDFs keep their own text and are not sent. While Paperless-AI cannot be reached, Paperless-ngx cannot consume scans – it stops with an error
-        instead of storing a document without text.
-      </p>
+      <p className="text-xs text-muted">Save the settings first. Files are read one after the other; Max. pages per document applies.</p>
     </div>
   );
 }
@@ -1019,6 +1031,7 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
   const mode = OCR_MODE_OPTIONS.find((m) => m.value === o.mode) ?? OCR_MODE_OPTIONS[0];
   // The model really used (PP-OCRv6 falls back to v5 for languages it cannot read).
   const model = effectiveOcrModel(o.modelVersion, o.modelSize, o.language);
+  const builtin = draft.archive.mode === 'builtin';
   return (
     <div className="space-y-6">
       {!available && (
@@ -1028,34 +1041,13 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
       )}
       <Switch
         label="Enable OCR with PaddleOCR"
-        description="Reads scans and photos locally (no external service). The models (6–140 MB, depending on the choice below) are downloaded on first use into the data directory."
+        description="Reads the scans and photos of your documents locally (no external service). The models (6–140 MB, depending on the choice below) are downloaded on first use into the data directory."
         checked={o.enabled}
         locked={locked['ocr.enabled']}
         onChange={(v) => set('ocr.enabled', v)}
       />
       {o.enabled && (
         <>
-          {draft.archive.mode !== 'builtin' && (
-            <Field
-              label="Who starts the OCR of new documents?"
-              locked={locked['ocr.remoteEndpoint']}
-              hint={
-                o.remoteEndpoint
-                  ? 'Paperless-ngx sends the scans and photos it consumes here (its remote OCR engine) and gets the text and a searchable PDF back – the documents arrive with good text. The setting below still reads documents that come without, and the existing ones.'
-                  : 'Paperless-ngx reads new documents itself (Tesseract); Paperless-AI reads them again afterwards when the setting below says so.'
-              }
-            >
-              <Select
-                value={o.remoteEndpoint ? 'paperless' : 'ai'}
-                disabled={Boolean(locked['ocr.remoteEndpoint'])}
-                onChange={(e) => set('ocr.remoteEndpoint', e.target.value === 'paperless')}
-              >
-                <option value="ai">Paperless-AI, after Paperless-ngx has consumed them</option>
-                <option value="paperless">Paperless-ngx, while it consumes them (remote OCR)</option>
-              </Select>
-            </Field>
-          )}
-          {o.remoteEndpoint && draft.archive.mode !== 'builtin' && <RemoteOcrSetup />}
           <Field label="When should OCR run?" locked={locked['ocr.mode']} hint={mode.hint}>
             <Select {...bind(draft, set, locked, 'ocr.mode')}>
               {OCR_MODE_OPTIONS.map((m) => (
@@ -1065,17 +1057,20 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
               ))}
             </Select>
           </Field>
-          <Switch
-            label="Save the OCR text in Paperless"
-            description="Replaces the document text in Paperless with the OCR result when it scores better than the existing text – the Paperless full-text search improves too. The previous text is kept and can be restored on the OCR page."
-            checked={o.writeBack}
-            locked={locked['ocr.writeBack']}
-            onChange={(v) => set('ocr.writeBack', v)}
-          />
+          {/* The built-in archive always keeps the better OCR text (with undo) – the switch would do nothing there. */}
+          {!builtin && (
+            <Switch
+              label="Save the OCR text in Paperless"
+              description="Replaces the document text in Paperless with the OCR result when it scores better than the existing text – the Paperless full-text search improves too. The previous text is kept and can be restored on the OCR page."
+              checked={o.writeBack}
+              locked={locked['ocr.writeBack']}
+              onChange={(v) => set('ocr.writeBack', v)}
+            />
+          )}
           <Switch
             label="Make searchable PDFs"
             description={
-              draft.archive.mode === 'builtin'
+              builtin
                 ? 'Lays the OCR text into the PDF as an invisible text layer, exactly where it was read: search, select and copy work in every PDF viewer. The archive keeps it as the PDF of the document (images become a PDF), the original file stays as it is.'
                 : 'Lays the OCR text into the PDF as an invisible text layer, exactly where it was read, and uploads it to Paperless-ngx as a new version of the document (needs a Paperless-ngx with document versions). Paperless-ngx then shows that PDF, searchable and selectable, and takes its text; the original stays as the first version.'
             }
@@ -1083,6 +1078,18 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
             locked={locked['ocr.searchablePdf']}
             onChange={(v) => set('ocr.searchablePdf', v)}
           />
+        </>
+      )}
+      <Switch
+        label="OCR API server"
+        description="Other applications send files here and get the text and a searchable PDF back – Paperless-ngx as its remote OCR engine, or any app through a simple API. Works on its own, whatever the archive and the setting above: the models load with the first file and are unloaded as set below."
+        checked={o.apiServer}
+        locked={locked['ocr.apiServer']}
+        onChange={(v) => set('ocr.apiServer', v)}
+      />
+      {o.apiServer && <OcrApiSetup />}
+      {(o.enabled || o.apiServer) && (
+        <>
           <FormGrid>
             <Field label="Language / script" locked={locked['ocr.language']} hint="The recognition model. “Latin script” covers German, English and most European languages.">
               <Select {...bind(draft, set, locked, 'ocr.language')}>
@@ -1177,9 +1184,11 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
               locked={locked['ocr.autoRotate']}
               onChange={(v) => set('ocr.autoRotate', v)}
             />
-            <Field label="“Poor text” below score" locked={locked['ocr.poorBelow']} hint="Text quality is rated 0–100. Lower values read fewer documents automatically.">
-              <NumberInput min={1} max={99} {...bindNumber(draft, set, locked, 'ocr.poorBelow')} />
-            </Field>
+            {o.enabled && (
+              <Field label="“Poor text” below score" locked={locked['ocr.poorBelow']} hint="Text quality is rated 0–100. Lower values read fewer documents automatically.">
+                <NumberInput min={1} max={99} {...bindNumber(draft, set, locked, 'ocr.poorBelow')} />
+              </Field>
+            )}
           </FormGrid>
         </>
       )}

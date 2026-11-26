@@ -164,7 +164,7 @@ export class OcrService {
     // would only read the own text (and add another version).
     const newest = doc.versions?.[0];
     if (newest && !newest.is_root && newest.version_label === OCR_VERSION_LABEL) return false;
-    // Read here for Paperless-ngx while it consumed the file (remote OCR): the text is the OCR text.
+    // Read by the OCR API server, e.g. for Paperless-ngx while it consumed the file: the text is the OCR text.
     if (doc.content && this.ctx.repos.ocr.isRemoteRead(doc.content)) return false;
     // Already read this version (e.g. a re-analysis after the write-back).
     const r = this.ctx.repos.ocr.result(doc.id);
@@ -349,8 +349,9 @@ export class OcrService {
   }
 
   /**
-   * Read a file for Paperless-ngx while it consumes it (remote OCR). Nothing is stored with a
-   * document; the caller records the text, so the document is not read again once it arrives.
+   * Read a file sent to the OCR API server (Paperless-ngx while it consumes it, other apps). Nothing
+   * is stored with a document; the caller records the text, so a document with it is not read again.
+   * Works whether OCR of the own documents is on or not – the models load on demand.
    */
   async readFile(bytes: Uint8Array, opts: { label: string; signal?: AbortSignal }): Promise<OcrResult> {
     if (!(await this.isAvailable())) throw new UserError('OCR is not available in this installation (onnxruntime-node, sharp or @hyzyla/pdfium missing)');
@@ -474,8 +475,8 @@ export class OcrService {
       },
       queue,
       active: this.active ? { ...this.active } : null,
-      remote: {
-        enabled: this.cfg.enabled && this.cfg.remoteEndpoint,
+      api: {
+        enabled: this.cfg.apiServer,
         readToday: this.ctx.repos.ocr.remoteReads(Date.now() - 86_400_000).count,
         lastAt: this.ctx.repos.ocr.remoteReads(0).lastAt,
       },

@@ -17,7 +17,7 @@ export const LIBRARY_ROLES: readonly LibraryRole[] = ['viewer', 'editor', 'owner
  * - chat: ask the AI about documents
  * - mcp: use the MCP server (/mcp) – what its tools may do follows the other scopes
  * - webhook: the document webhook
- * - ocr: OCR for Paperless-ngx while it consumes a file (remote OCR, /documentintelligence/…)
+ * - ocr: the OCR API server – files sent to be read (Paperless-ngx remote OCR, /api/ocr/read)
  * - admin: administration (admins only)
  */
 export const API_SCOPES = ['read', 'write', 'delete', 'metadata', 'upload', 'chat', 'mcp', 'webhook', 'ocr', 'admin'] as const;

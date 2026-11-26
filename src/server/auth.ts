@@ -128,7 +128,7 @@ function fromApiKey(ctx: AppContext, candidate: string): Authenticated | null {
 /**
  * Resolve the caller from the session cookie, a Bearer token, `Authorization: Token <key>` (as
  * Paperless-ngx clients send it), the x-api-key header or `Ocp-Apim-Subscription-Key` (as Paperless-ngx
- * sends the key of its remote OCR engine).
+ * sends the key of its remote OCR engine to the OCR API server).
  */
 export async function authenticate(ctx: AppContext, req: FastifyRequest): Promise<Authenticated | null> {
   for (const header of ['x-api-key', 'ocp-apim-subscription-key']) {

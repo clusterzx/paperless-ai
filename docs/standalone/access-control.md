@@ -125,8 +125,9 @@ feed, and neither responses nor AI prompts may contain a marker of the other lib
 * Scopes: `read` (list, search, download), `write` (change documents, restore from the trash),
   `delete` (trash, delete for good, delete versions), `metadata` (create, rename, merge, delete
   tags, correspondents, types, custom fields), `upload`, `chat` (Ask / document chat), `mcp` (the MCP
-  server at `/mcp`; its tools need the other scopes), `webhook` (enqueue processing), `ocr` (remote
-  OCR for Paperless-ngx: `/documentintelligence/*`, key also accepted as `Ocp-Apim-Subscription-Key`), `admin`
+  server at `/mcp`; its tools need the other scopes), `webhook` (enqueue processing), `ocr` (the OCR
+  API server: `/documentintelligence/*` – key also accepted as `Ocp-Apim-Subscription-Key` – and
+  `POST /api/ocr/read`), `admin`
   (settings; only for admin users). The table in `http/policy.ts` maps routes to scopes; bulk edits
   and the trash of the Paperless-ngx compatible API check `delete` for their delete actions. Keys
   with `write` from before migration 18 received `delete` and `metadata` (they were part of it).

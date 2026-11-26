@@ -110,8 +110,9 @@ const ENTRIES: Entry[] = [
   // ---------------------------------------------------------------- MCP server (its tools check the other scopes)
   ['*', '/mcp', mcp],
 
-  // ---------------------------------------------------------------- remote OCR for Paperless-ngx (Azure Document Intelligence API)
+  // ---------------------------------------------------------------- OCR API server (Azure Document Intelligence API for Paperless-ngx, own API)
   ['*', '/documentintelligence/*', ocr],
+  ['POST', '/api/ocr/read', ocr],
 
   // ---------------------------------------------------------------- AI chat and search
   ['POST', '/api/rag/ask', chat],

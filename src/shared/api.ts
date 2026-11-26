@@ -729,10 +729,10 @@ export interface OcrStatus {
   model: OcrModelChoice;
   analysis: { running: boolean; done: number; total: number; lastAt: number | null; error: string | null };
   queue: number;
-  /** The file being read: a document, or (documentId null) a scan Paperless-ngx is consuming (remote OCR). */
+  /** The file being read: a document, or (documentId null) a file sent to the OCR API server. */
   active: { documentId: number | null; title: string | null; page: number; pages: number } | null;
-  /** Remote OCR: Paperless-ngx sends its scans here while consuming them. */
-  remote: { enabled: boolean; readToday: number; lastAt: number | null };
+  /** OCR API server: files other applications (Paperless-ngx …) sent to be read. */
+  api: { enabled: boolean; readToday: number; lastAt: number | null };
 }
 
 export interface OcrDocumentText {

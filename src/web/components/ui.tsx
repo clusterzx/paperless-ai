@@ -916,7 +916,7 @@ export function CopySnippet({ text }: { text: string }) {
   const toast = useToast();
   return (
     <div className="relative">
-      <pre className="max-h-48 overflow-auto rounded-lg bg-surface-2 p-2 pr-20 font-mono">{text}</pre>
+      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-surface-2 p-2 pr-20 font-mono">{text}</pre>
       <Button
         size="sm"
         className="absolute right-2 top-2"

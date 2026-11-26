@@ -19,7 +19,7 @@ const SCOPE_LABEL: Record<ApiScope, string> = {
   chat: 'Ask & chat',
   mcp: 'MCP (AI agents)',
   webhook: 'Webhook (queue processing)',
-  ocr: 'OCR for Paperless-ngx',
+  ocr: 'OCR API',
   admin: 'Administration',
 };
 
@@ -32,7 +32,7 @@ const SCOPE_HINT: Record<ApiScope, string> = {
   chat: 'Ask the AI about documents, search by meaning',
   mcp: 'Use the MCP server – its tools follow the permissions above',
   webhook: 'The document webhook',
-  ocr: 'Paperless-ngx sends its scans here to be read (remote OCR) – nothing else',
+  ocr: 'Send files to be read: Paperless-ngx remote OCR, other apps – nothing else',
   admin: 'Settings, users, libraries – everything an administrator can do',
 };
 

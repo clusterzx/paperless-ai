@@ -327,10 +327,10 @@ export default function OcrPage() {
           <span>
             Searchable PDF: <b className="font-medium">{s?.searchablePdf ? 'yes' : 'no'}</b>
           </span>
-          {s?.remote.enabled && (
-            <span title="Paperless-ngx sends the scans it consumes here (remote OCR)">
-              Read for Paperless-ngx: <b className="font-medium">{s.remote.readToday} in 24 h</b>
-              {s.remote.lastAt ? <span className="text-faint"> · last {timeAgo(s.remote.lastAt)}</span> : null}
+          {s?.api.enabled && (
+            <span title="Files other applications (Paperless-ngx …) sent to the OCR API server">
+              OCR API: <b className="font-medium">{s.api.readToday} files in 24 h</b>
+              {s.api.lastAt ? <span className="text-faint"> · last {timeAgo(s.api.lastAt)}</span> : null}
             </span>
           )}
           <span title={s?.model.note ?? undefined}>
@@ -348,7 +348,7 @@ export default function OcrPage() {
           {s?.active ? (
             <div>
               <div className="flex items-center gap-2 font-medium">
-                <ScanText className="size-4 animate-pulse text-accent" /> {s.active.documentId === null ? 'Reading for Paperless-ngx' : `Reading #${s.active.documentId}`}
+                <ScanText className="size-4 animate-pulse text-accent" /> {s.active.documentId === null ? 'Reading for the OCR API' : `Reading #${s.active.documentId}`}
                 {s.active.pages ? ` – page ${s.active.page}/${s.active.pages}` : ''}
               </div>
               <div className="mt-0.5 truncate text-xs text-muted">{s.active.title}</div>

@@ -15,29 +15,45 @@ The OCR text replaces the text in Paperless only when its text-quality score is 
 - **GPU memory:** on the GPU the OCR models are unloaded after each document (*Unload the OCR models: Automatic*), so a local model (Ollama, llama.cpp …) on the same GPU gets all of the memory back. Without such a model choose *After 10 idle minutes*.
 - **Models** are stored in `data/models/paddleocr` and downloaded once, pinned to a fixed version; behind a proxy or offline set `HF_ENDPOINT` to a Hugging Face mirror. ONNX Runtime telemetry is switched off.
 
-## OCR while Paperless-ngx consumes (remote OCR)
+## OCR API server
 
-*Settings → OCR → Who starts the OCR of new documents?* decides who reads new documents:
+*Settings → OCR → OCR API server* lets other applications send files to Paperless-AI to be read: they get the text and a searchable PDF back. It works on its own – with Paperless-ngx or the built-in archive, and also while *Enable OCR with PaddleOCR* (reading the own documents) is off. A file comes in, the models load if they are not loaded yet, the file is read, the answer goes back; the models are unloaded as *Unload the OCR models* says. Model, language, quality, device and *Max. pages per document* are the ones of the OCR settings.
 
-- **Paperless-AI, after Paperless-ngx has consumed them** (default): Paperless-ngx reads them with Tesseract; Paperless-AI reads them again when *When should OCR run?* says so and replaces the text when its result is better.
-- **Paperless-ngx, while it consumes them (remote OCR):** Paperless-ngx sends each scan and photo to Paperless-AI, which reads it with PaddleOCR and gives back the text and a searchable PDF. Paperless-ngx stores that PDF as its archive file and the text as the content; the document arrives with good text, so the AI analysis after the webhook uses it right away. Digital PDFs keep their own text and are not sent.
+All callers need an API key with the permission *OCR API* – it can only have files read, nothing else. The settings page shows the lines below with your address and creates the key with one click.
 
-Paperless-AI answers like Azure AI Document Intelligence, which Paperless-ngx supports as its remote OCR engine – no Azure account is needed, nothing leaves your network. Set in Paperless-ngx (the settings page of Paperless-AI shows the lines with your address and creates the key):
+### Paperless-ngx (remote OCR)
+
+Paperless-ngx can hand the scans it consumes to a remote OCR engine instead of reading them with Tesseract. Paperless-AI answers like Azure AI Document Intelligence, which Paperless-ngx supports for that – no Azure account is needed, nothing leaves your network. Set in Paperless-ngx:
 
 ```env
 PAPERLESS_REMOTE_OCR_ENGINE=azureai
 PAPERLESS_REMOTE_OCR_ENDPOINT=http://paperless-ai:3000
-PAPERLESS_REMOTE_OCR_API_KEY=<API key of Paperless-AI with the permission "OCR for Paperless-ngx">
+PAPERLESS_REMOTE_OCR_API_KEY=<API key of Paperless-AI with the permission "OCR API">
 ```
 
-The endpoint is the address at which Paperless-ngx reaches Paperless-AI (here: the same Docker network). The key can only have files read – nothing else.
+The endpoint is the address at which Paperless-ngx reaches Paperless-AI (here: the same Docker network). Paperless-ngx then sends each scan and photo, stores the searchable PDF as its archive file and the text as the content. The document arrives with good text, so the AI analysis after the webhook uses it right away. Digital PDFs keep their own text and are not sent.
 
-- **Availability:** while Paperless-AI cannot be reached, Paperless-ngx cannot consume scans – it stops with an error instead of storing a document without text (try again from its file tasks). When the OCR itself fails, Paperless-ngx gets the file without text and Paperless-AI's own OCR (*When should OCR run?*) reads the document once it has arrived.
-- **Not read twice:** a document whose text was read this way is not read again by Paperless-AI, also not in the mode *Every document*.
-- **Limits:** files are read one after the other; *Max. pages per document* applies (0 = all). Paperless-ngx waits while it consumes – an A4 page takes 1–2 s on a 4-core CPU.
-- The *OCR* page shows how many files were read for Paperless-ngx in the last 24 hours.
+- **Availability:** while Paperless-AI cannot be reached, Paperless-ngx cannot consume scans – it stops with an error instead of storing a document without text (try again from its file tasks). When the OCR itself fails, Paperless-ngx gets the file without text, and Paperless-AI's own OCR (*When should OCR run?*) can read the document once it has arrived.
+- **Not read twice:** a document whose text came from the OCR API server is not read again by Paperless-AI, also not in the mode *Every document*.
+- **Existing documents:** the remote OCR covers new documents; for the existing ones use the *OCR* page or *When should OCR run?*.
 
-The remote OCR covers new documents; for the existing ones use the *OCR* page or the modes above. The searchable PDF below is for documents Paperless-AI reads itself – with the remote OCR Paperless-ngx has it already.
+### Other apps
+
+`POST /api/ocr/read` reads a PDF or an image and answers once it is done – the file as the multipart field `file`, or as the body with its content type:
+
+```bash
+curl -H "x-api-key: <key>" -F file=@scan.pdf "http://paperless-ai:3000/api/ocr/read?format=pdf" -o scan-searchable.pdf
+```
+
+| `format` | Answer |
+| --- | --- |
+| `json` (default) | `text`, and per page its `text` and `lines` – each with `text` and `box`: the corners top left, top right, bottom right, bottom left in reading order, as fractions of the page (0…1, origin top left) |
+| `text` | the text |
+| `pdf` | the searchable PDF (an image becomes a PDF) |
+
+A file that cannot be read answers `422` with the reason. Apps that support Azure AI Document Intelligence use the address of Paperless-AI as their endpoint (model `prebuilt-read`).
+
+Files are read one after the other – an A4 page takes 1–2 s on a 4-core CPU; the *OCR* page shows how many files the OCR API server read in the last 24 hours.
 
 ## Searchable PDF
 

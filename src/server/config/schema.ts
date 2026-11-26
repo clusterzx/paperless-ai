@@ -367,10 +367,12 @@ export const configSchema = z.object({
        */
       searchablePdf: bool(false),
       /**
-       * Remote OCR: Paperless-ngx sends the scans it consumes here to be read (its remote OCR engine
-       * "azureai" pointed at Paperless-AI) and gets the text and a searchable PDF back.
+       * OCR API server: other applications send files to be read and get the text and a searchable
+       * PDF back – Paperless-ngx as its remote OCR engine ("azureai", the Azure AI Document
+       * Intelligence API), other apps through POST /api/ocr/read. Independent of `enabled` (which is
+       * about the documents of Paperless-AI) and of the archive mode.
        */
-      remoteEndpoint: bool(false),
+      apiServer: bool(false),
       language: z.enum(OCR_LANGUAGES).default('latin'),
       quality: z.enum(OCR_QUALITY).default('balanced'),
       /** PP-OCRv5 (all languages) or PP-OCRv6 (Latin script, Chinese, Japanese – falls back to v5 for the others). */
