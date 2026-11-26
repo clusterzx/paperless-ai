@@ -1,6 +1,18 @@
 /** OCR engine stand-in for tests: returns a configurable text instead of running PaddleOCR. */
 import type { OcrEngine, OcrProgress, OcrResult } from '../../src/server/ocr/runner.js';
 import type { RenderOptions } from '../../src/server/ocr/render.js';
+import type { LayoutLine } from '../../src/server/ocr/textLayer.js';
+
+/** One text line after the other from the top of the page, 3 % of the page high. */
+export function fakeLayout(text: string): LayoutLine[] {
+  return text
+    .split('\n')
+    .filter((t) => t.trim())
+    .map((t, i) => {
+      const top = 0.1 + i * 0.04;
+      return { text: t.trim(), box: [0.1, top, 0.9, top, 0.9, top + 0.03, 0.1, top + 0.03] };
+    });
+}
 
 export class FakeOcrEngine implements OcrEngine {
   /** Text returned for the next runs (a function gets the bytes of the file). */
@@ -8,6 +20,8 @@ export class FakeOcrEngine implements OcrEngine {
   /** Throw this instead of returning a result. */
   error: Error | null = null;
   pages = 1;
+  /** Characters of the text layer each page already has. */
+  textChars = 0;
   readonly calls: { bytes: Uint8Array; render: RenderOptions }[] = [];
   provider: string | null = null;
   disposed = 0;
@@ -20,7 +34,16 @@ export class FakeOcrEngine implements OcrEngine {
     const text = typeof this.text === 'function' ? this.text(bytes) : this.text;
     return {
       text,
-      pages: Array.from({ length: this.pages }, () => ({ text, lines: 3, meanScore: 0.97, rotation: 0, width: 1000, height: 1400, ms: 5 })),
+      pages: Array.from({ length: this.pages }, () => ({
+        text,
+        lines: 3,
+        layout: { lines: fakeLayout(text), textChars: this.textChars },
+        meanScore: 0.97,
+        rotation: 0,
+        width: 1000,
+        height: 1400,
+        ms: 5,
+      })),
       totalPages: this.pages,
       provider: 'cpu',
       durationMs: 12,

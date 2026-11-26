@@ -16,6 +16,6 @@ process.on('message', async (req) => {
   if (text.startsWith('slow')) await new Promise((resolve) => setTimeout(resolve, 200));
   process.send({ type: 'progress', id: req.id, page: 1, pages: 1 });
   if (text === 'fail') return process.send({ type: 'error', id: req.id, error: 'cannot read this file' });
-  const page = { text: `read: ${text} (pid ${process.pid})`, lines: 1, meanScore: 0.9, rotation: 0, width: 1, height: 1, ms: 1 };
+  const page = { text: `read: ${text} (pid ${process.pid})`, lines: 1, layout: { lines: [], textChars: 0 }, meanScore: 0.9, rotation: 0, width: 1, height: 1, ms: 1 };
   process.send({ type: 'result', id: req.id, pages: [page], totalPages: 1, provider });
 });

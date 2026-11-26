@@ -36,7 +36,7 @@ The type of a file is read from its content – the name and the declared type a
 | Format | What the archive does |
 | --- | --- |
 | PDF | stored as it is; text from its text layer, or OCR when it has none |
-| Images (JPEG, PNG, TIFF, WebP, GIF, BMP) | stored as they are; text by OCR |
+| Images (JPEG, PNG, TIFF, WebP, GIF, BMP) | stored as they are; text by OCR (with [searchable PDFs](ocr.md#searchable-pdf) on, the OCR also makes a PDF of them) |
 | Text (`.txt`, `.md`, `.csv`, `.tsv`) | the text is read directly – UTF-8, UTF-16 or Windows-1252 (Excel exports) |
 | HTML (`.html`) | its text; shown without scripts or anything loaded from elsewhere |
 | E-mails (`.eml`) | sender, recipients, date, subject, message and the names of the attachments; the subject becomes the title, the day it was sent the date |

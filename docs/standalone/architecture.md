@@ -297,6 +297,23 @@ The engine needs almost no changes:
   layer of digital PDFs is extracted during intake, so the quality score decides whether OCR is
   needed at all. `ocr.writeBack` is forced on (the text belongs to the archive). The previous text
   stays in `ocr_results.previous_text` for undo, as today.
+* **Searchable PDF** (`ocr.searchablePdf`): the worker reports where each line was read (corners
+  in fractions of the page as shown, in reading order – `textLayer.ts`); `searchablePdf.ts` lays the
+  text over the pages as invisible text (render mode 3, a glyphless TrueType font built in
+  `glyphlessFont.ts`, Type0/Identity-H with a ToUnicode map) with pdf-lib. Built-in: stored as the
+  `archive` file of the current version (`LocalBackend.setArchivePdf`). Paperless-ngx: uploaded with
+  `POST /api/documents/{id}/update_version/`, labelled `OCR text layer (Paperless-AI)`; a version
+  with that label is never read by the OCR again. `ocr_results.pdf` / `pdf_ref` keep where it went
+  (SHA-256 of the archive file / Paperless task) so a revert can take it away.
+* **OCR API server** (`ocr.apiServer`, independent of `ocr.enabled` and the archive mode):
+  `routes/ocrApi.ts` speaks the part of the Azure AI Document Intelligence REST API (2024-11-30, model
+  `prebuilt-read`) that Paperless-ngx uses with `PAPERLESS_REMOTE_OCR_ENGINE=azureai`
+  (`POST …/prebuilt-read:analyze` → `202` + `Operation-Location`, `GET …/analyzeResults/{id}`,
+  `GET …/pdf`) and a simple synchronous `POST /api/ocr/read?format=json|text|pdf`. `ocr/apiServer.ts`
+  reads the files one after the other with `OcrService.readFile` (models load on demand) and keeps
+  results in memory until fetched (an hour at most). Auth: API key with the `ocr` scope (Azure clients
+  send it as `Ocp-Apim-Subscription-Key`). Texts read this way are remembered by hash
+  (`ocr_remote_reads`) so a document with such a text is not read again when it arrives.
 * **Applier:** `updateDocument(..., origin: { actor: 'ai', … })`. The `history` table stays for the
   AI-specific data (tokens, prompt, suggestion). The change log entry of the built-in backend
   references the history id.

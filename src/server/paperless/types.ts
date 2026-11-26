@@ -33,6 +33,8 @@ export interface PaperlessDocument {
   notes?: unknown[];
   /** Paperless-ngx ≥ 2.6. */
   page_count?: number | null;
+  /** Paperless-ngx with document versions: newest first, the first upload (root) last. */
+  versions?: { id: number; added?: string; version_label?: string | null; checksum?: string | null; is_root?: boolean }[];
 }
 
 export interface PaperlessTag {

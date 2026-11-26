@@ -361,6 +361,18 @@ export const configSchema = z.object({
       mode: z.enum(OCR_MODES).default('poor'),
       /** Replace the text of the document in Paperless with the OCR result (improves the Paperless search). */
       writeBack: bool(true),
+      /**
+       * Lay the OCR text into the PDF as an invisible text layer (searchable PDF): the archive PDF of
+       * the document (built-in archive), a new version of the document (Paperless-ngx with versions).
+       */
+      searchablePdf: bool(false),
+      /**
+       * OCR API server: other applications send files to be read and get the text and a searchable
+       * PDF back – Paperless-ngx as its remote OCR engine ("azureai", the Azure AI Document
+       * Intelligence API), other apps through POST /api/ocr/read. Independent of `enabled` (which is
+       * about the documents of Paperless-AI) and of the archive mode.
+       */
+      apiServer: bool(false),
       language: z.enum(OCR_LANGUAGES).default('latin'),
       quality: z.enum(OCR_QUALITY).default('balanced'),
       /** PP-OCRv5 (all languages) or PP-OCRv6 (Latin script, Chinese, Japanese – falls back to v5 for the others). */

@@ -511,7 +511,7 @@ export interface TwoFactorStatus {
 /** Answer of /api/account. */
 export type InstanceRole = 'admin' | 'member';
 export type LibraryRole = 'owner' | 'editor' | 'viewer';
-export const API_SCOPES = ['read', 'write', 'delete', 'metadata', 'upload', 'chat', 'mcp', 'webhook', 'admin'] as const;
+export const API_SCOPES = ['read', 'write', 'delete', 'metadata', 'upload', 'chat', 'mcp', 'webhook', 'ocr', 'admin'] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
 
 export interface UserInfo {
@@ -689,6 +689,10 @@ export interface OcrResultInfo {
   scoreAfter: number | null;
   /** The OCR text did not score better than the existing text – Paperless kept its text. */
   keptOriginal: boolean;
+  /** The OCR text was laid into the PDF: as its archive PDF (built-in archive) or as a new version in Paperless-ngx. */
+  pdf: 'archive' | 'version' | null;
+  /** Making or storing the searchable PDF failed. */
+  pdfError: string | null;
 }
 
 export interface OcrDocumentItem {
@@ -717,13 +721,18 @@ export interface OcrStatus {
   available: boolean;
   mode: string;
   writeBack: boolean;
+  /** The OCR text is laid into the PDF (archive PDF / new Paperless-ngx version). */
+  searchablePdf: boolean;
   /** Execution provider of the loaded models (cpu, cuda, dml) – null while not loaded. */
   provider: string | null;
   /** The OCR models used with the settings (PP-OCRv6 falls back to v5 for languages it cannot read). */
   model: OcrModelChoice;
   analysis: { running: boolean; done: number; total: number; lastAt: number | null; error: string | null };
   queue: number;
-  active: { documentId: number; title: string | null; page: number; pages: number } | null;
+  /** The file being read: a document, or (documentId null) a file sent to the OCR API server. */
+  active: { documentId: number | null; title: string | null; page: number; pages: number } | null;
+  /** OCR API server: files other applications (Paperless-ngx …) sent to be read. */
+  api: { enabled: boolean; readToday: number; lastAt: number | null };
 }
 
 export interface OcrDocumentText {

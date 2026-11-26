@@ -211,9 +211,7 @@ function homography(from: Quad, to: Quad): number[] {
  * Tall crops (vertical text) are turned by 90° counter-clockwise.
  */
 export function cropQuad(img: RawImage, quad: Quad): RawImage {
-  const dist = (p: Point, q: Point) => Math.hypot(p[0] - q[0], p[1] - q[1]);
-  const width = Math.max(1, Math.round(Math.max(dist(quad[0], quad[1]), dist(quad[3], quad[2]))));
-  const height = Math.max(1, Math.round(Math.max(dist(quad[0], quad[3]), dist(quad[1], quad[2]))));
+  const { width, height } = cropSize(quad);
   const dst: Quad = [
     [0, 0],
     [width, 0],
@@ -251,5 +249,20 @@ export function cropQuad(img: RawImage, quad: Quad): RawImage {
       }
     }
   }
-  return height / width >= 1.5 ? rotate90(out, 3) : out;
+  return isTall(quad) ? rotate90(out, 3) : out;
+}
+
+/** Size of the straightened crop of a text region. */
+function cropSize(quad: Quad): { width: number; height: number } {
+  const dist = (p: Point, q: Point) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+  return {
+    width: Math.max(1, Math.round(Math.max(dist(quad[0], quad[1]), dist(quad[3], quad[2])))),
+    height: Math.max(1, Math.round(Math.max(dist(quad[0], quad[3]), dist(quad[1], quad[2])))),
+  };
+}
+
+/** A region much taller than wide holds vertical text: its crop is read turned by 90°. */
+export function isTall(quad: Quad): boolean {
+  const { width, height } = cropSize(quad);
+  return height / width >= 1.5;
 }

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Db } from './database.js';
 import { inLibraries } from './scoped.js';
 import type { OcrFilter, OcrResultInfo, TextQuality, TextQualityLevel } from '../../shared/api.js';
@@ -32,6 +33,10 @@ export interface OcrResultRow {
   score_before: number | null;
   score_after: number | null;
   kept_original: number;
+  /** Searchable PDF: 'archive' (built-in archive), 'version' (Paperless-ngx), 'failed'; null: none. */
+  pdf: 'archive' | 'version' | 'failed' | null;
+  /** archive: SHA-256 of the PDF; version: the Paperless-ngx task; failed: the error. */
+  pdf_ref: string | null;
 }
 
 interface AssessmentRow {
@@ -84,6 +89,11 @@ const FILTERS: Record<OcrFilter, string> = {
   failed: `r.status = 'failed'`,
 };
 
+/** Key of a text that does not change when white space does (Paperless-ngx may tidy it). */
+function textKey(text: string): string {
+  return createHash('sha256').update(text.replace(/\s+/g, ' ').trim()).digest('hex');
+}
+
 export function resultInfo(r: OcrResultRow | undefined | null): OcrResultInfo | null {
   if (!r) return null;
   return {
@@ -101,6 +111,8 @@ export function resultInfo(r: OcrResultRow | undefined | null): OcrResultInfo | 
     scoreBefore: r.score_before,
     scoreAfter: r.score_after,
     keptOriginal: Boolean(r.kept_original),
+    pdf: r.pdf === 'archive' || r.pdf === 'version' ? r.pdf : null,
+    pdfError: r.pdf === 'failed' ? r.pdf_ref : null,
   };
 }
 
@@ -268,7 +280,8 @@ export class OcrRepo {
            pages = excluded.pages, total_pages = excluded.total_pages, mean_score = excluded.mean_score, provider = excluded.provider,
            duration_ms = excluded.duration_ms, source_modified = excluded.source_modified, written_modified = NULL, written_back = 0,
            error = NULL, attempts = ocr_results.attempts + 1, created_at = excluded.created_at, reverted_at = NULL,
-           score_before = excluded.score_before, score_after = excluded.score_after, kept_original = excluded.kept_original`,
+           score_before = excluded.score_before, score_after = excluded.score_after, kept_original = excluded.kept_original,
+           pdf = NULL, pdf_ref = NULL`,
       )
       .run({ id, ...r, keptOriginal: r.keptOriginal ? 1 : 0, now: Date.now() });
   }
@@ -307,6 +320,35 @@ export class OcrRepo {
     if (from === to) return;
     this.db.prepare('UPDATE ocr_results SET source_modified = ? WHERE document_id = ? AND written_back = 0 AND source_modified IS ?').run(to, id, from);
     this.db.prepare('UPDATE ocr_results SET written_modified = ? WHERE document_id = ? AND written_back = 1 AND written_modified IS ?').run(to, id, from);
+  }
+
+  /** A text read for Paperless-ngx while it consumed a file (remote OCR). Entries older than 90 days go. */
+  recordRemoteRead(text: string, info: { pages: number; durationMs: number }): void {
+    const now = Date.now();
+    this.db
+      .prepare('INSERT OR REPLACE INTO ocr_remote_reads (text_hash, at, pages, chars, duration_ms) VALUES (?, ?, ?, ?, ?)')
+      .run(textKey(text), now, info.pages, text.length, info.durationMs);
+    this.db.prepare('DELETE FROM ocr_remote_reads WHERE at < ?').run(now - 90 * 86_400_000);
+  }
+
+  /** The text was read here for Paperless-ngx (remote OCR). */
+  isRemoteRead(text: string): boolean {
+    if (!text.trim()) return false;
+    return Boolean(this.db.prepare('SELECT 1 FROM ocr_remote_reads WHERE text_hash = ?').get(textKey(text)));
+  }
+
+  /** Remote OCR since a point in time: how many files, and the last one. */
+  remoteReads(since: number): { count: number; lastAt: number | null } {
+    const r = this.db.prepare('SELECT COUNT(*) AS count, (SELECT MAX(at) FROM ocr_remote_reads) AS lastAt FROM ocr_remote_reads WHERE at >= ?').get(since) as {
+      count: number;
+      lastAt: number | null;
+    };
+    return { count: r.count, lastAt: r.lastAt };
+  }
+
+  /** The searchable PDF of the result: where it went (or that it failed, with the error). */
+  markPdf(id: number, pdf: 'archive' | 'version' | 'failed' | null, ref: string | null): void {
+    this.db.prepare('UPDATE ocr_results SET pdf = ?, pdf_ref = ? WHERE document_id = ?').run(pdf, ref?.slice(0, 2000) ?? null, id);
   }
 
   markReverted(id: number, modified: string | null): void {

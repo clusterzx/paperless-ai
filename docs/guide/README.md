@@ -16,7 +16,7 @@
 - [AI agents (MCP)](mcp.md) – the MCP server for Claude, Hermes, OpenCode …, permissions of API keys
 - [Search, tags and metadata](search-and-metadata.md) – search syntax, find duplicates, sorting, custom fields
 - [Prompt rules](prompt-rules.md) – other prompts and settings per kind of document
-- [OCR](ocr.md) – reading scans locally with PaddleOCR
+- [OCR](ocr.md) – reading scans locally with PaddleOCR, searchable PDFs
 - [Ask your archive](ask-your-archive.md) – embeddings, embedding prompts, smart search terms
 - [Calendar](calendar.md) – appointments, due dates and deadlines, iCal subscription
 - Workflows – triggers, conditions, actions: see [docs/standalone/workflows.md](../standalone/workflows.md)

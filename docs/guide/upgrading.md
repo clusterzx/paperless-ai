@@ -12,6 +12,11 @@ docker compose pull && docker compose up -d
 
 An installation that uses Paperless-ngx stays in that mode. Nothing changes until you choose to [move to the built-in archive](built-in-archive.md#moving-from-paperless-ngx).
 
+### To 4.7
+
+- **OCR API server** is new and off: other apps send files to Paperless-AI to be read – Paperless-ngx as its remote OCR engine instead of Tesseract, scripts through `/api/ocr/read` ([setup](ocr.md#ocr-api-server)). API keys have a new permission for it, *OCR API*.
+- **Searchable PDF** stays off until you switch it on (*Settings → OCR → Make searchable PDFs* or `OCR_SEARCHABLE_PDF=true`). With Paperless-ngx it adds a new version to each document the OCR improves – it needs a Paperless-ngx with document versions and `PAPERLESS_OCR_MODE=skip` (the default) ([details](ocr.md#searchable-pdf)).
+
 ### To 4.6
 
 - **Built-in archive – more file types:** text files (`.txt`, `.md`, `.csv`), HTML and e-mails (`.eml`) are taken everywhere (upload, watch folders, WebDAV, e-mail attachments). Watch folders that held such files next to the scans will import them now – before, they went to `.failed/`.

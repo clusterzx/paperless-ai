@@ -35,7 +35,7 @@ export const ocrRoutes =
     const status = (): OcrStatus => {
       const s = ocr.status(0);
       // The document being read is shown as `active`; everything else waits or is being analysed.
-      const pending = pendingJobs() - (s.active && engine.ocrJobs().running.has(s.active.documentId) ? 1 : 0);
+      const pending = pendingJobs() - (s.active?.documentId != null && engine.ocrJobs().running.has(s.active.documentId) ? 1 : 0);
       return { ...s, queue: Math.max(0, pending) };
     };
 

@@ -479,6 +479,36 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 19,
+    name: 'searchable PDF of the OCR result',
+    up: (db) =>
+      db.exec(`
+        -- The OCR text laid into the PDF: 'archive' (archive file of the version in the built-in archive),
+        -- 'version' (uploaded to Paperless-ngx as a new version), 'failed'; NULL: none was made
+        ALTER TABLE ocr_results ADD COLUMN pdf TEXT;
+        -- archive: SHA-256 of the PDF; version: the Paperless-ngx task; failed: the error
+        ALTER TABLE ocr_results ADD COLUMN pdf_ref TEXT;
+      `),
+  },
+  {
+    version: 20,
+    name: 'OCR API server',
+    up: (db) =>
+      db.exec(`
+        -- Texts read by the OCR API server (e.g. for Paperless-ngx while it consumed a file): a document
+        -- with such a text is not read again when it arrives here
+        CREATE TABLE ocr_remote_reads (
+          -- SHA-256 of the text with every run of white space made one space
+          text_hash TEXT PRIMARY KEY,
+          at INTEGER NOT NULL,
+          pages INTEGER,
+          chars INTEGER,
+          duration_ms INTEGER
+        );
+        CREATE INDEX ocr_remote_reads_at ON ocr_remote_reads(at);
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {

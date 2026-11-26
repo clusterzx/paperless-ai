@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 import type * as OrtTypes from 'onnxruntime-node';
 import { ctcDecode, parseCharacterDict } from './ctc.js';
 import { dbPostprocess, type DbOptions } from './detPost.js';
-import { cropQuad, HALF, IMAGENET, resize, rotate90, toTensor, writeTensor, type RawImage } from './image.js';
+import { cropQuad, HALF, IMAGENET, isTall, resize, rotate90, toTensor, writeTensor, type RawImage } from './image.js';
 import { linesToText, type OcrLine } from './layout.js';
 import {
   DETECTION_MODELS,
@@ -197,9 +197,10 @@ export class OcrPipeline {
     return dbPostprocess(out.data as Float32Array, ow, oh, img.width, img.height, this.opts.db);
   }
 
-  /** Upside-down text lines (0°/180° classifier). */
-  private async fixUpsideDown(crops: RawImage[]): Promise<RawImage[]> {
-    if (!this.textlineCls || !crops.length) return crops;
+  /** Upside-down text lines (0°/180° classifier); `flipped` tells which crops were turned. */
+  private async fixUpsideDown(crops: RawImage[]): Promise<{ crops: RawImage[]; flipped: boolean[] }> {
+    const flipped = crops.map(() => false);
+    if (!this.textlineCls || !crops.length) return { crops, flipped };
     const out = crops.slice();
     for (let i = 0; i < crops.length; i += CLS_BATCH) {
       const batch = crops.slice(i, i + CLS_BATCH);
@@ -208,10 +209,13 @@ export class OcrPipeline {
       const res = await this.run(this.textlineCls, data, [batch.length, 3, 80, 160]);
       const p = res.data as Float32Array;
       batch.forEach((c, j) => {
-        if (p[j * 2 + 1] > 0.9) out[i + j] = rotate90(c, 2);
+        if (p[j * 2 + 1] > 0.9) {
+          out[i + j] = rotate90(c, 2);
+          flipped[i + j] = true;
+        }
       });
     }
-    return out;
+    return { crops: out, flipped };
   }
 
   async recognizeCrops(crops: RawImage[]): Promise<{ text: string; score: number }[]> {
@@ -250,12 +254,14 @@ export class OcrPipeline {
     const orientation = lap();
     const boxes = await this.detect(img);
     const detection = lap();
-    const crops = await this.fixUpsideDown(boxes.map((b) => cropQuad(img, b.quad)));
+    const { crops, flipped } = await this.fixUpsideDown(boxes.map((b) => cropQuad(img, b.quad)));
     const recognized = await this.recognizeCrops(crops);
     const recognition = lap();
     const lines: OcrLine[] = [];
     recognized.forEach((r, i) => {
-      if (r.text.trim() && r.score >= this.opts.minScore) lines.push({ text: r.text, score: r.score, quad: boxes[i].quad });
+      if (!r.text.trim() || r.score < this.opts.minScore) return;
+      const turn = (isTall(boxes[i].quad) ? 1 : 0) + (flipped[i] ? 2 : 0);
+      lines.push({ text: r.text, score: r.score, quad: boxes[i].quad, ...(turn ? { turn } : {}) });
     });
     return { text: linesToText(lines), lines, rotation, width: img.width, height: img.height, timings: { orientation, detection, recognition } };
   }
