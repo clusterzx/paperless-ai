@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Bot, Cloud, Cpu, Plug, Plus, Server, Sparkle, Trash2, Wand2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Bot, Cloud, Cpu, KeyRound, Plug, Plus, Server, Sparkle, Trash2, Wand2 } from 'lucide-react';
 import type { AppConfig } from '../../server/config/schema';
 import type { ConnectionTestResult } from '@shared/api';
 import { effectiveOcrModel, OCR_LANGUAGE_LABELS, OCR_LANGUAGES, OCR_MODEL_SIZE_LABELS, OCR_MODEL_SIZES, OCR_QUALITY, OCR_QUALITY_PRESETS, OCR_RELEASE, OCR_RELEASE_LABELS } from '@shared/ocr';
@@ -12,7 +12,7 @@ import { useAsync } from '../lib/hooks';
 import { getIn, SECRET_MASK, type Setter } from '../lib/draft';
 import { cn, formatDate } from '../lib/format';
 import { Link } from 'wouter';
-import { Alert, Badge, Button, buttonClass, Field, Input, NumberInput, Select, Switch, TagInput, Textarea } from './ui';
+import { Alert, Badge, Button, buttonClass, CopySnippet, Field, Input, NumberInput, Select, Switch, TagInput, Textarea } from './ui';
 
 export type Config = AppConfig;
 export type Locked = Record<string, string>;
@@ -969,6 +969,51 @@ const OCR_MODE_OPTIONS: { value: Config['ocr']['mode']; label: string; hint: str
   { value: 'manual', label: 'Manual', hint: 'OCR only runs when you start it on the OCR page (or via the API). The documents are analyzed by the AI afterwards.' },
 ];
 
+/** What to set in Paperless-ngx so it sends its scans here (remote OCR engine "azureai"). */
+function RemoteOcrSetup() {
+  const [key, setKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const createKey = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setKey((await post<{ key: string }>('/api/me/api-keys', { name: 'Paperless-ngx remote OCR', scopes: ['ocr'] })).key);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const env = [
+    'PAPERLESS_REMOTE_OCR_ENGINE=azureai',
+    `PAPERLESS_REMOTE_OCR_ENDPOINT=${window.location.origin}`,
+    `PAPERLESS_REMOTE_OCR_API_KEY=${key ?? '<API key with the permission "OCR for Paperless-ngx">'}`,
+  ].join('\n');
+  return (
+    <div className="space-y-3 rounded-xl border border-border p-4 text-sm">
+      <div className="font-medium">Set up Paperless-ngx</div>
+      <p className="text-muted">
+        Add these lines to the environment of Paperless-ngx (e.g. its <code className="kbd">docker-compose.yml</code>) and restart it. The endpoint is the address at
+        which Paperless-ngx reaches Paperless-AI – in the same Docker network for example <code className="kbd">http://paperless-ai:3000</code>.
+      </p>
+      <CopySnippet text={env} />
+      {error && <Alert tone="danger">{error}</Alert>}
+      {key ? (
+        <p className="text-xs text-muted">The key is shown only now – copy the lines. It can only read files sent to it, nothing else; revoke it under Settings → API keys.</p>
+      ) : (
+        <Button size="sm" icon={<KeyRound className="size-3.5" />} onClick={createKey} disabled={busy}>
+          Create the API key
+        </Button>
+      )}
+      <p className="text-xs text-muted">
+        Save the settings first. Digital PDFs keep their own text and are not sent. While Paperless-AI cannot be reached, Paperless-ngx cannot consume scans – it stops with an error
+        instead of storing a document without text.
+      </p>
+    </div>
+  );
+}
+
 export function OcrSection({ draft, set, locked, available, cudaAvailable }: SectionProps & { available: boolean; cudaAvailable: boolean }) {
   const o = draft.ocr;
   const mode = OCR_MODE_OPTIONS.find((m) => m.value === o.mode) ?? OCR_MODE_OPTIONS[0];
@@ -990,6 +1035,27 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
       />
       {o.enabled && (
         <>
+          {draft.archive.mode !== 'builtin' && (
+            <Field
+              label="Who starts the OCR of new documents?"
+              locked={locked['ocr.remoteEndpoint']}
+              hint={
+                o.remoteEndpoint
+                  ? 'Paperless-ngx sends the scans and photos it consumes here (its remote OCR engine) and gets the text and a searchable PDF back – the documents arrive with good text. The setting below still reads documents that come without, and the existing ones.'
+                  : 'Paperless-ngx reads new documents itself (Tesseract); Paperless-AI reads them again afterwards when the setting below says so.'
+              }
+            >
+              <Select
+                value={o.remoteEndpoint ? 'paperless' : 'ai'}
+                disabled={Boolean(locked['ocr.remoteEndpoint'])}
+                onChange={(e) => set('ocr.remoteEndpoint', e.target.value === 'paperless')}
+              >
+                <option value="ai">Paperless-AI, after Paperless-ngx has consumed them</option>
+                <option value="paperless">Paperless-ngx, while it consumes them (remote OCR)</option>
+              </Select>
+            </Field>
+          )}
+          {o.remoteEndpoint && draft.archive.mode !== 'builtin' && <RemoteOcrSetup />}
           <Field label="When should OCR run?" locked={locked['ocr.mode']} hint={mode.hint}>
             <Select {...bind(draft, set, locked, 'ocr.mode')}>
               {OCR_MODE_OPTIONS.map((m) => (

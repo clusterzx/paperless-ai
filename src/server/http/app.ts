@@ -29,6 +29,7 @@ import { processingRoutes } from '../routes/processing.js';
 import { documentRoutes } from '../routes/documents.js';
 import { ragRoutes } from '../routes/rag.js';
 import { ocrRoutes } from '../routes/ocr.js';
+import { remoteOcrRoutes } from '../routes/remoteOcr.js';
 import { oidcRoutes } from '../routes/oidc.js';
 import { promptRoutes } from '../routes/prompts.js';
 import { promptRuleRoutes } from '../routes/promptRules.js';
@@ -190,7 +191,10 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
       const v = ngxRequestedVersion(req);
       if (v !== null && (v < NGX_MIN_API_VERSION || v > NGX_MAX_API_VERSION)) return reply.code(406).send({ detail: 'Invalid version in "Accept" header.' });
     }
-    const deny = (code: number, error: string, extra: Record<string, unknown> = {}) => reply.code(code).send(ngx ? { detail: error } : { error, ...extra });
+    // Remote OCR for Paperless-ngx speaks the error format of Azure Document Intelligence (its SDK shows the message).
+    const azure = url.startsWith('/documentintelligence/');
+    const deny = (code: number, error: string, extra: Record<string, unknown> = {}) =>
+      reply.code(code).send(ngx ? { detail: error } : azure ? { error: { code: String(extra.code ?? code), message: error } } : { error, ...extra });
     if (level === 'public') return;
     if (level === 'setup') {
       // Open only on a fresh installation (nobody could log in yet); afterwards a logged-in user is
@@ -208,6 +212,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
         const detail = req.headers.authorization ? 'Invalid token.' : 'Authentication credentials were not provided.';
         return reply.code(401).header('WWW-Authenticate', 'Token').send({ detail });
       }
+      if (azure) return deny(401, 'Access denied – the API key of Paperless-AI (with the permission "OCR for Paperless-ngx") is missing or wrong');
       return deny(401, 'Authentication required');
     }
     // The requests per minute of the API key (when it has a limit).
@@ -255,6 +260,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(documentRoutes(services));
   await app.register(ragRoutes(services));
   await app.register(ocrRoutes(services));
+  await app.register(remoteOcrRoutes(services));
   await app.register(oidcRoutes(services));
   await app.register(promptRoutes(services));
   await app.register(promptRuleRoutes(services));

@@ -51,7 +51,7 @@ export type EngineFactory = (options: PipelineOptions, release: () => OcrRelease
 export class OcrService {
   private engine: { key: string; engine: OcrEngine } | null = null;
   private available: boolean | null = null;
-  private active: { documentId: number; title: string | null; page: number; pages: number } | null = null;
+  private active: { documentId: number | null; title: string | null; page: number; pages: number } | null = null;
   private assessing: Promise<void> | null = null;
   private assessProgress = { done: 0, total: 0 };
   private assessError: string | null = null;
@@ -164,6 +164,8 @@ export class OcrService {
     // would only read the own text (and add another version).
     const newest = doc.versions?.[0];
     if (newest && !newest.is_root && newest.version_label === OCR_VERSION_LABEL) return false;
+    // Read here for Paperless-ngx while it consumed the file (remote OCR): the text is the OCR text.
+    if (doc.content && this.ctx.repos.ocr.isRemoteRead(doc.content)) return false;
     // Already read this version (e.g. a re-analysis after the write-back).
     const r = this.ctx.repos.ocr.result(doc.id);
     if (r?.status === 'done' && !r.reverted_at && [r.source_modified, r.written_modified].includes(doc.modified ?? null)) return false;
@@ -346,6 +348,27 @@ export class OcrService {
     }
   }
 
+  /**
+   * Read a file for Paperless-ngx while it consumes it (remote OCR). Nothing is stored with a
+   * document; the caller records the text, so the document is not read again once it arrives.
+   */
+  async readFile(bytes: Uint8Array, opts: { label: string; signal?: AbortSignal }): Promise<OcrResult> {
+    if (!(await this.isAvailable())) throw new UserError('OCR is not available in this installation (onnxruntime-node, sharp or @hyzyla/pdfium missing)');
+    const preset = OCR_QUALITY_PRESETS[this.cfg.quality];
+    const active = { documentId: null, title: opts.label, page: 0, pages: 0 };
+    this.active = active;
+    try {
+      return await this.getEngine().run(
+        bytes,
+        { dpi: preset.dpi, maxPages: this.cfg.maxPages },
+        (page, pages) => Object.assign(active, { page, pages }),
+        opts.signal,
+      );
+    } finally {
+      if (this.active === active) this.active = null;
+    }
+  }
+
   /** Save an OCR text in Paperless that was kept back (not better by the score) or reverted before. */
   async apply(documentId: number): Promise<void> {
     const repo = this.ctx.repos.ocr;
@@ -451,6 +474,11 @@ export class OcrService {
       },
       queue,
       active: this.active ? { ...this.active } : null,
+      remote: {
+        enabled: this.cfg.enabled && this.cfg.remoteEndpoint,
+        readToday: this.ctx.repos.ocr.remoteReads(Date.now() - 86_400_000).count,
+        lastAt: this.ctx.repos.ocr.remoteReads(0).lastAt,
+      },
     };
   }
 }

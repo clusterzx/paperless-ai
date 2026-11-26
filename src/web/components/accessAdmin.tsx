@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { Ban, Check, Copy, KeyRound, Plus, ScrollText, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react';
 import { API_SCOPES, type ApiKeyInfo, type ApiScope, type AuditEntryInfo, type GroupInfo, type LibraryInfo, type UserInfo } from '@shared/api';
-import { Alert, Badge, Button, Card, EmptyState, Field, IconButton, Input, Modal, Select, Skeleton, useConfirm, useToast } from './ui';
+import { Alert, Badge, Button, Card, CopySnippet, EmptyState, Field, IconButton, Input, Modal, Select, Skeleton, useConfirm, useToast } from './ui';
 import { del, errorMessage, get, patch, post } from '../lib/api';
 import { useAsync } from '../lib/hooks';
 import { formatDate, timeAgo } from '../lib/format';
@@ -19,6 +19,7 @@ const SCOPE_LABEL: Record<ApiScope, string> = {
   chat: 'Ask & chat',
   mcp: 'MCP (AI agents)',
   webhook: 'Webhook (queue processing)',
+  ocr: 'OCR for Paperless-ngx',
   admin: 'Administration',
 };
 
@@ -31,12 +32,13 @@ const SCOPE_HINT: Record<ApiScope, string> = {
   chat: 'Ask the AI about documents, search by meaning',
   mcp: 'Use the MCP server – its tools follow the permissions above',
   webhook: 'The document webhook',
+  ocr: 'Paperless-ngx sends its scans here to be read (remote OCR) – nothing else',
   admin: 'Settings, users, libraries – everything an administrator can do',
 };
 
 const SCOPE_GROUPS: { label: string; scopes: ApiScope[] }[] = [
   { label: 'Documents', scopes: ['read', 'write', 'delete', 'metadata', 'upload'] },
-  { label: 'AI and integrations', scopes: ['chat', 'mcp', 'webhook'] },
+  { label: 'AI and integrations', scopes: ['chat', 'mcp', 'webhook', 'ocr'] },
   { label: 'Administration', scopes: ['admin'] },
 ];
 
@@ -48,29 +50,6 @@ const PRESETS: { label: string; scopes: ApiScope[] }[] = [
   { label: 'Scanner', scopes: ['upload'] },
   { label: 'Mobile app', scopes: ['read', 'write', 'delete', 'metadata', 'upload'] },
 ];
-
-/** A configuration to copy. */
-function Snippet({ text }: { text: string }) {
-  const toast = useToast();
-  return (
-    <div className="relative">
-      <pre className="max-h-48 overflow-auto rounded-lg bg-surface-2 p-2 pr-20 font-mono">{text}</pre>
-      <Button
-        size="sm"
-        className="absolute right-2 top-2"
-        icon={<Copy className="size-3.5" />}
-        onClick={() =>
-          navigator.clipboard.writeText(text).then(
-            () => toast.success('Copied'),
-            () => toast.error('Copying failed'),
-          )
-        }
-      >
-        Copy
-      </Button>
-    </div>
-  );
-}
 
 /** How to connect an MCP client with the new key. */
 function McpSetup({ apiKey }: { apiKey: string }) {
@@ -87,7 +66,7 @@ function McpSetup({ apiKey }: { apiKey: string }) {
       <p className="text-muted">
         Clients that speak MCP over HTTP (Claude Code, Cursor, OpenCode …): the address <code className="kbd">{url}</code> with the key as Bearer token.
       </p>
-      <Snippet text={http} />
+      <CopySnippet text={http} />
       <p className="text-muted">
         Clients that start a local program (stdio – Claude Desktop, Hermes …): the bridge{' '}
         <a className="text-accent hover:underline" href="/mcp/bridge.mjs" download="paperless-ai-mcp.mjs">
@@ -95,7 +74,7 @@ function McpSetup({ apiKey }: { apiKey: string }) {
         </a>{' '}
         (Node.js 18 or newer) – or inside the container <code className="kbd">node dist/server/cli.js mcp</code>.
       </p>
-      <Snippet text={stdio} />
+      <CopySnippet text={stdio} />
     </div>
   );
 }

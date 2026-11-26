@@ -35,25 +35,32 @@ export function keepsOwnText(page: PageLayout): boolean {
 /**
  * The file with the OCR text laid over its pages, or null when no page needs it (no text was read,
  * or every page has its own). `pages[i]` belongs to page i; pages beyond it (maxPages) stay as they are.
+ * `always`: a PDF in any case – a PDF without a page to change comes back as it is, an image becomes
+ * a PDF without text (remote OCR: Paperless-ngx expects one).
  */
-export async function makeSearchablePdf(file: Uint8Array, pages: PageLayout[]): Promise<SearchablePdf | null> {
+export async function makeSearchablePdf(file: Uint8Array, pages: PageLayout[], opts: { always?: boolean } = {}): Promise<SearchablePdf | null> {
+  const pdf = isPdf(file);
+  const kept = pages.filter((p) => p.lines.length && keepsOwnText(p)).length;
   const wanted = pages.filter((p) => p.lines.length && !keepsOwnText(p));
-  if (!wanted.length) return null;
-  const doc = isPdf(file) ? await PDFDocument.load(file, { updateMetadata: false }) : await imagesToPdf(file);
+  if (!wanted.length) {
+    if (!opts.always) return null;
+    if (pdf) return { data: file, pages: 0, kept };
+  }
+  const doc = pdf ? await PDFDocument.load(file, { updateMetadata: false }) : await imagesToPdf(file);
   const pdfPages = doc.getPages();
   const font = embedFont(
     doc,
-    pages.flatMap((p) => p.lines.map((l) => l.text)),
+    wanted.flatMap((p) => p.lines.map((l) => l.text)),
   );
   let written = 0;
-  let kept = 0;
   pages.forEach((layout, i) => {
     const page = pdfPages[i];
-    if (!page || !layout.lines.length) return;
-    if (keepsOwnText(layout)) kept++;
-    else if (addTextLayer(page, layout, font)) written++;
+    if (page && layout.lines.length && !keepsOwnText(layout) && addTextLayer(page, layout, font)) written++;
   });
-  if (!written) return null;
+  if (!written) {
+    if (!opts.always) return null;
+    if (pdf) return { data: file, pages: 0, kept };
+  }
   const data = await doc.save({ useObjectStreams: true });
   return { data, pages: written, kept };
 }

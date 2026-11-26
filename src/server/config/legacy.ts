@@ -204,6 +204,7 @@ export const ENV_MAPPINGS: Mapping[] = [
   { env: 'OCR_MODE', path: 'ocr.mode', parse: (v) => v.trim().toLowerCase() },
   { env: 'OCR_WRITE_BACK', path: 'ocr.writeBack', parse: b },
   { env: 'OCR_SEARCHABLE_PDF', path: 'ocr.searchablePdf', parse: b },
+  { env: 'OCR_REMOTE_ENDPOINT', path: 'ocr.remoteEndpoint', parse: b },
   { env: 'OCR_LANGUAGE', path: 'ocr.language', parse: (v) => v.trim().toLowerCase() },
   { env: 'OCR_QUALITY', path: 'ocr.quality', parse: (v) => v.trim().toLowerCase() },
   // "v6", "6", "PP-OCRv6" …

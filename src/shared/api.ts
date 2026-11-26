@@ -511,7 +511,7 @@ export interface TwoFactorStatus {
 /** Answer of /api/account. */
 export type InstanceRole = 'admin' | 'member';
 export type LibraryRole = 'owner' | 'editor' | 'viewer';
-export const API_SCOPES = ['read', 'write', 'delete', 'metadata', 'upload', 'chat', 'mcp', 'webhook', 'admin'] as const;
+export const API_SCOPES = ['read', 'write', 'delete', 'metadata', 'upload', 'chat', 'mcp', 'webhook', 'ocr', 'admin'] as const;
 export type ApiScope = (typeof API_SCOPES)[number];
 
 export interface UserInfo {
@@ -729,7 +729,10 @@ export interface OcrStatus {
   model: OcrModelChoice;
   analysis: { running: boolean; done: number; total: number; lastAt: number | null; error: string | null };
   queue: number;
-  active: { documentId: number; title: string | null; page: number; pages: number } | null;
+  /** The file being read: a document, or (documentId null) a scan Paperless-ngx is consuming (remote OCR). */
+  active: { documentId: number | null; title: string | null; page: number; pages: number } | null;
+  /** Remote OCR: Paperless-ngx sends its scans here while consuming them. */
+  remote: { enabled: boolean; readToday: number; lastAt: number | null };
 }
 
 export interface OcrDocumentText {

@@ -18,7 +18,7 @@ import {
   type TextareaHTMLAttributes,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, CheckCircle2, Info, Loader2, Lock, X, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Copy, Info, Loader2, Lock, X, XCircle } from 'lucide-react';
 import { cn } from '../lib/format';
 
 // ------------------------------------------------------------------ buttons
@@ -908,5 +908,28 @@ export function useToast() {
       info: (m: ReactNode) => show('info', m),
     }),
     [show],
+  );
+}
+
+/** A configuration to copy. */
+export function CopySnippet({ text }: { text: string }) {
+  const toast = useToast();
+  return (
+    <div className="relative">
+      <pre className="max-h-48 overflow-auto rounded-lg bg-surface-2 p-2 pr-20 font-mono">{text}</pre>
+      <Button
+        size="sm"
+        className="absolute right-2 top-2"
+        icon={<Copy className="size-3.5" />}
+        onClick={() =>
+          navigator.clipboard.writeText(text).then(
+            () => toast.success('Copied'),
+            () => toast.error('Copying failed'),
+          )
+        }
+      >
+        Copy
+      </Button>
+    </div>
   );
 }

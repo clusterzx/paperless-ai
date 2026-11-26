@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Db } from './database.js';
 import { inLibraries } from './scoped.js';
 import type { OcrFilter, OcrResultInfo, TextQuality, TextQualityLevel } from '../../shared/api.js';
@@ -87,6 +88,11 @@ const FILTERS: Record<OcrFilter, string> = {
   done: `r.status = 'done' AND r.reverted_at IS NULL`,
   failed: `r.status = 'failed'`,
 };
+
+/** Key of a text that does not change when white space does (Paperless-ngx may tidy it). */
+function textKey(text: string): string {
+  return createHash('sha256').update(text.replace(/\s+/g, ' ').trim()).digest('hex');
+}
 
 export function resultInfo(r: OcrResultRow | undefined | null): OcrResultInfo | null {
   if (!r) return null;
@@ -314,6 +320,30 @@ export class OcrRepo {
     if (from === to) return;
     this.db.prepare('UPDATE ocr_results SET source_modified = ? WHERE document_id = ? AND written_back = 0 AND source_modified IS ?').run(to, id, from);
     this.db.prepare('UPDATE ocr_results SET written_modified = ? WHERE document_id = ? AND written_back = 1 AND written_modified IS ?').run(to, id, from);
+  }
+
+  /** A text read for Paperless-ngx while it consumed a file (remote OCR). Entries older than 90 days go. */
+  recordRemoteRead(text: string, info: { pages: number; durationMs: number }): void {
+    const now = Date.now();
+    this.db
+      .prepare('INSERT OR REPLACE INTO ocr_remote_reads (text_hash, at, pages, chars, duration_ms) VALUES (?, ?, ?, ?, ?)')
+      .run(textKey(text), now, info.pages, text.length, info.durationMs);
+    this.db.prepare('DELETE FROM ocr_remote_reads WHERE at < ?').run(now - 90 * 86_400_000);
+  }
+
+  /** The text was read here for Paperless-ngx (remote OCR). */
+  isRemoteRead(text: string): boolean {
+    if (!text.trim()) return false;
+    return Boolean(this.db.prepare('SELECT 1 FROM ocr_remote_reads WHERE text_hash = ?').get(textKey(text)));
+  }
+
+  /** Remote OCR since a point in time: how many files, and the last one. */
+  remoteReads(since: number): { count: number; lastAt: number | null } {
+    const r = this.db.prepare('SELECT COUNT(*) AS count, (SELECT MAX(at) FROM ocr_remote_reads) AS lastAt FROM ocr_remote_reads WHERE at >= ?').get(since) as {
+      count: number;
+      lastAt: number | null;
+    };
+    return { count: r.count, lastAt: r.lastAt };
   }
 
   /** The searchable PDF of the result: where it went (or that it failed, with the error). */

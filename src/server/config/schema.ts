@@ -366,6 +366,11 @@ export const configSchema = z.object({
        * the document (built-in archive), a new version of the document (Paperless-ngx with versions).
        */
       searchablePdf: bool(false),
+      /**
+       * Remote OCR: Paperless-ngx sends the scans it consumes here to be read (its remote OCR engine
+       * "azureai" pointed at Paperless-AI) and gets the text and a searchable PDF back.
+       */
+      remoteEndpoint: bool(false),
       language: z.enum(OCR_LANGUAGES).default('latin'),
       quality: z.enum(OCR_QUALITY).default('balanced'),
       /** PP-OCRv5 (all languages) or PP-OCRv6 (Latin script, Chinese, Japanese – falls back to v5 for the others). */

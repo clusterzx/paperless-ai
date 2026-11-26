@@ -25,6 +25,7 @@ const webhook: RoutePolicy = { admin: false, scope: 'webhook' };
 const remove: RoutePolicy = { admin: false, scope: 'delete' };
 const metadata: RoutePolicy = { admin: false, scope: 'metadata' };
 const mcp: RoutePolicy = { admin: false, scope: 'mcp' };
+const ocr: RoutePolicy = { admin: false, scope: 'ocr' };
 const admin: RoutePolicy = { admin: true, scope: 'admin' };
 
 /** Managing tags, correspondents, document types and custom fields – in our API and the Paperless-ngx compatible one. */
@@ -108,6 +109,9 @@ const ENTRIES: Entry[] = [
 
   // ---------------------------------------------------------------- MCP server (its tools check the other scopes)
   ['*', '/mcp', mcp],
+
+  // ---------------------------------------------------------------- remote OCR for Paperless-ngx (Azure Document Intelligence API)
+  ['*', '/documentintelligence/*', ocr],
 
   // ---------------------------------------------------------------- AI chat and search
   ['POST', '/api/rag/ask', chat],

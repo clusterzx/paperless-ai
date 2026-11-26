@@ -491,6 +491,24 @@ const MIGRATIONS: Migration[] = [
         ALTER TABLE ocr_results ADD COLUMN pdf_ref TEXT;
       `),
   },
+  {
+    version: 20,
+    name: 'remote OCR for Paperless-ngx',
+    up: (db) =>
+      db.exec(`
+        -- Texts read for Paperless-ngx while it consumed a file (remote OCR): a document with such a
+        -- text is not read again when it arrives here
+        CREATE TABLE ocr_remote_reads (
+          -- SHA-256 of the text with every run of white space made one space
+          text_hash TEXT PRIMARY KEY,
+          at INTEGER NOT NULL,
+          pages INTEGER,
+          chars INTEGER,
+          duration_ms INTEGER
+        );
+        CREATE INDEX ocr_remote_reads_at ON ocr_remote_reads(at);
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {

@@ -15,6 +15,30 @@ The OCR text replaces the text in Paperless only when its text-quality score is 
 - **GPU memory:** on the GPU the OCR models are unloaded after each document (*Unload the OCR models: Automatic*), so a local model (Ollama, llama.cpp …) on the same GPU gets all of the memory back. Without such a model choose *After 10 idle minutes*.
 - **Models** are stored in `data/models/paddleocr` and downloaded once, pinned to a fixed version; behind a proxy or offline set `HF_ENDPOINT` to a Hugging Face mirror. ONNX Runtime telemetry is switched off.
 
+## OCR while Paperless-ngx consumes (remote OCR)
+
+*Settings → OCR → Who starts the OCR of new documents?* decides who reads new documents:
+
+- **Paperless-AI, after Paperless-ngx has consumed them** (default): Paperless-ngx reads them with Tesseract; Paperless-AI reads them again when *When should OCR run?* says so and replaces the text when its result is better.
+- **Paperless-ngx, while it consumes them (remote OCR):** Paperless-ngx sends each scan and photo to Paperless-AI, which reads it with PaddleOCR and gives back the text and a searchable PDF. Paperless-ngx stores that PDF as its archive file and the text as the content; the document arrives with good text, so the AI analysis after the webhook uses it right away. Digital PDFs keep their own text and are not sent.
+
+Paperless-AI answers like Azure AI Document Intelligence, which Paperless-ngx supports as its remote OCR engine – no Azure account is needed, nothing leaves your network. Set in Paperless-ngx (the settings page of Paperless-AI shows the lines with your address and creates the key):
+
+```env
+PAPERLESS_REMOTE_OCR_ENGINE=azureai
+PAPERLESS_REMOTE_OCR_ENDPOINT=http://paperless-ai:3000
+PAPERLESS_REMOTE_OCR_API_KEY=<API key of Paperless-AI with the permission "OCR for Paperless-ngx">
+```
+
+The endpoint is the address at which Paperless-ngx reaches Paperless-AI (here: the same Docker network). The key can only have files read – nothing else.
+
+- **Availability:** while Paperless-AI cannot be reached, Paperless-ngx cannot consume scans – it stops with an error instead of storing a document without text (try again from its file tasks). When the OCR itself fails, Paperless-ngx gets the file without text and Paperless-AI's own OCR (*When should OCR run?*) reads the document once it has arrived.
+- **Not read twice:** a document whose text was read this way is not read again by Paperless-AI, also not in the mode *Every document*.
+- **Limits:** files are read one after the other; *Max. pages per document* applies (0 = all). Paperless-ngx waits while it consumes – an A4 page takes 1–2 s on a 4-core CPU.
+- The *OCR* page shows how many files were read for Paperless-ngx in the last 24 hours.
+
+The remote OCR covers new documents; for the existing ones use the *OCR* page or the modes above. The searchable PDF below is for documents Paperless-AI reads itself – with the remote OCR Paperless-ngx has it already.
+
 ## Searchable PDF
 
 *Settings → OCR → Make searchable PDFs* lays the OCR text into the PDF as an invisible text layer, in the places where PaddleOCR read it. The page looks exactly as before; search, select and copy work in every PDF viewer (also on the phone). Off by default.

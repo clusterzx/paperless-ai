@@ -37,6 +37,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `RAG_QUERY_PROMPT`, `RAG_DOCUMENT_PROMPT` | [embedding prompts](ask-your-archive.md#embedding-prompts) for questions (`{query}`) and passages (`{text}`, `{title}`); empty = automatic |
 | `ACTIVATE_CALENDAR` | find appointments, due dates and deadlines for the calendar (default off) |
 | `OCR_ENABLED`, `OCR_MODE` (`manual`, `missing`, `poor`, `always`), `OCR_WRITE_BACK` | OCR on/off, when it runs automatically, replace the text in Paperless (default on) |
+| `OCR_REMOTE_ENDPOINT` | Paperless-ngx sends the scans it consumes to Paperless-AI to be read ([remote OCR](ocr.md#ocr-while-paperless-ngx-consumes-remote-ocr), default off) |
 | `OCR_SEARCHABLE_PDF` | lay the OCR text into the PDF as an invisible text layer: archive PDF in the built-in archive, new version in Paperless-ngx ([searchable PDF](ocr.md#searchable-pdf), default off) |
 | `OCR_LANGUAGE` (`latin`, `en`, `multi`, `cyrillic`, `eslav`, `greek`, `arabic`, `devanagari`, `korean`, `thai`, `tamil`, `telugu`), `OCR_QUALITY` (`fast`, `balanced`, `accurate`) | OCR model |
 | `OCR_MODEL_VERSION` (`v5`, `v6`), `OCR_MODEL_SIZE` (`tiny`, `small`, `medium`) | OCR models: PP-OCRv5 (default, all languages) or [PP-OCRv6](ocr.md#models-pp-ocrv5-or-pp-ocrv6) in a size (Latin script, Chinese, Japanese – other languages keep v5) |
