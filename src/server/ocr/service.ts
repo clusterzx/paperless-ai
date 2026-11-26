@@ -19,11 +19,16 @@ import type { PipelineOptions } from './pipeline.js';
 import { isPdf } from './render.js';
 import { ocrAvailable, OcrWorkerEngine, type OcrEngine, type OcrProgress, type OcrResult } from './runner.js';
 import { kindOf } from '../../shared/fileTypes.js';
+import { LocalBackend } from '../archive/backend.js';
+import { makeSearchablePdf } from './searchablePdf.js';
 
 const log = logger.child({ module: 'ocr' });
 
 /** Text written by the OCR. */
 const OCR_ORIGIN = { actor: 'system', ref: 'ocr' } as const;
+
+/** Label of the Paperless-ngx version with the searchable PDF (at most 64 characters). */
+export const OCR_VERSION_LABEL = 'OCR text layer (Paperless-AI)';
 
 /** Documents whose content is fetched per request while assessing the archive. */
 const ASSESS_BATCH = 100;
@@ -52,6 +57,10 @@ export class OcrService {
   private assessError: string | null = null;
   /** Called when a document's text changed (the search index has to be updated). */
   onTextChanged: ((documentId: number) => void) | null = null;
+  /** How often and how long to wait for Paperless-ngx to consume an uploaded version (tests shorten it). */
+  versionWait = { intervalMs: 5_000, timeoutMs: 15 * 60_000 };
+  /** Waits for consumed versions – ended by stop(). */
+  private readonly watching = new Set<AbortController>();
 
   constructor(
     private readonly ctx: AppContext,
@@ -116,6 +125,7 @@ export class OcrService {
   }
 
   async stop(): Promise<void> {
+    for (const w of this.watching) w.abort();
     await this.disposeEngine();
   }
 
@@ -150,6 +160,10 @@ export class OcrService {
     if (!o.enabled || o.mode === 'manual' || this.available === false) return false;
     // Text files and e-mails come with their text (OCR could only read a PDF made of it).
     if (['text', 'html', 'mail'].includes(kindOf(doc.mime_type) ?? '')) return false;
+    // The newest Paperless-ngx version is the searchable PDF made of an OCR result: reading it again
+    // would only read the own text (and add another version).
+    const newest = doc.versions?.[0];
+    if (newest && !newest.is_root && newest.version_label === OCR_VERSION_LABEL) return false;
     // Already read this version (e.g. a re-analysis after the write-back).
     const r = this.ctx.repos.ocr.result(doc.id);
     if (r?.status === 'done' && !r.reverted_at && [r.source_modified, r.written_modified].includes(doc.modified ?? null)) return false;
@@ -227,12 +241,108 @@ export class OcrService {
         this.assess({ ...current, content: text });
       }
       if (better) this.onTextChanged?.(doc.id);
+      // Only a text that is used goes into the PDF (a worse one would not help the search either).
+      if (better && this.cfg.searchablePdf) await this.storeSearchablePdf(doc, bytes, result, writtenBack ? text : null);
       return { text, better, doc: current, result, writtenBack };
     } catch (err) {
       repo.saveFailure(doc.id, describeError(err), doc.modified ?? null);
       throw err;
     } finally {
       this.active = null;
+    }
+  }
+
+  /**
+   * Lay the OCR text into the PDF and keep it: as the archive PDF of the version (built-in archive)
+   * or as a new version of the document in Paperless-ngx, which then shows that PDF and takes its
+   * text. A failure is logged and shown on the OCR page – the OCR text itself is not lost.
+   * `savedText`: the OCR text saved in Paperless-ngx, to be put into the new version as well.
+   */
+  private async storeSearchablePdf(doc: ArchiveDocument, file: Uint8Array, result: OcrResult, savedText: string | null): Promise<void> {
+    const repo = this.ctx.repos.ocr;
+    try {
+      const started = Date.now();
+      const pdf = await makeSearchablePdf(file, result.pages.map((p) => p.layout));
+      if (!pdf) {
+        log.info(`Searchable PDF of document ${doc.id}: no page needs the OCR text (all pages have text of their own)`);
+        return;
+      }
+      const name = `${(doc.original_file_name || doc.title || `document-${doc.id}`).replace(/\.[^.]+$/, '')}.pdf`;
+      const kept = pdf.kept ? `, ${pdf.kept} page(s) kept their own text` : '';
+      const took = `${((Date.now() - started) / 1000).toFixed(1)}s`;
+      const archive = this.ctx.archive();
+      if (archive instanceof LocalBackend) {
+        const sha = await archive.setArchivePdf(doc.id, pdf.data, name, doc.page_count ?? null, { ...OCR_ORIGIN, ref: 'ocr:pdf' });
+        repo.markPdf(doc.id, 'archive', sha);
+        log.info(`Searchable PDF of document ${doc.id} stored as its archive PDF (${pdf.pages} page(s) with the OCR text${kept}, ${took})`);
+      } else {
+        const task = await this.ctx.paperless().uploadVersion(doc.id, pdf.data, name, OCR_VERSION_LABEL);
+        repo.markPdf(doc.id, 'version', task);
+        log.info(`Searchable PDF of document ${doc.id} uploaded to Paperless-ngx as a new version (${pdf.pages} page(s) with the OCR text${kept}, ${took})`);
+        if (savedText) void this.textIntoVersion(doc.id, savedText);
+      }
+    } catch (err) {
+      const message = describeError(err);
+      repo.markPdf(doc.id, 'failed', message);
+      log.warn(`Searchable PDF of document ${doc.id} failed – the OCR text is kept all the same: ${message}`);
+    }
+  }
+
+  /**
+   * Paperless-ngx takes the text of a new version from its PDF (pdftotext): the order of the lines
+   * can differ from the OCR text, and a long line of a skewed scan can come out broken in two. Once
+   * the version is consumed, the OCR text that was saved goes into it as well.
+   */
+  private async textIntoVersion(documentId: number, text: string): Promise<void> {
+    const watch = new AbortController();
+    this.watching.add(watch);
+    const deadline = Date.now() + this.versionWait.timeoutMs;
+    try {
+      while (Date.now() < deadline && !watch.signal.aborted) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, this.versionWait.intervalMs);
+          timer.unref();
+          watch.signal.addEventListener('abort', () => (clearTimeout(timer), resolve()), { once: true });
+        });
+        if (watch.signal.aborted) return;
+        const doc = await this.ctx.backend().getDocument(documentId);
+        const newest = doc.versions?.[0];
+        if (!newest || newest.is_root || newest.version_label !== OCR_VERSION_LABEL) continue;
+        const r = this.ctx.repos.ocr.result(documentId);
+        // Reverted (or read again) meanwhile: nothing to do.
+        if (!r || r.pdf !== 'version' || r.reverted_at || r.text !== text) return;
+        if (doc.content === text) return;
+        const updated = await this.ctx.backend().updateDocument(documentId, { content: text }, OCR_ORIGIN);
+        this.ctx.repos.ocr.markWrittenBack(documentId, r.previous_text ?? '', updated.modified ?? null);
+        log.info(`OCR text of document ${documentId} saved in the new Paperless-ngx version as well`);
+        return;
+      }
+      if (!watch.signal.aborted) log.warn(`Document ${documentId}: Paperless-ngx did not consume the searchable PDF within ${Math.round(this.versionWait.timeoutMs / 60_000)} minutes`);
+    } catch (err) {
+      log.warn(`Could not save the OCR text in the new Paperless-ngx version of document ${documentId}: ${describeError(err)}`);
+    } finally {
+      this.watching.delete(watch);
+    }
+  }
+
+  /** Take the searchable PDF away again (revert): the archive PDF, or the version in Paperless-ngx. */
+  private async removeSearchablePdf(documentId: number): Promise<void> {
+    const repo = this.ctx.repos.ocr;
+    const r = repo.result(documentId);
+    if (!r?.pdf || r.pdf === 'failed') return;
+    try {
+      const archive = this.ctx.archive();
+      if (r.pdf === 'archive' && archive instanceof LocalBackend && r.pdf_ref) {
+        archive.removeArchivePdf(documentId, r.pdf_ref, { ...OCR_ORIGIN, ref: 'ocr:revert' });
+      } else if (r.pdf === 'version' && !(archive instanceof LocalBackend)) {
+        const doc = await this.ctx.backend().getDocument(documentId);
+        const ours = doc.versions?.find((v) => !v.is_root && v.version_label === OCR_VERSION_LABEL);
+        if (ours) await this.ctx.paperless().deleteVersion(documentId, ours.id);
+        else log.warn(`Document ${documentId}: the Paperless-ngx version with the searchable PDF was not found (not consumed yet, or deleted)`);
+      }
+      repo.markPdf(documentId, null, null);
+    } catch (err) {
+      log.warn(`Could not remove the searchable PDF of document ${documentId}: ${describeError(err)}`);
     }
   }
 
@@ -258,6 +368,8 @@ export class OcrService {
     const r = repo.result(documentId);
     if (!r || r.status !== 'done') throw new UserError('There is no OCR result for this document');
     if (r.reverted_at) throw new UserError('The OCR text was already reverted');
+    // First the PDF: in Paperless-ngx the newest version also holds the text, deleting it brings back the one before.
+    await this.removeSearchablePdf(documentId);
     if (r.written_back) {
       const updated = await this.ctx.backend().updateDocument(documentId, { content: r.previous_text ?? '' }, { ...OCR_ORIGIN, ref: 'ocr:revert' });
       this.ctx.events.emit({ type: 'document.updated', id: documentId, fields: ['content'], origin: OCR_ORIGIN, libraryId: updated.library_id ?? null });
@@ -327,6 +439,7 @@ export class OcrService {
       available: this.available ?? true,
       mode: this.cfg.mode,
       writeBack: this.cfg.writeBack,
+      searchablePdf: this.cfg.searchablePdf,
       provider: this.engine?.engine.provider ?? null,
       model: this.model(),
       analysis: {

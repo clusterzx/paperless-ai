@@ -1006,6 +1006,17 @@ export function OcrSection({ draft, set, locked, available, cudaAvailable }: Sec
             locked={locked['ocr.writeBack']}
             onChange={(v) => set('ocr.writeBack', v)}
           />
+          <Switch
+            label="Make searchable PDFs"
+            description={
+              draft.archive.mode === 'builtin'
+                ? 'Lays the OCR text into the PDF as an invisible text layer, exactly where it was read: search, select and copy work in every PDF viewer. The archive keeps it as the PDF of the document (images become a PDF), the original file stays as it is.'
+                : 'Lays the OCR text into the PDF as an invisible text layer, exactly where it was read, and uploads it to Paperless-ngx as a new version of the document (needs a Paperless-ngx with document versions). Paperless-ngx then shows that PDF, searchable and selectable, and takes its text; the original stays as the first version.'
+            }
+            checked={o.searchablePdf}
+            locked={locked['ocr.searchablePdf']}
+            onChange={(v) => set('ocr.searchablePdf', v)}
+          />
           <FormGrid>
             <Field label="Language / script" locked={locked['ocr.language']} hint="The recognition model. “Latin script” covers German, English and most European languages.">
               <Select {...bind(draft, set, locked, 'ocr.language')}>

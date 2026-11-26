@@ -52,7 +52,12 @@ export interface MockDoc {
   /** View / change permissions (returned with `full_perms=true`). */
   permissions: { view: { users: number[]; groups: number[] }; change: { users: number[]; groups: number[] } };
   notes: { id: number; note: string; created: string; user: number | null }[];
+  /** Versions uploaded with update_version (Paperless-ngx with document versions), oldest first. */
+  versions: { id: number; label: string | null; data: Buffer; added: string; content: string }[];
 }
+
+/** What the mock "reads" from an uploaded version unless `versionText` says otherwise. */
+export const VERSION_TEXT = 'Text that Paperless-ngx read from the PDF of the new version';
 
 /** A tiny but valid-looking PDF for download tests. */
 export const SAMPLE_PDF = Buffer.from('%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n', 'latin1');
@@ -133,6 +138,11 @@ export class MockPaperless {
 
   /** Files received through post_document. */
   readonly uploads: { documentId: number; filename: string; size: number }[] = [];
+  /** Document versions (update_version, versions in the document); false: an older Paperless-ngx without them. */
+  documentVersions = true;
+  /** The text Paperless-ngx reads from an uploaded version (it runs pdftotext on the PDF). */
+  versionText: (data: Buffer) => string = () => VERSION_TEXT;
+  private nextVersionId = 50_000;
 
   constructor(opts: MockPaperlessOptions = {}) {
     this.token = opts.token ?? 'test-token';
@@ -205,9 +215,16 @@ export class MockPaperless {
       archive_serial_number: d.archive_serial_number ?? null,
       permissions: d.permissions ?? { view: { users: [], groups: [] }, change: { users: [], groups: [] } },
       notes: d.notes ?? [],
+      versions: d.versions ?? [],
     };
     this.docs.set(id, doc);
     return doc;
+  }
+
+  /** The text Paperless-ngx shows for a document: the one of its newest version. */
+  contentOf(id: number): string {
+    const doc = this.docs.get(id)!;
+    return doc.versions.at(-1)?.content ?? doc.content;
   }
 
   /** Change a document "from the Paperless UI" (bumps `modified`). */
@@ -400,6 +417,29 @@ export class MockPaperless {
       this.uploads.push({ documentId: doc.id, filename: name, size: data.length });
       return send(200, `task-${doc.id}`);
     }
+    if ((m = /^\/api\/documents\/(\d+)\/update_version\/$/.exec(path)) && record.method === 'POST' && this.documentVersions) {
+      const doc = this.docs.get(Number(m[1]));
+      if (!doc) return send(404, { detail: 'No Document matches the given query.' });
+      const form = await new Request('http://mock/', { method: 'POST', headers: { 'content-type': String(req.headers['content-type'] ?? '') }, body: rawBuffer }).formData();
+      const file = form.get('document');
+      if (!(file instanceof Blob)) return send(400, { document: ['No file was submitted.'] });
+      const label = form.get('version_label');
+      if (typeof label === 'string' && label.length > 64) return send(400, { version_label: ['Ensure this field has no more than 64 characters.'] });
+      // Consumed at once: the version is there and the root document counts as modified.
+      const id = this.nextVersionId++;
+      const data = Buffer.from(await file.arrayBuffer());
+      doc.versions.push({ id, label: typeof label === 'string' && label.trim() ? label.trim() : null, data, added: this.tick(), content: this.versionText(data) });
+      doc.modified = this.tick();
+      return send(200, `version-task-${id}`);
+    }
+    if ((m = /^\/api\/documents\/(\d+)\/versions\/(\d+)\/$/.exec(path)) && record.method === 'DELETE' && this.documentVersions) {
+      const doc = this.docs.get(Number(m[1]));
+      const index = doc?.versions.findIndex((v) => v.id === Number(m![2])) ?? -1;
+      if (!doc || index < 0) return send(404, { detail: 'Not found.' });
+      doc.versions.splice(index, 1);
+      doc.modified = this.tick();
+      return send(200, { result: 'OK', current_version_id: doc.versions.at(-1)?.id ?? doc.id });
+    }
     if (path === '/api/documents/selection_data/' && record.method === 'POST') {
       const ids = new Set(((body as { documents?: number[] })?.documents ?? []).map(Number));
       const docs = [...this.docs.values()].filter((d) => ids.has(d.id));
@@ -428,6 +468,9 @@ export class MockPaperless {
       if (!doc) return send(404, { detail: 'Not found.' });
       const disposition = (name: string) => ({ 'Content-Disposition': `attachment; filename="${name}"` });
       const base = (doc.original_file_name ?? `document-${doc.id}.pdf`).replace(/\.[^.]+$/, '');
+      // The newest version is the document's file now.
+      const newest = doc.versions.at(-1);
+      if (newest) return send(200, newest.data, { 'Content-Type': 'application/pdf', ...disposition(`${base}.pdf`) });
       if (q.get('original') === 'true' || !doc.archive) {
         return send(200, doc.file.data, { 'Content-Type': doc.file.contentType, ...disposition(doc.original_file_name ?? `document-${doc.id}.pdf`) });
       }
@@ -499,7 +542,7 @@ export class MockPaperless {
     const out: Record<string, unknown> = {
       id: doc.id,
       title: doc.title,
-      content: doc.content,
+      content: this.contentOf(doc.id),
       tags: [...doc.tags],
       correspondent: doc.correspondent,
       document_type: doc.document_type,
@@ -517,6 +560,13 @@ export class MockPaperless {
       page_count: doc.page_count,
     };
     if (version < 9) out.created_date = doc.created;
+    if (this.documentVersions) {
+      // Newest first, the root (the first upload) last.
+      out.versions = [
+        ...[...doc.versions].reverse().map((v) => ({ id: v.id, added: v.added, version_label: v.label, checksum: null, is_root: false })),
+        { id: doc.id, added: doc.added, version_label: null, checksum: null, is_root: true },
+      ];
+    }
     return out;
   }
 
@@ -683,6 +733,8 @@ export class MockPaperless {
     }
     if ('content' in body) {
       if (typeof body.content !== 'string') errors.content = ['Not a valid string.'];
+      // With versions the text of the newest one is changed (as Paperless-ngx does).
+      else if (doc.versions.length) doc.versions.at(-1)!.content = body.content;
       else next.content = body.content;
     }
     if ('tags' in body) {

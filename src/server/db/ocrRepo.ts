@@ -32,6 +32,10 @@ export interface OcrResultRow {
   score_before: number | null;
   score_after: number | null;
   kept_original: number;
+  /** Searchable PDF: 'archive' (built-in archive), 'version' (Paperless-ngx), 'failed'; null: none. */
+  pdf: 'archive' | 'version' | 'failed' | null;
+  /** archive: SHA-256 of the PDF; version: the Paperless-ngx task; failed: the error. */
+  pdf_ref: string | null;
 }
 
 interface AssessmentRow {
@@ -101,6 +105,8 @@ export function resultInfo(r: OcrResultRow | undefined | null): OcrResultInfo | 
     scoreBefore: r.score_before,
     scoreAfter: r.score_after,
     keptOriginal: Boolean(r.kept_original),
+    pdf: r.pdf === 'archive' || r.pdf === 'version' ? r.pdf : null,
+    pdfError: r.pdf === 'failed' ? r.pdf_ref : null,
   };
 }
 
@@ -268,7 +274,8 @@ export class OcrRepo {
            pages = excluded.pages, total_pages = excluded.total_pages, mean_score = excluded.mean_score, provider = excluded.provider,
            duration_ms = excluded.duration_ms, source_modified = excluded.source_modified, written_modified = NULL, written_back = 0,
            error = NULL, attempts = ocr_results.attempts + 1, created_at = excluded.created_at, reverted_at = NULL,
-           score_before = excluded.score_before, score_after = excluded.score_after, kept_original = excluded.kept_original`,
+           score_before = excluded.score_before, score_after = excluded.score_after, kept_original = excluded.kept_original,
+           pdf = NULL, pdf_ref = NULL`,
       )
       .run({ id, ...r, keptOriginal: r.keptOriginal ? 1 : 0, now: Date.now() });
   }
@@ -307,6 +314,11 @@ export class OcrRepo {
     if (from === to) return;
     this.db.prepare('UPDATE ocr_results SET source_modified = ? WHERE document_id = ? AND written_back = 0 AND source_modified IS ?').run(to, id, from);
     this.db.prepare('UPDATE ocr_results SET written_modified = ? WHERE document_id = ? AND written_back = 1 AND written_modified IS ?').run(to, id, from);
+  }
+
+  /** The searchable PDF of the result: where it went (or that it failed, with the error). */
+  markPdf(id: number, pdf: 'archive' | 'version' | 'failed' | null, ref: string | null): void {
+    this.db.prepare('UPDATE ocr_results SET pdf = ?, pdf_ref = ? WHERE document_id = ?').run(pdf, ref?.slice(0, 2000) ?? null, id);
   }
 
   markReverted(id: number, modified: string | null): void {

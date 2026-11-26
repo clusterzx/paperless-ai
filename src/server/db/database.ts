@@ -479,6 +479,18 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 19,
+    name: 'searchable PDF of the OCR result',
+    up: (db) =>
+      db.exec(`
+        -- The OCR text laid into the PDF: 'archive' (archive file of the version in the built-in archive),
+        -- 'version' (uploaded to Paperless-ngx as a new version), 'failed'; NULL: none was made
+        ALTER TABLE ocr_results ADD COLUMN pdf TEXT;
+        -- archive: SHA-256 of the PDF; version: the Paperless-ngx task; failed: the error
+        ALTER TABLE ocr_results ADD COLUMN pdf_ref TEXT;
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {

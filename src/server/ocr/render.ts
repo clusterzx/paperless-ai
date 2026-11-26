@@ -19,6 +19,8 @@ export interface RenderedPage {
   /** Number of pages in the document (before maxPages). */
   total: number;
   image: RawImage;
+  /** Characters (without white space) of the text the page already has (PDF text layer; 0 for images). */
+  textChars: number;
 }
 
 const MAX_SIDE = 7000;
@@ -55,7 +57,13 @@ async function* renderPdf(bytes: Uint8Array, opts: RenderOptions): AsyncGenerato
       const { originalWidth: width, originalHeight: height } = page.getOriginalSize();
       const scale = Math.min(opts.dpi / 72, maxSide / Math.max(width, height, 1));
       const r = await page.render({ scale, render: 'bitmap', colorSpace: 'Gray' } as Parameters<typeof page.render>[0]);
-      yield { index: i, total, image: fromPixels(r.data, r.width, r.height, 1) };
+      let textChars = 0;
+      try {
+        textChars = page.getText().replace(/\s+/g, '').length;
+      } catch {
+        // No text page – nothing there.
+      }
+      yield { index: i, total, image: fromPixels(r.data, r.width, r.height, 1), textChars };
     }
   } finally {
     doc.destroy();
@@ -76,7 +84,12 @@ async function* renderImage(bytes: Uint8Array, opts: RenderOptions): AsyncGenera
       .toColourspace('srgb')
       .raw()
       .toBuffer({ resolveWithObject: true });
-    yield { index: i, total, image: fromPixels(new Uint8Array(data.buffer, data.byteOffset, data.length), info.width, info.height, info.channels as 1 | 3 | 4) };
+    yield {
+      index: i,
+      total,
+      image: fromPixels(new Uint8Array(data.buffer, data.byteOffset, data.length), info.width, info.height, info.channels as 1 | 3 | 4),
+      textChars: 0,
+    };
   }
 }
 

@@ -262,6 +262,32 @@ export class PaperlessClient {
     }
   }
 
+  /**
+   * Upload a file as a new version of a document (Paperless-ngx with document versions). Paperless
+   * consumes it in the background and from then on shows that file and its text. Returns the id of
+   * the consumption task.
+   */
+  async uploadVersion(id: number, data: Uint8Array, filename: string, label: string): Promise<string | null> {
+    const form = new FormData();
+    form.append('document', new Blob([data], { type: 'application/pdf' }), filename);
+    form.append('version_label', label.slice(0, 64));
+    try {
+      const res = await this.req<unknown>(`/documents/${id}/update_version/`, { method: 'POST', body: form, timeoutMs: 300_000 });
+      return typeof res === 'string' ? res : null;
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 404 || status === 405) {
+        throw new PaperlessError('This Paperless-ngx has no document versions – a newer Paperless-ngx is needed to add the searchable PDF', status, err);
+      }
+      throw err;
+    }
+  }
+
+  /** Delete a version of a document (not the first upload). */
+  async deleteVersion(id: number, versionId: number): Promise<void> {
+    await this.req<unknown>(`/documents/${id}/versions/${versionId}/`, { method: 'DELETE' });
+  }
+
   async thumbnail(id: number): Promise<{ data: Buffer; contentType: string }> {
     const version = await this.version();
     try {

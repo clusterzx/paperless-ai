@@ -297,6 +297,14 @@ The engine needs almost no changes:
   layer of digital PDFs is extracted during intake, so the quality score decides whether OCR is
   needed at all. `ocr.writeBack` is forced on (the text belongs to the archive). The previous text
   stays in `ocr_results.previous_text` for undo, as today.
+* **Searchable PDF** (`ocr.searchablePdf`): the worker reports where each line was read (corners
+  in fractions of the page as shown, in reading order – `textLayer.ts`); `searchablePdf.ts` lays the
+  text over the pages as invisible text (render mode 3, a glyphless TrueType font built in
+  `glyphlessFont.ts`, Type0/Identity-H with a ToUnicode map) with pdf-lib. Built-in: stored as the
+  `archive` file of the current version (`LocalBackend.setArchivePdf`). Paperless-ngx: uploaded with
+  `POST /api/documents/{id}/update_version/`, labelled `OCR text layer (Paperless-AI)`; a version
+  with that label is never read by the OCR again. `ocr_results.pdf` / `pdf_ref` keep where it went
+  (SHA-256 of the archive file / Paperless task) so a revert can take it away.
 * **Applier:** `updateDocument(..., origin: { actor: 'ai', … })`. The `history` table stays for the
   AI-specific data (tokens, prompt, suggestion). The change log entry of the built-in backend
   references the history id.

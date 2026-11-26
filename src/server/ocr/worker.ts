@@ -6,6 +6,7 @@
 import '../env.js';
 import { OcrPipeline, type PipelineOptions } from './pipeline.js';
 import { renderPages, type RenderOptions } from './render.js';
+import { layoutLines, type PageLayout } from './textLayer.js';
 
 export interface OcrRequest {
   id: number;
@@ -16,6 +17,8 @@ export interface OcrRequest {
 export interface OcrPageSummary {
   text: string;
   lines: number;
+  /** Where the lines are on the page (for the text layer of a searchable PDF). */
+  layout: PageLayout;
   meanScore: number;
   rotation: number;
   width: number;
@@ -74,6 +77,7 @@ function main(options: PipelineOptions): void {
           pages.push({
             text: r.text,
             lines: r.lines.length,
+            layout: { lines: layoutLines(r.lines, r.rotation, page.image.width, page.image.height), textChars: page.textChars },
             meanScore: r.lines.length ? r.lines.reduce((s, l) => s + l.score, 0) / r.lines.length : 0,
             rotation: r.rotation,
             width: r.width,

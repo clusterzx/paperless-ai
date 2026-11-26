@@ -9,7 +9,13 @@ import type { Quad } from './image.js';
 export interface OcrLine {
   text: string;
   score: number;
+  /** Corners clockwise from the top left of the region (as found on the page). */
   quad: Quad;
+  /**
+   * Corners to move the start of `quad` by to get them in reading order (0…3): 1 for vertical text
+   * (read turned by 90°), 2 for a line read upside down.
+   */
+  turn?: number;
 }
 
 interface Box {

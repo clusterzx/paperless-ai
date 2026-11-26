@@ -81,6 +81,16 @@ function OcrCell({ item }: { item: OcrDocumentItem }) {
           <Badge tone="success">{r.writtenBack ? 'Saved' : 'Done'}</Badge>
         )}
         {r.provider && <Badge>{r.provider.toUpperCase()}</Badge>}
+        {r.pdf && !r.revertedAt && (
+          <Badge tone="info" title={r.pdf === 'version' ? 'The OCR text was laid into the PDF and uploaded to Paperless-ngx as a new version' : 'The OCR text was laid into the archive PDF'}>
+            Searchable PDF
+          </Badge>
+        )}
+        {r.pdfError && (
+          <Badge tone="warn" title={r.pdfError}>
+            No searchable PDF
+          </Badge>
+        )}
         {r.scoreBefore !== null && r.scoreAfter !== null && (
           <span className={cn('tabular-nums', r.scoreAfter > r.scoreBefore ? 'text-success' : 'text-faint')} title="Text quality before → after OCR">
             {r.scoreBefore} → {r.scoreAfter}
@@ -250,7 +260,8 @@ export default function OcrPage() {
     act(async () => {
       const ok = await confirm({
         title: 'Restore the text before OCR?',
-        message: 'The text from before the OCR is restored. Title, tags etc. set by the AI stay – undo them in the history if needed.',
+        message:
+          'The text from before the OCR is restored and a searchable PDF made of it is removed (the archive PDF, or the version in Paperless-ngx). Title, tags etc. set by the AI stay – undo them in the history if needed.',
         confirmLabel: 'Revert',
         danger: true,
       });
@@ -312,6 +323,9 @@ export default function OcrPage() {
           </span>
           <span>
             Text of the document: <b className="font-medium">{s?.writeBack ? 'replaced (with undo)' : 'unchanged'}</b>
+          </span>
+          <span>
+            Searchable PDF: <b className="font-medium">{s?.searchablePdf ? 'yes' : 'no'}</b>
           </span>
           <span title={s?.model.note ?? undefined}>
             Model: <b className="font-medium">{s ? s.model.label : '…'}</b>

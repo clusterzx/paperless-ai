@@ -916,6 +916,47 @@ export class LocalBackend implements DocumentBackend {
       | undefined;
   }
 
+  /**
+   * Store a PDF made of the current version – the searchable PDF of the OCR – as its archive file
+   * (shown and downloaded instead of the original, which stays as it is). Replaces the archive file
+   * there was. Returns the SHA-256 of the stored PDF.
+   */
+  async setArchivePdf(id: number, data: Uint8Array, filename: string, pages: number | null, origin: ChangeOrigin): Promise<string> {
+    const row = this.row(id);
+    if (!row) throw notFound();
+    const blob = await this.blobs.putBytes(data);
+    const version = row.current_version;
+    const before = this.fileRow(id, version, 'archive');
+    this.db.transaction(() => {
+      this.db.prepare('INSERT OR IGNORE INTO blobs (sha256, size, mime_type, created_at) VALUES (?, ?, ?, ?)').run(blob.sha256, blob.size, 'application/pdf', Date.now());
+      this.db
+        .prepare(
+          `INSERT INTO lib_document_files (document_id, version, kind, blob_sha256, original_filename, mime_type, size, page_count, created_by, created_at)
+           VALUES (?, ?, 'archive', ?, ?, 'application/pdf', ?, ?, NULL, ?)
+           ON CONFLICT(document_id, version, kind) DO UPDATE SET blob_sha256 = excluded.blob_sha256, original_filename = excluded.original_filename,
+             mime_type = excluded.mime_type, size = excluded.size, page_count = excluded.page_count, created_by = NULL, created_at = excluded.created_at`,
+        )
+        .run(id, version, blob.sha256, filename, blob.size, pages ?? row.page_count ?? null, Date.now());
+      this.logEvent(row, 'updated', origin, { archive_file: [before?.original_filename ?? null, filename] });
+    })();
+    return blob.sha256;
+  }
+
+  /** Remove the archive file of a version again – only while it is still this PDF (`sha256`). */
+  removeArchivePdf(id: number, sha256: string, origin: ChangeOrigin): boolean {
+    const row = this.row(id);
+    if (!row) return false;
+    const file = this.db
+      .prepare("SELECT version, original_filename FROM lib_document_files WHERE document_id = ? AND kind = 'archive' AND blob_sha256 = ?")
+      .get(id, sha256) as { version: number; original_filename: string | null } | undefined;
+    if (!file) return false;
+    this.db.transaction(() => {
+      this.db.prepare("DELETE FROM lib_document_files WHERE document_id = ? AND version = ? AND kind = 'archive'").run(id, file.version);
+      this.logEvent(row, 'updated', origin, { archive_file: [file.original_filename, null] });
+    })();
+    return true;
+  }
+
   async download(scope: AccessScope, id: number, opts: { original: boolean; version?: number }): Promise<FileData> {
     const row = this.readableRow(scope, id);
     const version = opts.version ?? row.current_version;

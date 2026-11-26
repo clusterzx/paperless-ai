@@ -689,6 +689,10 @@ export interface OcrResultInfo {
   scoreAfter: number | null;
   /** The OCR text did not score better than the existing text – Paperless kept its text. */
   keptOriginal: boolean;
+  /** The OCR text was laid into the PDF: as its archive PDF (built-in archive) or as a new version in Paperless-ngx. */
+  pdf: 'archive' | 'version' | null;
+  /** Making or storing the searchable PDF failed. */
+  pdfError: string | null;
 }
 
 export interface OcrDocumentItem {
@@ -717,6 +721,8 @@ export interface OcrStatus {
   available: boolean;
   mode: string;
   writeBack: boolean;
+  /** The OCR text is laid into the PDF (archive PDF / new Paperless-ngx version). */
+  searchablePdf: boolean;
   /** Execution provider of the loaded models (cpu, cuda, dml) – null while not loaded. */
   provider: string | null;
   /** The OCR models used with the settings (PP-OCRv6 falls back to v5 for languages it cannot read). */

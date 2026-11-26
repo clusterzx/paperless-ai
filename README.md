@@ -17,7 +17,7 @@ AI providers: OpenAI, Anthropic (Claude), **Ollama (fully local)**, Azure OpenAI
 
 - **Automatic processing** – metadata for new documents on a schedule or instantly via a Paperless-ngx workflow; trigger and exclude tags; restrict the AI to existing tags, correspondents and types; [prompt rules](docs/guide/prompt-rules.md) per kind of document
 - **[Ask your archive](docs/guide/ask-your-archive.md)** – questions in plain language, hybrid keyword and vector search, answers with sources
-- **[OCR](docs/guide/ocr.md)** – reads scans and photos locally with PaddleOCR (CPU or NVIDIA GPU) before the analysis
+- **[OCR](docs/guide/ocr.md)** – reads scans and photos locally with PaddleOCR (CPU or NVIDIA GPU) before the analysis; optionally lays the text into the PDF (searchable PDF)
 - **[Built-in archive](docs/guide/built-in-archive.md)** – run without Paperless-ngx: [upload, watch folders, e-mail, WebDAV, phone](docs/guide/intake.md); PDFs, images, text files, e-mails and – with LibreOffice built in, no extra service – [Office documents](docs/guide/built-in-archive.md#office-documents); versions, trash, libraries with roles; move over from Paperless-ngx with the same document ids; the [mobile apps made for Paperless-ngx](docs/guide/mobile-apps.md) work with it
 - **[AI agents (MCP)](docs/guide/mcp.md)** – an MCP server for Claude, Hermes, OpenCode and other agents: search, read, ask, change and add documents, with fine-grained permissions, libraries and rate limits per API key
 - **[Search and metadata](docs/guide/search-and-metadata.md)** – search syntax (`tag:steuer from:adac created:2024`), find and merge duplicate tags and correspondents
