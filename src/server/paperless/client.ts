@@ -266,7 +266,8 @@ export class PaperlessClient {
     const version = await this.version();
     try {
       const res = await request<Response>(`${this.baseUrl}/api/documents/${id}/thumb/`, {
-        headers: { ...this.headers(version), Accept: 'image/*' },
+        // Not image/*: Paperless-ngx (3.5) negotiates the type here and answers 406 to anything but */* (#1039).
+        headers: { ...this.headers(version), Accept: '*/*' },
         timeoutMs: 30_000,
         retries: 1,
         responseType: 'response',

@@ -435,7 +435,9 @@ export class MockPaperless {
     }
     if ((m = /^\/api\/documents\/(\d+)\/thumb\/$/.exec(path)) && record.method === 'GET') {
       if (!this.docs.has(Number(m[1]))) return send(404, { detail: 'Not found.' });
-      return send(200, Buffer.from(`THUMB-${m[1]}`));
+      // As Paperless-ngx 3.5 (DRF content negotiation): only */* gets the image (#1039).
+      if (accept && !accept.split(',').some((a) => a.trim().startsWith('*/*'))) return send(406, { detail: 'Could not satisfy the request Accept header.' });
+      return send(200, Buffer.from(`THUMB-${m[1]}`), { 'Content-Type': 'image/webp' });
     }
     if ((m = /^\/api\/(tags|correspondents|document_types|custom_fields)\/$/.exec(path))) {
       const collection = m[1] as Collection;
