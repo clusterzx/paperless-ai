@@ -25,7 +25,7 @@ Applies to Paperless-AI **4.x.x**: the Docker images `clusterzx/paperless-ai:lat
 | PDFium (WebAssembly) | `node_modules/@hyzyla/pdfium` | yes | BSD-3-Clause and Apache-2.0 |
 | SQLite | `node_modules/better-sqlite3` | yes | Public domain |
 | Transformers.js | `node_modules/@huggingface/transformers` | yes | Apache-2.0 |
-| All Node.js packages (176) | `node_modules` | yes | [Section 3](#3-server-components-in-the-image) |
+| All Node.js packages (181) | `node_modules` | yes | [Section 3](#3-server-components-in-the-image) |
 | Web interface: bundled libraries and Geist fonts (13 packages) | `dist/public` | yes | [Section 5](#5-web-interface) |
 | Local embedding model (multilingual-e5-small) | downloaded on first use | no | MIT |
 | LibreOffice (WebAssembly), Office converter | downloaded on first use | no | MPL-2.0 |
@@ -95,6 +95,8 @@ The image contains the production dependencies of Paperless-AI for `linux/amd64`
 | [@img/sharp-libvips-linux-x64](https://github.com/lovell/sharp-libvips) | 1.3.4 | LGPL-3.0-or-later | libvips: Copyright the libvips authors (https://github.com/libvips/libvips)<br>Packaging: Lovell Fuller | [LGPL-3.0](#gnu-lesser-general-public-license-v3) |
 | [@img/sharp-linux-x64](https://github.com/lovell/sharp) | 0.35.5 | Apache-2.0 | Copyright 2013 Lovell Fuller and others | [L03](#l03) |
 | [@lukeed/ms](https://github.com/lukeed/ms) | 2.0.2 | MIT | Copyright (c) Luke Edwards &lt;luke.edwards05@gmail.com&gt; (lukeed.com) | [L19](#l19) |
+| [@pdf-lib/standard-fonts](https://github.com/Hopding/standard-fonts) | 1.0.0 | MIT | Copyright (c) 2018 Andrew Dillon | [L19](#l19) |
+| [@pdf-lib/upng](https://github.com/Hopding/upng) | 1.0.1 | MIT | Copyright (c) 2017 Photopea | [L19](#l19) |
 | [@pinojs/redact](https://github.com/pinojs/redact) | 0.4.0 | MIT | Copyright (c) 2025 pinojs contributors | [L19](#l19) |
 | [@protobufjs/aspromise](https://github.com/dcodeIO/protobuf.js) | 1.1.2 | BSD-3-Clause | Copyright (c) 2016, Daniel Wirtz All rights reserved. | [L08](#l08) |
 | [@protobufjs/base64](https://github.com/dcodeIO/protobuf.js) | 1.1.2 | BSD-3-Clause | Copyright (c) 2016, Daniel Wirtz All rights reserved. | [L08](#l08) |
@@ -198,8 +200,10 @@ The image contains the production dependencies of Paperless-AI for `linux/amd64`
 | [onnxruntime-node](https://github.com/Microsoft/onnxruntime) | 1.30.0 | MIT | Copyright (c) Microsoft Corporation | [L19](#l19) |
 | [openapi-types](https://github.com/kogosoftwarellc/open-api/tree/master/packages/openapi-types) | 12.1.3 | MIT | Copyright (c) 2018 Kogo Softare LLC | [L19](#l19) |
 | [openid-client](https://github.com/panva/openid-client) | 6.8.9 | MIT | Copyright (c) 2016 Filip Skokan | [L19](#l19) |
+| [pako](https://github.com/nodeca/pako) | 1.0.11 | MIT AND Zlib | Copyright (C) 2014-2017 by Vitaly Puzrin and Andrei Tuputcyn; zlib: (C) 1995-2013 Jean-loup Gailly and Mark Adler | [L19](#l19), [L31](#l31) |
 | [parseley](https://github.com/mxxii/parseley) | 0.13.1 | MIT | Copyright (c) 2021-2025 KillyMXI &lt;killy@mxii.eu.org&gt; | [L19](#l19) |
 | [path-scurry](https://github.com/isaacs/path-scurry) | 2.0.2 | BlueOak-1.0.0 | Author: Isaac Z. Schlueter (https://blog.izs.me) (no copyright notice in the package) | [L04](#l04) |
+| [pdf-lib](https://github.com/Hopding/pdf-lib) | 1.17.1 | MIT | Copyright (c) 2019 Andrew Dillon | [L19](#l19) |
 | [peberminta](https://github.com/mxxii/peberminta) | 0.10.0 | MIT | Copyright (c) 2021-2025 KillyMXI &lt;killy@mxii.eu.org&gt; | [L19](#l19) |
 | [pino](https://github.com/pinojs/pino) | 10.3.1 | MIT | Copyright (c) 2016-2025 Matteo Collina, David Mark Clements and the Pino contributors listed at &lt;https://github.com/pinojs/pino#the-team&gt; and in the README file. | [L19](#l19) |
 | [pino-abstract-transport](https://github.com/pinojs/pino-abstract-transport) | 3.0.0 | MIT | Copyright (c) 2021 pino | [L19](#l19) |
@@ -237,6 +241,7 @@ The image contains the production dependencies of Paperless-AI for `linux/amd64`
 | [toad-cache](https://github.com/kibertoad/toad-cache) | 3.7.4 | MIT | Copyright (c) 2023 Igor Savin | [L19](#l19) |
 | [toidentifier](https://github.com/component/toidentifier) | 1.0.1 | MIT | Copyright (c) 2016 Douglas Christopher Wilson &lt;doug@somethingdoug.com&gt; | [L19](#l19) |
 | [ts-algebra](https://github.com/ThomasAribart/ts-algebra) | 2.0.0 | MIT | Copyright (c) 2020 Thomas Aribart | [L19](#l19) |
+| [tslib](https://github.com/Microsoft/tslib) | 1.14.1 | 0BSD | Copyright (c) Microsoft Corporation. | [L01](#l01) |
 | [tslib](https://github.com/Microsoft/tslib) | 2.8.1 | 0BSD | Copyright (c) Microsoft Corporation. | [L01](#l01) |
 | [type-fest](https://github.com/sindresorhus/type-fest) | 0.20.2 | MIT (chosen from MIT OR CC0-1.0) | Copyright (c) Sindre Sorhus &lt;sindresorhus@gmail.com&gt; (https:/sindresorhus.com) | [L19](#l19) |
 | [uc.micro](https://github.com/markdown-it/uc.micro) | 2.1.0 | MIT | Copyright Mathias Bynens &lt;https://mathiasbynens.be/&gt; | [L19](#l19) |
@@ -348,6 +353,7 @@ Each text below applies to the packages listed above it, with the copyright noti
  
 **0BSD** – used by:
  
+- tslib 1.14.1: Copyright (c) Microsoft Corporation.
 - tslib 2.8.1: Copyright (c) Microsoft Corporation.
 ```text
 Permission to use, copy, modify, and/or distribute this software for any
@@ -1295,6 +1301,8 @@ SOFTWARE.
 - @huggingface/jinja 0.5.10: Copyright (c) 2023 Hugging Face
 - @hyzyla/pdfium 3.0.0: Copyright (c) 2012-2023 Scott Chacon and others
 - @lukeed/ms 2.0.2: Copyright (c) Luke Edwards &lt;luke.edwards05@gmail.com&gt; (lukeed.com)
+- @pdf-lib/standard-fonts 1.0.0: Copyright (c) 2018 Andrew Dillon
+- @pdf-lib/upng 1.0.1: Copyright (c) 2017 Photopea
 - @pinojs/redact 0.4.0: Copyright (c) 2025 pinojs contributors
 - @selderee/plugin-htmlparser2 0.12.0: Copyright (c) 2021-2026 KillyMXI &lt;killy@mxii.eu.org&gt;
 - @zone-eu/mailsplit 5.4.30: Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ
@@ -1352,7 +1360,9 @@ SOFTWARE.
 - onnxruntime-node 1.30.0: Copyright (c) Microsoft Corporation
 - openapi-types 12.1.3: Copyright (c) 2018 Kogo Softare LLC
 - openid-client 6.8.9: Copyright (c) 2016 Filip Skokan
+- pako 1.0.11: Copyright (C) 2014-2017 by Vitaly Puzrin and Andrei Tuputcyn
 - parseley 0.13.1: Copyright (c) 2021-2025 KillyMXI &lt;killy@mxii.eu.org&gt;
+- pdf-lib 1.17.1: Copyright (c) 2019 Andrew Dillon
 - peberminta 0.10.0: Copyright (c) 2021-2025 KillyMXI &lt;killy@mxii.eu.org&gt;
 - pino 10.3.1: Copyright (c) 2016-2025 Matteo Collina, David Mark Clements and the Pino contributors listed at &lt;https://github.com/pinojs/pino#the-team&gt; and in the README file.
 - pino-abstract-transport 3.0.0: Copyright (c) 2021 pino
@@ -2187,3 +2197,26 @@ You should also get your employer (if you work as a programmer) or school, if an
 The GNU General Public License does not permit incorporating your program into proprietary programs. If your program is a subroutine library, you may consider it more useful to permit linking proprietary applications with the library. If this is what you want to do, use the GNU Lesser General Public License instead of this License. But first, please read <http://www.gnu.org/philosophy/why-not-lgpl.html>.
 ```
  
+ 
+### L31
+ 
+**Zlib** – used by:
+ 
+- pako 1.0.11 (its port of zlib): (C) 1995-2013 Jean-loup Gailly and Mark Adler; (C) 2014-2017 Vitaly Puzrin and Andrey Tupitsin
+```text
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+  claim that you wrote the original software. If you use this software
+  in a product, an acknowledgment in the product documentation would be
+  appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+  misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.
+```
