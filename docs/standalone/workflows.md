@@ -286,6 +286,10 @@ Decisions made while building it:
 * **Rights:** global workflows – administrators; library workflows – owners. Webhooks only by
   administrators (requests to the network of the server). Notifications reach only people who may
   read the document. A workflow whose creator is no longer an owner is suspended at its next run.
+  Everyone else sees a webhook only with its host (no path, query or secret) and tests only the
+  saved version of a workflow (`workflowId`); an unsaved one is tested by those who may save it.
+* **Patterns:** a regular expression runs at most 0.5 s per document (then the condition does not
+  match and the step says why); file name patterns (`*`, `?`) are matched without backtracking.
 * **AI:** questions and extraction send the title, correspondent, type, date and up to ~6,000
   tokens of the text; the answers are cached per document version and question. Tested against
   the OpenAI API (gpt-5-mini): open invoices above 50 € recognised, a paid café receipt and a

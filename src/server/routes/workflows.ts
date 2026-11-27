@@ -37,6 +37,26 @@ export const workflowRoutes =
     /** May the caller change it? Global: admins; library: admins and owners. */
     const editable = (scope: AccessScope, libraryId: number | null) => isAdmin(scope) || (libraryId !== null && roleIn(scope, libraryId) === 'owner');
 
+    /**
+     * What a caller who cannot change the workflow sees of it: webhooks without their secret and
+     * only the host of their address (an ntfy topic or a Gotify token in it is a credential).
+     */
+    const shown = (scope: AccessScope, wf: Workflow): Workflow => {
+      if (editable(scope, wf.libraryId) || !wf.actions.some((a) => a.type === 'notify_webhook')) return wf;
+      const hostOnly = (url: string) => {
+        try {
+          const u = new URL(url);
+          return `${u.protocol}//${u.host}/…`;
+        } catch {
+          return '…';
+        }
+      };
+      return {
+        ...wf,
+        actions: wf.actions.map((a) => (a.type === 'notify_webhook' ? { type: a.type, preset: a.preset, url: hostOnly(a.url), ...(a.secret ? { secret: '••••••' } : {}) } : a)),
+      };
+    };
+
     const withStats = (wf: Workflow): Workflow => {
       if (wf.id < 0) return wf;
       const s = repo.stats(wf.id, Date.now() - WEEK);
@@ -69,10 +89,10 @@ export const workflowRoutes =
       const scope = req.access!;
       const libs = readableLibraries(scope);
       const list = [...lockedRuleWorkflows(ctx), ...repo.list({ libraryIds: isAdmin(scope) ? null : libs })];
-      return list.filter((w) => visible(scope, w)).map(withStats);
+      return list.filter((w) => visible(scope, w)).map((w) => shown(scope, withStats(w)));
     });
 
-    app.get('/api/workflows/:id', { schema: { params: id } }, async (req) => withStats(get(req.access!, req.params.id)));
+    app.get('/api/workflows/:id', { schema: { params: id } }, async (req) => shown(req.access!, withStats(get(req.access!, req.params.id))));
 
     app.post('/api/workflows', { schema: { body: workflowDefinitionSchema } }, async (req): Promise<Workflow> => {
       check(req.access!, req.body);
@@ -134,6 +154,9 @@ export const workflowRoutes =
         const def = req.body.workflow ?? (req.body.workflowId !== undefined ? ([...lockedRuleWorkflows(ctx), ...repo.list()].find((w) => w.id === req.body.workflowId) ?? null) : null);
         if (!def) throw new HttpProblem(400, 'Send a workflow or the id of one');
         if (req.body.workflowId !== undefined && req.body.workflowId > 0) get(req.access!, req.body.workflowId);
+        // A workflow that is not saved (yet) is tested by the one who may save it.
+        if (req.body.workflow && !editable(req.access!, req.body.workflow.libraryId))
+          throw new HttpProblem(403, req.body.workflow.libraryId === null ? 'Only administrators can test global workflows' : 'Only owners of the library can test its workflows');
         return engine().dryRun({ ...def, id: req.body.workflowId }, req.body.documentId, req.access!);
       },
     );
