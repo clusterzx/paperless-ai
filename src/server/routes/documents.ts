@@ -16,8 +16,8 @@ import type {
 } from '../../shared/api.js';
 import { documentFilterParams, documentSort, parseDocumentFilter, toRow } from '../http/documentQuery.js';
 import { applySearchSyntax } from '../http/searchSyntax.js';
-import { hasScope, roleIn, userIdOf, type AccessScope } from '../access/scope.js';
-import { badRequest } from '../http/helpers.js';
+import { canEdit, hasScope, roleIn, userIdOf, type AccessScope } from '../access/scope.js';
+import { badRequest, HttpProblem } from '../http/helpers.js';
 import { bulkEdit, documentActivity, receiveUploads, sendFile } from './documentOps.js';
 import type { Principal } from '../auth.js';
 import type { Services } from '../http/app.js';
@@ -278,6 +278,8 @@ export const documentRoutes =
       },
       async (req) => {
         const doc = await ctx.backend(req.access!).getDocument(req.params.id);
+        // An analysis is an editor's action (it uses the AI of the instance); readers cannot start one.
+        if (!canEdit(req.access!, doc.library_id)) throw new HttpProblem(403, 'Not allowed to change this document');
         const processing = req.body?.processing
           ? configSchema.parse(deepMerge(structuredClone(ctx.cfg), { processing: req.body.processing } as DeepPartial<AppConfig>)).processing
           : undefined;

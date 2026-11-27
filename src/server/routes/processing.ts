@@ -4,7 +4,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { ArchiveStatus, DashboardData, HistoryPage, UsageStats } from '../../shared/api.js';
 import type { Services } from '../http/app.js';
-import { badRequest, documentIdFrom } from '../http/helpers.js';
+import { badRequest, documentIdFrom, HttpProblem } from '../http/helpers.js';
 import { revertDocument } from '../processing/applier.js';
 import { describeError } from '../util/http.js';
 import { logger } from '../logger.js';
@@ -19,6 +19,25 @@ export const processingRoutes =
   ({ ctx, engine, rag }: Services): FastifyPluginAsync =>
   async (fastify) => {
     const app = fastify.withTypeProvider<ZodTypeProvider>();
+
+    /**
+     * The ids of these documents the caller may change. The AI analysis saves its result with the
+     * system scope, so it may only be started for them (built-in archive: editor of the library).
+     */
+    const editableIds = async (scope: AccessScope, ids: number[]): Promise<number[]> => {
+      if (!scope.libraries) return ids; // no library limits (administrators, Paperless-ngx)
+      const backend = ctx.backend(scope);
+      const out: number[] = [];
+      for (const id of ids) {
+        try {
+          const doc = await backend.getDocument(id);
+          if (canEdit(scope, doc.library_id)) out.push(id);
+        } catch {
+          // not found or not readable: not this caller's to analyse
+        }
+      }
+      return out;
+    };
 
     /** Tags of all metadata namespaces the archive has (ids are unique across them). */
     /** Tags of the libraries the caller may read (all in companion mode). */
@@ -124,9 +143,11 @@ export const processingRoutes =
         },
       },
       async (req) => {
+        // The analysis writes with the system scope – only documents the caller may change.
+        const ids = await editableIds(req.access!, req.body.ids);
         let queued = 0;
-        for (const id of req.body.ids) if (engine.enqueue(id, { source: 'api', force: true, prompt: req.body.prompt })) queued++;
-        return { queued };
+        for (const id of ids) if (engine.enqueue(id, { source: 'api', force: true, prompt: req.body.prompt })) queued++;
+        return { queued, ...(ids.length < req.body.ids.length ? { refused: req.body.ids.length - ids.length } : {}) };
       },
     );
 
@@ -192,6 +213,8 @@ export const processingRoutes =
           throw badRequest(problem);
         }
         if (!ctx.isConfigured()) return reply.code(409).send({ error: 'Paperless-AI is not configured yet' });
+        // The analysis writes with the system scope – only a document the caller may change.
+        if (!(await editableIds(req.access!, [id])).length) throw new HttpProblem(404, `Document ${id} not found`);
         const accepted = engine.enqueue(id, { source: 'webhook', prompt: b.prompt, force: b.force });
         log.info(`Webhook: document ${id} ${accepted ? 'queued' : 'already queued'}`);
         return reply

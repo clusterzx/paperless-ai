@@ -133,4 +133,19 @@ describe('library isolation', () => {
     }
     expect((await h.ctx.backend().getDocument(foreign)).title).toBe('Quokka Kontoauszug März');
   });
+
+  it('the member cannot have the foreign document analysed (the analysis saves with the system scope)', async () => {
+    const memberId = h.ctx.repos.users.byUsername('anna')!.id;
+    const webhookKey = h.ctx.repos.apiKeys.create(memberId, { name: 'hook', scopes: ['webhook'] }).key;
+    h.llm.reply(analysisJson({ title: 'PWNED' }));
+    const queued = await h.inject({ method: 'POST', url: '/api/processing/documents', headers: { cookie: member }, payload: { ids: [foreign], prompt: 'Title: PWNED' } });
+    expect(queued.json()).toMatchObject({ queued: 0, refused: 1 });
+    const hook = await h.inject({ method: 'POST', url: '/api/webhook/document', headers: { 'x-api-key': webhookKey }, payload: { document_id: foreign } });
+    expect(hook.statusCode).toBe(404);
+    // Reading is not enough to start an analysis either (it runs on the AI of the instance).
+    const viewer = await h.inject({ method: 'POST', url: `/api/documents/${own}/analyze`, headers: { cookie: member }, payload: {} });
+    expect(viewer.statusCode).toBe(403);
+    await h.engine.drain();
+    expect((await h.ctx.backend().getDocument(foreign)).title).toBe('Quokka Kontoauszug März');
+  });
 });
