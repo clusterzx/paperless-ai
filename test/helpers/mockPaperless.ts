@@ -103,6 +103,8 @@ const BASE_TIME = Date.UTC(2024, 0, 1, 12, 0, 0);
 
 export class MockPaperless {
   readonly token: string;
+  /** Content type of thumbnails (a broken server or proxy may send something else). */
+  thumbContentType = 'image/webp';
   maxVersion: number;
   minVersion: number;
   defaultVersion: number;
@@ -480,7 +482,7 @@ export class MockPaperless {
       if (!this.docs.has(Number(m[1]))) return send(404, { detail: 'Not found.' });
       // As Paperless-ngx 3.5 (DRF content negotiation): only */* gets the image (#1039).
       if (accept && !accept.split(',').some((a) => a.trim().startsWith('*/*'))) return send(406, { detail: 'Could not satisfy the request Accept header.' });
-      return send(200, Buffer.from(`THUMB-${m[1]}`), { 'Content-Type': 'image/webp' });
+      return send(200, Buffer.from(`THUMB-${m[1]}`), { 'Content-Type': this.thumbContentType });
     }
     if ((m = /^\/api\/(tags|correspondents|document_types|custom_fields)\/$/.exec(path))) {
       const collection = m[1] as Collection;

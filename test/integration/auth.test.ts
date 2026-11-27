@@ -83,6 +83,15 @@ describe('authentication', () => {
     expect(caseInsensitive.statusCode).toBe(200);
   });
 
+  it('marks the cookie Secure behind a reverse proxy that ends TLS (also without TRUST_PROXY)', async () => {
+    const login = (headers: Record<string, string> = {}) =>
+      h.inject({ method: 'POST', url: '/api/auth/login', headers, payload: { username: TEST_USER, password: TEST_PASSWORD } });
+    const plain = (await login()).cookies.find((c) => c.name === SESSION_COOKIE);
+    expect(plain?.secure).toBeFalsy();
+    const proxied = (await login({ 'x-forwarded-proto': 'https' })).cookies.find((c) => c.name === SESSION_COOKIE);
+    expect(proxied?.secure).toBe(true);
+  });
+
   it('logout clears the cookie', async () => {
     const res = await h.inject({ method: 'POST', url: '/api/auth/logout', headers: { cookie } });
     expect(res.statusCode).toBe(200);

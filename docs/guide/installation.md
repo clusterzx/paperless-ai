@@ -36,6 +36,8 @@ Open `http://<your-server>:3000`. The setup wizard asks for your account, the ar
 > [!IMPORTANT]
 > Until the first account exists, the setup wizard is open to everyone who can reach it. Complete the setup before the instance is reachable from other networks, and keep Paperless-AI in your local network or behind a VPN or an authenticating reverse proxy.
 
+**Setup code:** when credentials are set before the first account exists – the Paperless-ngx token, an AI key, the OIDC client secret or the SMTP password as [environment variables](configuration.md), or a `data/.env` of 3.x – the wizard first asks for a setup code, so that nobody else can create the administrator who gets them. The code is in the log (`docker logs paperless-ai`) and in `data/setup-code`; it is no longer needed once the first account exists. The first account created by single sign-on needs it as well.
+
 - **`/scans`** is only needed for the [built-in archive](built-in-archive.md) with a scanner or another program that drops files into a folder ([watch folders](intake.md#watch-folders)); with Paperless-ngx as the archive you can leave the line out. Any host folder works, e.g. `/srv/scans:/scans` or a NAS share.
 - **`TZ`** sets the time zone of schedules, dates and logs (default: UTC).
 - The `docker-compose.yml` of the repository builds the image from source, with the same folders (the host folder of `/scans` is `PAPERLESS_AI_SCANS_DIR`).

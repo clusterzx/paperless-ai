@@ -46,9 +46,20 @@ export const ocrRoutes =
       }
     };
 
-    app.get('/api/ocr/status', async (): Promise<OcrStatus> => {
+    app.get('/api/ocr/status', async (req): Promise<OcrStatus> => {
       await ocr.isAvailable();
-      return status();
+      const s = status();
+      // The document being read: its title only for those who may read it.
+      const scope = req.access!;
+      if (s.active?.documentId != null && scope.libraries) {
+        const readable = await ctx
+          .backend(scope)
+          .getDocument(s.active.documentId)
+          .then(() => true)
+          .catch(() => false);
+        if (!readable) s.active = { ...s.active, documentId: null, title: null };
+      }
+      return s;
     });
 
     app.get(

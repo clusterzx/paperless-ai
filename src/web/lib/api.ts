@@ -44,10 +44,23 @@ function describeError(data: unknown, status: number): string {
   return details.length ? `${message} – ${details.slice(0, 5).join('; ')}` : message;
 }
 
+/** Sent with every request of the app: the server takes changes with the session cookie only with it (CSRF, app.ts). */
+export const APP_HEADER = { 'X-Requested-With': 'Paperless-AI' } as const;
+
+/** The setup code (from the server log) for the requests of the setup wizard – see setupCode.ts. */
+let setupCodeValue: string | null = null;
+export function setSetupCode(code: string | null): void {
+  setupCodeValue = code;
+}
+export const currentSetupCode = () => setupCodeValue;
+
 export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
+  const headers: Record<string, string> = { ...APP_HEADER };
+  if (init.body !== undefined) headers['Content-Type'] = 'application/json';
+  if (setupCodeValue && path.startsWith('/api/setup')) headers['X-Setup-Code'] = setupCodeValue;
   const res = await fetch(path, {
     method: init.method ?? (init.body !== undefined ? 'POST' : 'GET'),
-    headers: init.body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     credentials: 'same-origin',
     signal: init.signal,
@@ -65,7 +78,7 @@ export const get = <T>(path: string, signal?: AbortSignal) => api<T>(path, { sig
 
 /** Multipart upload (files and form fields) without progress reporting. */
 export async function postForm<T>(path: string, form: FormData): Promise<T> {
-  const res = await fetch(path, { method: 'POST', body: form, credentials: 'same-origin' });
+  const res = await fetch(path, { method: 'POST', body: form, headers: APP_HEADER, credentials: 'same-origin' });
   const data = await parse(res);
   if (!res.ok) {
     const body = data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
@@ -94,7 +107,7 @@ export function qs(params: Record<string, string | number | boolean | undefined 
 export async function streamEvents<E>(path: string, body: unknown, onEvent: (e: E) => void, signal?: AbortSignal): Promise<void> {
   const res = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: { ...APP_HEADER, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     body: JSON.stringify(body),
     credentials: 'same-origin',
     signal,

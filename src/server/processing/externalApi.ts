@@ -20,48 +20,35 @@ function parseJsonObject(text: string, what: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-// Runs inside the worker: evaluates the script in a fresh context, awaits async transforms and
-// returns the result as JSON (plain values only).
-const WORKER_SOURCE = `
-const { parentPort, workerData } = require('node:worker_threads');
-const vm = require('node:vm');
-(async () => {
-  try {
-    const context = vm.createContext({ __data: workerData.data }, { codeGeneration: { strings: false, wasm: false } });
-    const result = await vm.runInContext(workerData.script, context, { timeout: workerData.timeoutMs });
-    parentPort.postMessage({ ok: true, json: result === undefined ? undefined : JSON.stringify(result) });
-  } catch (err) {
-    parentPort.postMessage({ ok: false, error: String((err && err.message) || err) });
-  }
-})();
-`;
-
 /**
  * Run the transform configured by an administrator. The code is either a full
  * `function transform(data) {…}` or a function body.
  *
- * This is trusted configuration, not a security sandbox: it runs in a separate worker thread
- * (without the environment variables of the app, with a memory limit) that is terminated after
- * the time limit – so a slow or endless transform (also an async one) cannot block the server.
+ * It runs in QuickJS (transformWorker.ts), a JavaScript engine compiled to WebAssembly, in a worker
+ * thread: it sees only the JSON data, not Node.js, files, network or the environment of the app,
+ * within a memory limit and the time limit – so a slow or endless transform cannot block the server
+ * and no transform can reach beyond its data.
  */
 export function runTransform(code: string, data: unknown, timeoutMs = TRANSFORM_TIMEOUT_MS): Promise<unknown> {
   const src = code.trim();
   if (!src) return Promise.resolve(data);
   const isFunction = /^(async\s+)?function\b|^(async\s*)?\(?[\w\s,]*\)?\s*=>/.test(src);
-  const script = isFunction ? `(${src})(__data)` : `(async function (data) { ${src} })(__data)`;
+  const fn = isFunction ? `(${src})` : `(async function (data) { ${src}\n})`;
+  const json = JSON.stringify(data === undefined ? null : data);
+  const ext = import.meta.url.endsWith('.ts') ? 'ts' : 'js';
   return new Promise((resolve, reject) => {
-    const worker = new Worker(WORKER_SOURCE, {
-      eval: true,
+    const worker = new Worker(new URL(`./transformWorker.${ext}`, import.meta.url), {
       env: {},
-      workerData: { script, data, timeoutMs },
+      workerData: { fn, json, timeoutMs },
       resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 32 },
       stdout: true,
       stderr: true,
     });
+    // QuickJS stops the code at the deadline; this is the backstop (loading the engine included).
     const timer = setTimeout(() => {
       void worker.terminate();
       reject(new Error(`The transform did not finish within ${timeoutMs / 1000} s`));
-    }, timeoutMs);
+    }, timeoutMs + 5000);
     const done = () => {
       clearTimeout(timer);
       void worker.terminate();

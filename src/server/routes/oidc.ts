@@ -1,4 +1,5 @@
 import { audit } from '../access/context.js';
+import { discardSetupCode, setupCodeAccepted, setupCodeRequired } from '../setupCode.js';
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -27,18 +28,27 @@ export const oidcRoutes =
       '/api/auth/oidc/login',
       {
         config: { auth: 'public', rateLimit: LIMIT },
-        schema: { hide: true, querystring: z.object({ next: z.string().max(2000).optional(), link: z.enum(['1']).optional() }) },
+        schema: {
+          hide: true,
+          querystring: z.object({ next: z.string().max(2000).optional(), link: z.enum(['1']).optional(), setupCode: z.string().max(100).optional() }),
+        },
       },
       async (req, reply) => {
         const linking = req.query.link === '1';
         if (!oidcUsable(ctx.cfg)) return fail(reply, 'Single sign-on is not set up', linking);
         let linkUserId: number | undefined;
         if (linking) {
-          if (req.principal?.kind !== 'user') return reply.redirect('/login');
+          // Only from the signed-in browser: an API key must never be turned into a sign-in of its user.
+          if (req.principal?.kind !== 'user' || req.principal.via !== 'session') return reply.redirect('/login');
           linkUserId = req.principal.userId;
         }
+        // The first account of an instance that already holds credentials needs the setup code.
+        const firstWithCode = !linking && setupCodeRequired(ctx);
+        if (firstWithCode && !setupCodeAccepted(ctx, req.query.setupCode)) {
+          return fail(reply, 'Enter the setup code first: it is in the log of Paperless-AI (docker logs) and in data/setup-code', false);
+        }
         try {
-          const url = await oidc.start(req, reply, { next: safeNext(req.query.next), linkUserId });
+          const url = await oidc.start(req, reply, { next: safeNext(req.query.next), linkUserId, setupCode: firstWithCode });
           return reply.redirect(url);
         } catch (err) {
           log.error(`Single sign-on: the provider could not be reached – ${describeOidcError(err)}`);
@@ -60,9 +70,14 @@ export const oidcRoutes =
         const owner = users.byOidc(identity.issuer, identity.subject);
 
         if (flow.linkUserId !== undefined) {
+          // The same signed-in browser has to come back (not a link started elsewhere).
+          if (req.principal?.kind !== 'user' || req.principal.via !== 'session' || req.principal.userId !== flow.linkUserId) {
+            throw new OidcLoginError('Sign in to Paperless-AI in this browser first, then link single sign-on in Settings → Account');
+          }
           const user = users.byId(flow.linkUserId);
           if (!user) throw new OidcLoginError('The account to link no longer exists');
           if (owner && owner.id !== user.id) throw new OidcLoginError(`This sign-in is already linked to the account "${owner.username}"`);
+          if (user.oidc_subject && !owner) throw new OidcLoginError('This account is linked with another sign-in – remove that link first');
           users.setOidc(user.id, identity);
           log.info(`Account "${user.username}" linked with single sign-on`);
           return reply.redirect('/settings?tab=account&sso=linked');
@@ -76,9 +91,11 @@ export const oidcRoutes =
           if (!ctx.cfg.auth.oidc.autoCreate && !first) {
             throw new OidcLoginError('There is no Paperless-AI account for this sign-in – sign in with your password once and link it in Settings → Account');
           }
+          if (first && setupCodeRequired(ctx) && !flow.setupCode) throw new OidcLoginError('Enter the setup code first: it is in the log of Paperless-AI and in data/setup-code');
           const name = oidc.username(identity);
           user = users.byId(users.createOidc(name, identity.issuer, identity.subject, first || adminByGroups ? 'admin' : 'member'))!;
           log.info(`Created account "${name}" from single sign-on`);
+          if (first) discardSetupCode(ctx);
           audit(ctx, null, 'user.created', `user:${user.id}`, { username: name, via: 'sso', role: user.role });
         } else if (adminByGroups !== null && (user.role === 'admin') !== adminByGroups) {
           // Admin groups decide the role – but the last admin is never demoted.

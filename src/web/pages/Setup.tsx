@@ -5,7 +5,7 @@ import { AuthShell, OrDivider } from './Login';
 import { SsoButton } from '../components/singleSignOn';
 import { AiSection, ConnectionSection, FunctionsSection, modelOf, ProcessingSection, type Config, type Locked } from '../components/settingsForms';
 import { Alert, Button, Field, IconChip, Input, Spinner } from '../components/ui';
-import { ApiError, errorMessage, get, post } from '../lib/api';
+import { ApiError, currentSetupCode, errorMessage, get, post, setSetupCode } from '../lib/api';
 import { useDraft } from '../lib/draft';
 import { cn } from '../lib/format';
 import { useSession } from '../lib/session';
@@ -57,12 +57,27 @@ export default function SetupPage() {
   const { session, refresh } = useSession();
   const [defaults, setDefaults] = useState<Defaults | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  useEffect(() => {
+  const [needsCode, setNeedsCode] = useState(false);
+  const load = () =>
     get<Defaults>('/api/setup/defaults')
-      .then(setDefaults)
-      .catch((err) => setLoadError(errorMessage(err)));
+      .then((d) => {
+        setNeedsCode(false);
+        setDefaults(d);
+      })
+      .catch((err) => {
+        // Credentials were configured before the first account: the setup asks for the code from the log.
+        if (err instanceof ApiError && err.body?.code === 'setup_code_required') {
+          if (currentSetupCode()) setLoadError('This setup code is not right – copy it from the log again.');
+          setNeedsCode(true);
+          return;
+        }
+        setLoadError(errorMessage(err));
+      });
+  useEffect(() => {
+    void load();
   }, []);
 
+  if (needsCode) return <SetupCodeForm error={loadError} onCode={(code) => (setLoadError(null), setSetupCode(code), void load())} />;
   if (loadError) {
     return (
       <AuthShell title="Setup">
@@ -78,6 +93,35 @@ export default function SetupPage() {
     );
   }
   return <Wizard defaults={defaults} login={session?.login ?? { password: true, sso: null }} onDone={refresh} />;
+}
+
+/** The code from the server log that protects credentials configured before the first account. */
+function SetupCodeForm({ error, onCode }: { error: string | null; onCode: (code: string) => void }) {
+  const [code, setCode] = useState('');
+  return (
+    <AuthShell title="Setup code">
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (code.trim()) onCode(code.trim());
+        }}
+      >
+        <p className="text-sm text-muted">
+          Paperless-AI was already given credentials (e.g. the Paperless-ngx token) before its first account. To make sure that only you create the administrator who gets
+          them, enter the setup code. It is in the log of Paperless-AI – <code className="kbd">docker logs paperless-ai</code> – and in the file{' '}
+          <code className="kbd">data/setup-code</code>.
+        </p>
+        {error && <Alert tone="danger">{error}</Alert>}
+        <Field label="Setup code">
+          <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="XXXX-XXXX-XXXX" autoFocus autoComplete="off" spellCheck={false} />
+        </Field>
+        <Button type="submit" variant="primary" className="w-full" disabled={!code.trim()}>
+          Continue
+        </Button>
+      </form>
+    </AuthShell>
+  );
 }
 
 type StepId = 'account' | 'archive' | 'paperless' | 'ai' | 'processing' | 'finish';
@@ -215,7 +259,7 @@ function Wizard({ defaults, login, onDone }: { defaults: Defaults; login: Sessio
                 ? 'Sign in with your single sign-on account – it becomes the first Paperless-AI account. You come back here afterwards.'
                 : 'Sign in with your single sign-on account – or create a local account with a password below.'}
             </p>
-            <SsoButton label={login.sso} next="/setup" primary={ssoOnly} />
+            <SsoButton label={login.sso} next="/setup" primary={ssoOnly} setupCode={currentSetupCode()} />
             {!ssoOnly && <OrDivider />}
           </div>
         )}

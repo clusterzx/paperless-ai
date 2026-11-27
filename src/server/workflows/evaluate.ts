@@ -11,6 +11,7 @@ import { extractJsonObject } from '../ai/json.js';
 import { contextBudget } from '../ai/factory.js';
 import { truncateToTokens } from '../ai/tokens.js';
 import { isGroup, type Condition, type ConditionGroup, type RunStep } from '../../shared/workflows.js';
+import { globMatch, regexTest } from '../util/patterns.js';
 
 /** What a run knows about its document. */
 export interface RunSubject {
@@ -107,11 +108,6 @@ export function conditionLabel(c: Condition): string {
   }
 }
 
-function globToRegExp(pattern: string): RegExp {
-  const esc = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
-  return new RegExp(`^${esc}$`, 'i');
-}
-
 function numberOf(v: string | undefined | null): number | null {
   if (v === undefined || v === null || v === '') return null;
   const n = Number(String(v).replace(/^[A-Z]{3}/, '').replace(',', '.'));
@@ -172,7 +168,7 @@ async function evaluateOne(c: Condition, env: EvalEnv): Promise<[boolean, Record
       return [contains(intake.folder, c.contains), { folder: intake.folder ?? null }];
     case 'filename': {
       const name = intake.filename ?? doc.original_file_name ?? '';
-      return [globToRegExp(c.pattern).test(name), { filename: name }];
+      return [globMatch(c.pattern, name), { filename: name }];
     }
     case 'mime_type': {
       const mime = doc.mime_type ?? null;
@@ -186,7 +182,7 @@ async function evaluateOne(c: Condition, env: EvalEnv): Promise<[boolean, Record
       const text = documentText(env.ctx, doc);
       let ok = true;
       if (c.contains) ok = text.toLowerCase().includes(c.contains.toLowerCase());
-      if (ok && c.regex) ok = new RegExp(c.regex, 'iu').test(text);
+      if (ok && c.regex) ok = regexTest(new RegExp(c.regex, 'iu'), text);
       return [ok, { length: text.length }];
     }
     case 'created': {

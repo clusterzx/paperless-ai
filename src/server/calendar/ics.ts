@@ -25,9 +25,21 @@ const KIND_LABEL: Record<EventKind, string> = {
   other: 'Date',
 };
 
-/** Text values: backslash, semicolon, comma and line breaks are escaped. */
+/**
+ * Text values: backslash, semicolon, comma and line breaks (also a lone CR, which some readers take
+ * as the end of the line) are escaped; other control characters are dropped – a text from a
+ * document can never start a property of its own.
+ */
 export function escapeText(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/;/g, String.raw`\;`).replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+  return (
+    value
+      .replace(/\\/g, '\\\\')
+      .replace(/;/g, String.raw`\;`)
+      .replace(/,/g, '\\,')
+      .replace(/\r\n|\r|\n|\u2028|\u2029/g, '\\n')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '')
+  );
 }
 
 /** Lines longer than 75 octets are folded (continuation lines start with a space), never inside a UTF-8 character. */

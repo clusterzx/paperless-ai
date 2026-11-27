@@ -232,6 +232,14 @@ describe('text of HTML and e-mails', () => {
     const md = await readTextFile(Buffer.from('Vorwort\n\n# Haushaltsbuch 2025\n\nText'), 'text/markdown');
     expect(md.title).toBe('Haushaltsbuch 2025');
   });
+
+  it('reads deeply nested HTML quickly', () => {
+    expect(htmlToText('<p>Hallo <b>Welt</b> &amp; mehr</p>')).toBe('Hallo Welt & mehr');
+    const deep = `${'<div>'.repeat(200_000)}Rechnung 42 &amp; mehr${'</div>'.repeat(200_000)}`;
+    const started = Date.now();
+    expect(htmlToText(deep)).toContain('Rechnung 42 & mehr');
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
 });
 
 describe('extractTarGz', () => {

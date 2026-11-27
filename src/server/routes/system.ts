@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { discardSetupCode, setupCodeRequired } from '../setupCode.js';
 import { networkFsWarning } from '../archive/fsinfo.js';
 import { watchFolderProblemFor } from '../archive/folder.js';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
@@ -53,6 +54,7 @@ export const systemRoutes =
         authenticated: Boolean(p),
         setupRequired: ctx.needsSetup(),
         needsUser: ctx.repos.users.count() === 0,
+        setupCode: setupCodeRequired(ctx),
         user: p?.kind === 'user' ? { id: p.userId, username: p.username, role: p.role } : undefined,
         version: ctx.version,
         features: { rag: ctx.cfg.rag.enabled, calendar: ctx.cfg.processing.functions.events },
@@ -186,6 +188,7 @@ export const systemRoutes =
         const id = ctx.repos.users.create(req.body.username!, passwordHash, 'admin');
         user = ctx.repos.users.byId(id);
         log.info(`Created user "${req.body.username}"`);
+        discardSetupCode(ctx);
       }
       if (user) setSessionCookie(reply, req, await issueSession(ctx, user), ctx.cfg.security.sessionHours);
       if (ctx.archiveMode() === 'builtin' && user) {

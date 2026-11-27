@@ -46,8 +46,9 @@ function secret(ctx: AppContext): Uint8Array {
   return new TextEncoder().encode(ctx.cfg.security.jwtSecret);
 }
 
-export async function issueSession(ctx: AppContext, user: { id: number; username: string; token_version: number }): Promise<string> {
-  return new SignJWT({ name: user.username, ver: user.token_version })
+export async function issueSession(ctx: AppContext, user: { id: number; username: string; token_version: number; created_at: number }): Promise<string> {
+  // `ca`: the account the session belongs to – an id alone could be one of a deleted account.
+  return new SignJWT({ name: user.username, ver: user.token_version, ca: user.created_at })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(String(user.id))
     .setIssuedAt()
@@ -60,10 +61,21 @@ export async function verifySession(ctx: AppContext, token: string): Promise<Pri
     const { payload } = await jwtVerify(token, secret(ctx), { algorithms: ['HS256'] });
     const user = ctx.repos.users.byId(Number(payload.sub));
     if (!user || user.token_version !== payload.ver || user.disabled_at) return null;
+    // Issued before this account existed: a session of an earlier account with the same id.
+    if (!issuedFor(user, payload)) return null;
     return { kind: 'user', userId: user.id, username: user.username, role: user.role, via: 'session' };
   } catch {
     return null;
   }
+}
+
+/**
+ * A token was issued to this account, not to an earlier one with the same id: it names the creation
+ * time of the account (`ca`), older tokens without it were at least issued after it was created.
+ */
+function issuedFor(user: { created_at: number }, payload: { ca?: unknown; iat?: number }): boolean {
+  if (payload.ca !== undefined) return payload.ca === user.created_at;
+  return typeof payload.iat === 'number' && payload.iat >= Math.floor(user.created_at / 1000);
 }
 
 /** Tickets are signed with their own key: one can never pass as a session, whatever it contains. */
@@ -72,8 +84,8 @@ function ticketKey(ctx: AppContext): Uint8Array {
 }
 
 /** Proof that the password was right, valid for 5 minutes and only for the second sign-in step. */
-export async function issueTwoFactorTicket(ctx: AppContext, user: { id: number; token_version: number }): Promise<string> {
-  return new SignJWT({ ver: user.token_version, typ: '2fa' })
+export async function issueTwoFactorTicket(ctx: AppContext, user: { id: number; token_version: number; created_at: number }): Promise<string> {
+  return new SignJWT({ ver: user.token_version, typ: '2fa', ca: user.created_at })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(String(user.id))
     .setIssuedAt()
@@ -87,7 +99,7 @@ export async function verifyTwoFactorTicket(ctx: AppContext, ticket: string): Pr
     if (payload.typ !== '2fa') return null;
     const user = ctx.repos.users.byId(Number(payload.sub));
     // A changed password (or 2FA switched off) invalidates open tickets.
-    return user && user.token_version === payload.ver && user.totp_enabled_at && !user.disabled_at ? user : null;
+    return user && user.token_version === payload.ver && user.totp_enabled_at && !user.disabled_at && issuedFor(user, payload) ? user : null;
   } catch {
     return null;
   }
@@ -168,8 +180,16 @@ export async function resolveAccess(ctx: AppContext, req: FastifyRequest): Promi
   return { principal: a.principal, access: scopeFor(ctx, a.principal, a.key), key: a.key };
 }
 
+/**
+ * Whether the browser talks HTTPS with us. Behind a reverse proxy that ends TLS the request comes
+ * as HTTP; without TRUST_PROXY its X-Forwarded-Proto still counts here – it only decides whether
+ * cookies are `Secure` (a forged header would only keep the forger's own cookie off plain HTTP).
+ */
 export function isSecureRequest(req: FastifyRequest): boolean {
-  return req.protocol === 'https';
+  if (req.protocol === 'https') return true;
+  const forwarded = req.headers['x-forwarded-proto'];
+  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim().toLowerCase();
+  return first === 'https';
 }
 
 export function setSessionCookie(reply: FastifyReply, req: FastifyRequest, token: string, hours: number): void {

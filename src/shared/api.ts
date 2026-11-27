@@ -454,6 +454,8 @@ export interface SessionInfo {
   setupRequired: boolean;
   /** No user account exists yet (first start). */
   needsUser: boolean;
+  /** The setup asks for the code from the log (credentials were configured before the first account). */
+  setupCode: boolean;
   user?: { id: number; username: string; role: InstanceRole };
   version: string;
   features: { rag: boolean; calendar: boolean };

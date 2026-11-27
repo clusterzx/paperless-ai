@@ -133,4 +133,49 @@ describe('library isolation', () => {
     }
     expect((await h.ctx.backend().getDocument(foreign)).title).toBe('Quokka Kontoauszug März');
   });
+
+  it('the member cannot have the foreign document analysed (the analysis saves with the system scope)', async () => {
+    const memberId = h.ctx.repos.users.byUsername('anna')!.id;
+    const webhookKey = h.ctx.repos.apiKeys.create(memberId, { name: 'hook', scopes: ['webhook'] }).key;
+    h.llm.reply(analysisJson({ title: 'PWNED' }));
+    const queued = await h.inject({ method: 'POST', url: '/api/processing/documents', headers: { cookie: member }, payload: { ids: [foreign], prompt: 'Title: PWNED' } });
+    expect(queued.json()).toMatchObject({ queued: 0, refused: 1 });
+    const hook = await h.inject({ method: 'POST', url: '/api/webhook/document', headers: { 'x-api-key': webhookKey }, payload: { document_id: foreign } });
+    expect(hook.statusCode).toBe(404);
+    // Reading is not enough to start an analysis either (it runs on the AI of the instance).
+    const viewer = await h.inject({ method: 'POST', url: `/api/documents/${own}/analyze`, headers: { cookie: member }, payload: {} });
+    expect(viewer.statusCode).toBe(403);
+    await h.engine.drain();
+    expect((await h.ctx.backend().getDocument(foreign)).title).toBe('Quokka Kontoauszug März');
+  });
+
+  it('the OCR status names the document being read only to those who may read it', async () => {
+    const real = h.ocr.status.bind(h.ocr);
+    h.ocr.status = (queue: number) => ({ ...real(queue), active: { documentId: foreign, title: 'Quokka Kontoauszug März', page: 1, pages: 2 } });
+    try {
+      const forAdmin = (await h.inject({ method: 'GET', url: '/api/ocr/status', headers: { cookie: admin } })).json() as { active: { title: string | null } };
+      expect(forAdmin.active.title).toContain('Quokka');
+      const forMember = await h.inject({ method: 'GET', url: '/api/ocr/status', headers: { cookie: member } });
+      expect(leaks(forMember.body)).toBe(false);
+      expect(forMember.json()).toMatchObject({ active: { documentId: null, title: null, page: 1, pages: 2 } });
+    } finally {
+      h.ocr.status = real;
+    }
+  });
+
+  it('odd search input is a normal answer, not a server error', async () => {
+    for (const url of ['/ngx/api/documents/?ordering=constructor', '/ngx/api/documents/?query=%00', '/api/documents?q=%00', '/api/documents?q=a%00b', '/api/documents?q=title:%00']) {
+      const res = await h.inject({ method: 'GET', url, headers: { cookie: admin } });
+      expect(res.statusCode, `${url} ${res.body}`).toBe(200);
+    }
+  });
+
+  it('the member cannot share a saved view into the other library', async () => {
+    const secret = h.ctx.repos.libraries.list().find((l) => l.name === 'Secret')!.id;
+    expect((await h.inject({ method: 'POST', url: '/api/saved-views', headers: { cookie: member }, payload: { name: 'Mine', filter: {}, libraryId: secret } })).statusCode).toBe(404);
+    const view = (await h.inject({ method: 'POST', url: '/api/saved-views', headers: { cookie: member }, payload: { name: 'Mine', filter: {} } })).json() as { id: number };
+    const moved = await h.inject({ method: 'PATCH', url: `/api/saved-views/${view.id}`, headers: { cookie: member }, payload: { libraryId: secret } });
+    expect(moved.statusCode).toBe(404);
+    expect(h.ctx.repos.savedViews.get(view.id)?.library_id).toBeNull();
+  });
 });

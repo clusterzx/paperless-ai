@@ -74,9 +74,15 @@ export const accessRoutes =
 
     app.get('/api/users', async (): Promise<UserInfo[]> => userInfo());
 
+    // Accounts and groups decide who gets in and with which rights: changed only from a signed-in
+    // browser, never with an API key (a key of an admin – or the global key – would make itself an
+    // account to sign in with).
+    const sessionOnly = { auth: 'session' } as const;
+
     app.post(
       '/api/users',
       {
+        config: sessionOnly,
         schema: {
           body: z.object({
             username,
@@ -107,6 +113,7 @@ export const accessRoutes =
     app.patch(
       '/api/users/:id',
       {
+        config: sessionOnly,
         schema: {
           params: id,
           body: z.object({
@@ -152,7 +159,7 @@ export const accessRoutes =
       },
     );
 
-    app.delete('/api/users/:id', { schema: { params: id } }, async (req) => {
+    app.delete('/api/users/:id', { config: sessionOnly, schema: { params: id } }, async (req) => {
       const user = users.byId(req.params.id);
       if (!user) throw notFound('User not found');
       if (req.principal?.kind === 'user' && req.principal.userId === user.id) throw badRequest('You cannot delete your own account');
@@ -180,7 +187,7 @@ export const accessRoutes =
 
     app.post(
       '/api/groups',
-      { schema: { body: z.object({ name: z.string().trim().min(1).max(100), members: z.array(z.number().int().positive()).max(10_000).default([]) }) } },
+      { config: sessionOnly, schema: { body: z.object({ name: z.string().trim().min(1).max(100), members: z.array(z.number().int().positive()).max(10_000).default([]) }) } },
       async (req): Promise<GroupInfo> => {
         if (groups.byName(req.body.name)) throw badRequest('A group with this name exists already');
         const gid = groups.create(req.body.name);
@@ -194,6 +201,7 @@ export const accessRoutes =
     app.patch(
       '/api/groups/:id',
       {
+        config: sessionOnly,
         schema: {
           params: id,
           body: z.object({ name: z.string().trim().min(1).max(100).optional(), members: z.array(z.number().int().positive()).max(10_000).optional() }),
@@ -215,7 +223,7 @@ export const accessRoutes =
       },
     );
 
-    app.delete('/api/groups/:id', { schema: { params: id } }, async (req) => {
+    app.delete('/api/groups/:id', { config: sessionOnly, schema: { params: id } }, async (req) => {
       const g = groups.get(req.params.id);
       if (!g) throw notFound('Group not found');
       const orphaned = ctx.repos.libraries.orphanedWithout({ type: 'group', id: g.id });

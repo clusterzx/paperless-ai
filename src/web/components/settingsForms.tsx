@@ -792,7 +792,7 @@ export function ExternalApiSection({ draft, set, locked }: SectionProps) {
           <Field
             label="Transformation (optional)"
             locked={locked['externalApi.transform']}
-            hint="JavaScript receiving the response as `data`, e.g. `return data.items.map(i => i.name)`. Runs sandboxed with a 1 s time limit."
+            hint="JavaScript receiving the response as `data`, e.g. `return data.items.map(i => i.name)`. It runs in a sandbox (QuickJS): it sees only the response – no files, network or server – within 2 s and 64 MB."
           >
             <Textarea rows={4} className="font-mono text-xs" {...bind(draft, set, locked, 'externalApi.transform')} placeholder="return data;" />
           </Field>

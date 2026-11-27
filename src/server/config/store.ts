@@ -19,7 +19,7 @@ export function deepMerge<T>(base: T, patch: unknown): T {
   if (!isPlainObject(base) || !isPlainObject(patch)) return (patch === undefined ? base : patch) as T;
   const out: Record<string, unknown> = { ...base };
   for (const [k, v] of Object.entries(patch)) {
-    if (v === undefined) continue;
+    if (v === undefined || k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
     out[k] = isPlainObject(v) && isPlainObject(out[k]) ? deepMerge(out[k], v) : v;
   }
   return out as T;

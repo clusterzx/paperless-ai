@@ -1,6 +1,7 @@
 /**
  * Paperless-AI entry point.
  */
+import { announceSetupCode } from './setupCode.js';
 import './env.js';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
   await app.listen({ port, host });
   log.info(`Web interface available on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
   if (ctx.needsSetup()) log.info('Setup required – open the web interface to configure Paperless-AI');
+  announceSetupCode(ctx);
 
   workflows.start();
   engine.start();

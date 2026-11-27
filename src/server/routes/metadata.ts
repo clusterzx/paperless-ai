@@ -341,6 +341,7 @@ export const metadataRoutes =
     app.patch('/api/saved-views/:id', { schema: { params: id, body: viewBody.partial() } }, async (req): Promise<SavedView> => {
       const userId = userIdOf(req.access!) ?? -1;
       const v = ownView(req.params.id, userId);
+      if (req.body.libraryId && req.body.libraryId !== v.library_id && !canRead(req.access!, req.body.libraryId)) throw notFound('Library not found');
       ctx.repos.savedViews.save(userId, {
         id: v.id,
         name: req.body.name ?? v.name,

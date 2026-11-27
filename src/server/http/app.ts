@@ -20,6 +20,7 @@ import { PaperlessError } from '../paperless/client.js';
 import { ArchiveError } from '../backend/types.js';
 import { hasScope, isAdmin } from '../access/scope.js';
 import { policyFor } from './policy.js';
+import { setupCodeAccepted } from '../setupCode.js';
 import { AiError } from '../ai/types.js';
 import { logger } from '../logger.js';
 import { endEventStreams, HttpProblem } from './helpers.js';
@@ -102,7 +103,35 @@ function isSetupRequest(req: FastifyRequest): boolean {
   return /^\/api\/setup(\/|$)/.test(pathname);
 }
 
+/**
+ * A change made with the session cookie, sent by another page than one of this app. The pages of
+ * the app send X-Requested-With with every change; a form of another page cannot set a header, and
+ * a script of another origin cannot send one with the cookie (CORS never allows credentials here).
+ * Browsers that name the sender (Sec-Fetch-Site, on https and localhost) are held to it as well.
+ * Requests with a key or a token in a header cannot be forged by another page and are not concerned.
+ */
+function sentByOtherPage(req: FastifyRequest, url: string): boolean {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return false;
+  const p = req.principal;
+  const withCookie = p?.kind === 'user' && p.via === 'session' && !req.headers.authorization && !req.headers['x-api-key'];
+  if (!withCookie) return false;
+  const site = req.headers['sec-fetch-site'];
+  if (typeof site === 'string' && site !== 'same-origin' && site !== 'none') return true;
+  // The share target of the installed app is a form the system sends (it can only add a document).
+  if (url === '/share-target') return false;
+  return !req.headers['x-requested-with'];
+}
+
 /** Browsers tell with Sec-Fetch-Site who sent a request (only to https:// and localhost addresses). */
+/**
+ * Signing in (password, second factor, single sign-on, logout) is only for the own page: other
+ * sites get no CORS headers here – a page on the internet could otherwise try passwords against an
+ * instance in the visitor's home network and read the answers.
+ */
+function isSignInRequest(req: FastifyRequest): boolean {
+  return req.url.split('?')[0].toLowerCase().startsWith('/api/auth/');
+}
+
 function isFromOtherSite(req: FastifyRequest): boolean {
   const site = req.headers['sec-fetch-site'];
   return typeof site === 'string' && site !== 'same-origin' && site !== 'none';
@@ -157,6 +186,13 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
       }
       return;
     }
+    if (isSignInRequest(req)) {
+      // The provider sends the browser back to the single sign-on callback (a GET from its site).
+      if (req.method === 'OPTIONS' || (!['GET', 'HEAD'].includes(req.method) && isFromOtherSite(req))) {
+        return reply.code(403).send({ error: 'Signing in is only possible on the page of Paperless-AI' });
+      }
+      return;
+    }
     reply.header('Access-Control-Allow-Origin', '*');
     reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, Access-Control-Allow-Private-Network');
@@ -199,7 +235,14 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     if (level === 'setup') {
       // Open only on a fresh installation (nobody could log in yet); afterwards a logged-in user is
       // required – never an API key, the setup endpoints contact arbitrary URLs.
-      if (ctx.needsSetup() && ctx.repos.users.count() === 0) return;
+      if (ctx.needsSetup() && ctx.repos.users.count() === 0) {
+        // Credentials configured before the first account (environment, data/.env): only the one who
+        // runs the server – who can read the log – may create the administrator who gets them.
+        if (!setupCodeAccepted(ctx, req.headers['x-setup-code'])) {
+          return deny(403, 'Enter the setup code: it is in the log of Paperless-AI (docker logs) and in data/setup-code', { code: 'setup_code_required' });
+        }
+        return;
+      }
       level = 'session';
     }
     if (!req.principal || !req.access) {
@@ -226,6 +269,12 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     if (level === 'session' && !(req.principal.kind === 'user' && req.principal.via === 'session')) {
       return deny(403, 'This action requires a logged-in user (API keys are not allowed)');
     }
+    // Cross-site request forgery: the session cookie also comes along with a form or request that
+    // another page sends – SameSite=Lax keeps only other sites out, not other apps on the same host
+    // (another port) or another subdomain. Changes with the cookie must come from this app's pages.
+    if (sentByOtherPage(req, url)) {
+      return deny(403, 'This request came from another page – open Paperless-AI itself to do this', { code: 'cross_site' });
+    }
     const policy = policyFor(req.method, url);
     if (policy.admin && !isAdmin(req.access)) return deny(403, 'Only administrators can do this', { code: 'admin_required' });
     if (!hasScope(req.access, policy.scope)) {
@@ -235,10 +284,11 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
 
   app.setErrorHandler((err: Error & { statusCode?: number; validation?: unknown }, req: FastifyRequest, reply: FastifyReply) => {
     if (err instanceof HttpProblem) return reply.code(err.statusCode).send({ error: err.message, details: err.details });
+    // Never echo thousands of issues (a large invalid array): the first ones say enough.
     if (err instanceof ZodError) {
-      return reply.code(400).send({ error: 'Invalid input', details: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) });
+      return reply.code(400).send({ error: 'Invalid input', details: err.issues.slice(0, 20).map((i) => ({ path: i.path.join('.'), message: i.message.slice(0, 300) })) });
     }
-    if (err.validation) return reply.code(400).send({ error: `Invalid request: ${err.message}` });
+    if (err.validation) return reply.code(400).send({ error: `Invalid request: ${err.message.length > 1000 ? `${err.message.slice(0, 1000)} …` : err.message}` });
     if (err instanceof NotConfiguredError) return reply.code(409).send({ error: err.message, code: 'not_configured' });
     if (err instanceof PaperlessError) {
       // Paperless "not found" is a 404 for our client too; everything else is an upstream problem.
@@ -276,6 +326,8 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(mcpRoutes(services));
 
   // Web UI (single page app)
+  const UI_CSP =
+    "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'";
   const staticDir = opts.staticDir;
   const indexFile = staticDir ? path.join(staticDir, 'index.html') : null;
   const hasUi = Boolean(indexFile && fs.existsSync(indexFile));
@@ -288,7 +340,8 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
       maxAge: '7d',
       immutable: true,
       setHeaders: (res, file) => {
-        if (file.endsWith('.html')) res.header('Cache-Control', 'no-cache');
+        // Also /index.html itself: the same policy as the pages (no framing by other sites).
+        if (file.endsWith('.html')) res.header('Cache-Control', 'no-cache').header('Content-Security-Policy', UI_CSP);
       },
     });
   }
@@ -300,10 +353,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
       return reply
         .type('text/html; charset=utf-8')
         .header('Cache-Control', 'no-cache')
-        .header(
-          'Content-Security-Policy',
-          "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'",
-        )
+        .header('Content-Security-Policy', UI_CSP)
         .send(indexHtml);
     }
     if (req.method === 'GET' && !isApi && !indexHtml) {

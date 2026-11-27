@@ -30,6 +30,8 @@ describe('iCal feed', () => {
 
   it('escapes text and folds long lines without splitting characters', () => {
     expect(escapeText('a\\b;c,d\ne')).toBe(String.raw`a\\b\;c\,d\ne`);
+    // A lone CR (or another control character) never starts a property of its own.
+    expect(escapeText('Rechnung\rATTENDEE:mailto:x@example.org\u0000\u2028Ende')).toBe(String.raw`Rechnung\nATTENDEE:mailto:x@example.org\nEnde`);
     const long = `SUMMARY:${'ä'.repeat(60)}`;
     const folded = foldLine(long);
     for (const part of folded.split('\r\n')) expect(Buffer.byteLength(part)).toBeLessThanOrEqual(75);

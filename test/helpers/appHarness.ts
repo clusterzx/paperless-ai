@@ -3,6 +3,7 @@
  * RagService, Fastify app) wired to the mock Paperless and mock LLM servers.
  * HTTP tests use Fastify's `inject` – no real port is opened for the app.
  */
+import { setupCode, setupCodeRequired } from '../../src/server/setupCode.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -37,6 +38,8 @@ export interface HarnessOptions {
   configured?: boolean;
   memoryDb?: boolean;
   env?: Record<string, string | undefined>;
+  /** Directory with a built web UI (index.html) to serve. */
+  staticDir?: string;
   /** Run with the built-in archive instead of the mock Paperless-ngx. */
   archive?: 'paperless' | 'builtin';
 }
@@ -113,7 +116,7 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
   const workflows = new WorkflowEngine(ctx, engine);
   engine.workflows = workflows;
   workflows.start();
-  const app = await buildApp({ ctx, engine, rag, ocr, workflows });
+  const app = await buildApp({ ctx, engine, rag, ocr, workflows }, { staticDir: opts.staticDir });
   await app.ready();
 
   let cookie: string | null = null;
@@ -129,7 +132,9 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
     paperless,
     llm,
     dataDir,
-    inject: (o) => app.inject(o),
+    // As the pages of the app: they send X-Requested-With with every request (CSRF check in app.ts –
+    // tested without it in csrf.test.ts through h.app.inject).
+    inject: (o) => app.inject(typeof o === 'object' && o !== null ? { ...o, headers: { 'x-requested-with': 'Paperless-AI', ...(o.headers as Record<string, string>) } } : o),
     async login(username = TEST_USER, password = TEST_PASSWORD) {
       if (cookie && username === TEST_USER && password === TEST_PASSWORD) return cookie;
       // The default test user administrates the instance (like the account created by the setup).
@@ -192,4 +197,23 @@ export function analysisJson(overrides: Record<string, unknown> = {}): string {
     language: 'en',
     ...overrides,
   });
+}
+
+/**
+ * Send the setup code with the setup requests and the single sign-on start, as the wizard does once
+ * the owner typed it in (credentials preset before the first account – see src/server/setupCode.ts).
+ */
+export function withSetupCode(h: Harness): Harness {
+  const inject = h.inject.bind(h);
+  h.inject = ((opts: Parameters<Harness['inject']>[0]) => {
+    if (typeof opts !== 'object' || opts === null || !setupCodeRequired(h.ctx)) return inject(opts);
+    const o = opts as { url?: string; headers?: Record<string, string> };
+    const code = setupCode(h.ctx);
+    if (o.url?.startsWith('/api/setup')) return inject({ ...o, headers: { 'x-setup-code': code, ...o.headers } } as never);
+    if (o.url?.startsWith('/api/auth/oidc/login') && !o.url.includes('link=1')) {
+      return inject({ ...o, url: `${o.url}${o.url.includes('?') ? '&' : '?'}setupCode=${code}` } as never);
+    }
+    return inject(opts);
+  }) as Harness['inject'];
+  return h;
 }

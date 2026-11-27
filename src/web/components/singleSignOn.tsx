@@ -6,14 +6,14 @@ import { errorMessage, post } from '../lib/api';
 import { cn } from '../lib/format';
 
 /** Start of the sign-in at the OpenID Connect provider (a full page load, not a fetch). */
-export function ssoLoginUrl(next: string, link = false): string {
-  return `/api/auth/oidc/login?${new URLSearchParams({ next, ...(link ? { link: '1' } : {}) })}`;
+export function ssoLoginUrl(next: string, link = false, setupCode?: string | null): string {
+  return `/api/auth/oidc/login?${new URLSearchParams({ next, ...(link ? { link: '1' } : {}), ...(setupCode ? { setupCode } : {}) })}`;
 }
 
 /** "Sign in with SSO" – a link, because the browser has to leave for the provider. */
-export function SsoButton({ label, next, primary, className }: { label: string; next: string; primary?: boolean; className?: string }) {
+export function SsoButton({ label, next, primary, className, setupCode }: { label: string; next: string; primary?: boolean; className?: string; setupCode?: string | null }) {
   return (
-    <a href={ssoLoginUrl(next)} className={buttonClass({ variant: primary ? 'primary' : 'secondary', size: 'lg', className: cn('w-full', className) })}>
+    <a href={ssoLoginUrl(next, false, setupCode)} className={buttonClass({ variant: primary ? 'primary' : 'secondary', size: 'lg', className: cn('w-full', className) })}>
       <KeyRound className="size-4" />
       {label}
     </a>

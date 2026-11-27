@@ -18,7 +18,7 @@ import { canEdit, canRead, hasScope, isAdmin, userIdOf, type AccessScope } from 
 import type { ArchiveDocument, ChangeOrigin, CustomFieldType, DocumentFilter, DocumentPatch, MetadataKind, MetadataUpdate } from '../backend/types.js';
 import { statusOf } from '../backend/types.js';
 import { HttpProblem } from '../http/helpers.js';
-import { sendFile } from '../routes/documentOps.js';
+import { sendFile, sendThumbnail } from '../routes/documentOps.js';
 import { postDocumentHandler } from './postDocument.js';
 import { verifyPassword, hashPassword } from '../auth.js';
 import { passwordLoginAllowed } from '../oidc.js';
@@ -135,7 +135,7 @@ export const ngxRoutes =
         const code = String(body.code ?? '').trim();
         if (!code) throw refuse('MFA code is required');
         const second = await checkSecondFactor(ctx, user, code);
-        if (!second.ok) throw refuse(secondFactorError(second.reason));
+        if (!second.ok) throw refuse(secondFactorError(second.reason, second.retryAfterMinutes));
       }
       const agent = String(req.headers['user-agent'] ?? '').split(/[/ (]/)[0].slice(0, 40) || 'app';
       const { key } = ctx.repos.apiKeys.create(user.id, { name: `Paperless-ngx app (${agent})`, scopes: ['read', 'write', 'delete', 'metadata', 'upload'] });
@@ -155,12 +155,14 @@ export const ngxRoutes =
       const id = userIdOf(scopeOf(req));
       return id !== null ? ctx.repos.users.byId(id) : undefined;
     };
-    const userJson = (u: { id: number; username: string; email?: string | null; display_name?: string | null; role: string; created_at: number; disabled_at?: number | null }, self?: { id: number; permissions: string[] }) => {
+    const userJson = (u: { id: number; username: string; email?: string | null; display_name?: string | null; role: string; created_at: number; disabled_at?: number | null }, self?: { id: number; permissions: string[]; admin?: boolean }) => {
       const [first, ...rest] = (u.display_name ?? '').split(' ');
+      // E-mail address and second factor: only the own account (and administrators) see them.
+      const private_ = Boolean(self && (self.id === u.id || self.admin));
       return {
         id: u.id,
         username: u.username,
-        email: u.email ?? '',
+        email: private_ ? (u.email ?? '') : '',
         password: '**********',
         first_name: first ?? '',
         last_name: rest.join(' '),
@@ -172,7 +174,7 @@ export const ngxRoutes =
         user_permissions: [],
         // The permissions of the caller (apps read their own from here); others: none listed.
         inherited_permissions: self && self.id === u.id ? self.permissions : [],
-        is_mfa_enabled: Boolean((u as { totp_enabled_at?: number | null }).totp_enabled_at),
+        is_mfa_enabled: private_ && Boolean((u as { totp_enabled_at?: number | null }).totp_enabled_at),
         inbox_tags: [],
       };
     };
@@ -257,7 +259,7 @@ export const ngxRoutes =
     app.get('/ngx/api/users/', auth, async (req) => {
       local();
       const q = req.query as Query;
-      const self = { id: userIdOf(scopeOf(req)) ?? 0, permissions: permissions(req) };
+      const self = { id: userIdOf(scopeOf(req)) ?? 0, permissions: permissions(req), admin: isAdmin(scopeOf(req)) };
       const wanted = (q.username ?? q.username__iexact)?.toLowerCase();
       const users = ctx.repos.users
         .list()
@@ -268,7 +270,7 @@ export const ngxRoutes =
     app.get('/ngx/api/users/:id/', auth, async (req) => {
       const u = ctx.repos.users.byId(Number((req.params as { id: string }).id));
       if (!u || u.disabled_at) throw notFoundError();
-      return userJson(u, { id: userIdOf(scopeOf(req)) ?? 0, permissions: permissions(req) });
+      return userJson(u, { id: userIdOf(scopeOf(req)) ?? 0, permissions: permissions(req), admin: isAdmin(scopeOf(req)) });
     });
     app.get('/ngx/api/groups/', auth, async (req) => paginateList(req, ctx.repos.groups.list().map((g) => ({ id: g.id, name: g.name, permissions: [] })), req.query as Query));
     app.get('/ngx/api/remote_version/', { config: { auth: 'public' } }, async () => {
@@ -628,9 +630,8 @@ export const ngxRoutes =
     app.get('/ngx/api/documents/:id/thumb/', auth, async (req, reply) => {
       const doc = await documentOf(req);
       const t = await ctx.backend(scopeOf(req)).thumbnail(doc.id);
-      reply.header('Cache-Control', 'private, max-age=3600');
-      if (t.contentType === 'image/svg+xml') return reply.type('image/png').send(await placeholder());
-      return reply.type(t.contentType).send(Buffer.from(t.data));
+      if (t.contentType === 'image/svg+xml') return sendThumbnail(reply, await placeholder(), 'image/png');
+      return sendThumbnail(reply, t.data, t.contentType);
     });
 
     app.get('/ngx/api/documents/:id/metadata/', auth, async (req) => {

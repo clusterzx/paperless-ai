@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import type { ActivityItem } from '../../shared/api.js';
 import type { AppContext } from '../context.js';
 import type { AppConfig } from '../config/schema.js';
-import { canEdit, canRead, readableLibraries, roleIn, userIdOf, type AccessScope } from '../access/scope.js';
+import { canEdit, canRead, hasScope, readableLibraries, roleIn, userIdOf, type AccessScope } from '../access/scope.js';
 import {
   ArchiveError,
   forbidden,
@@ -498,7 +498,7 @@ export class LocalBackend implements DocumentBackend {
 
   async listDocuments(scope: AccessScope, q: DocumentListQuery = {}): Promise<ArchiveDocument[]> {
     const w = this.whereOf(scope, { ids: q.ids, tagsAny: q.tagsAny, tagsNone: q.tagsNone, libraryIds: q.libraryIds });
-    const order = ORDERING[q.ordering ?? '-added'] ?? ORDERING['-added'];
+    const order = Object.hasOwn(ORDERING, q.ordering ?? '-added') ? ORDERING[q.ordering ?? '-added'] : ORDERING['-added'];
     const rows = await this.reader.all<DocRow>(`SELECT d.* FROM lib_documents d WHERE ${w.sql} ORDER BY ${order}`, w.params);
     const withContent = Boolean(q.fields?.includes('content'));
     const out: ArchiveDocument[] = [];
@@ -1151,6 +1151,8 @@ export class LocalBackend implements DocumentBackend {
       | undefined;
     if (!ev || !UNDOABLE_KINDS.has(ev.kind)) throw notFound('Change');
     if (ev.reverted_by) throw new ArchiveError('This change was undone already', 409, 'already_undone');
+    // Undoing a restore moves the document to the trash: that is deleting.
+    if (ev.kind === 'restored' && !hasScope(scope, 'delete')) throw new ArchiveError('The API key does not have the "delete" scope', 403, 'forbidden');
     const changes = JSON.parse(ev.changes || '{}') as Record<string, [unknown, unknown]>;
     const markReverted = () => {
       const undo = this.db.prepare('SELECT MAX(id) AS id FROM lib_document_events WHERE document_id = ?').get(id) as { id: number };

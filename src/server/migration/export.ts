@@ -59,9 +59,14 @@ export function safeName(s: string, max = 120): string {
   return cleaned || 'untitled';
 }
 
-function csvCell(v: unknown): string {
-  const s = v === null || v === undefined ? '' : Array.isArray(v) ? v.join('; ') : String(v);
-  return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+/**
+ * One CSV cell. A text that a spreadsheet would run as a formula (=, +, -, @ at the start – a title
+ * from a document could be "=HYPERLINK(…)") gets a leading apostrophe; plain numbers stay as they are.
+ */
+export function csvCell(v: unknown): string {
+  let s = v === null || v === undefined ? '' : Array.isArray(v) ? v.join('; ') : String(v);
+  if (/^[=+\-@\t\r]/.test(s) && !/^[+-]?\d+([.,]\d+)?$/.test(s)) s = `'${s}`;
+  return /[",\r\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 async function copyBlob(blobs: BlobStore, sha: string, target: string, algorithm: ExportChecksums = 'sha256'): Promise<{ bytes: number; checksum: string }> {

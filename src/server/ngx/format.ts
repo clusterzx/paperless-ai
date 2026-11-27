@@ -228,7 +228,7 @@ export function sortFromOrdering(ordering: string | undefined, hasQuery: boolean
     id: 'added',
     '-id': '-added',
   };
-  if (map[o]) return map[o];
+  if (Object.hasOwn(map, o)) return map[o];
   if ((o === '-score' || o === 'score' || !o) && hasQuery) return 'relevance';
   return '-created';
 }

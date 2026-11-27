@@ -255,6 +255,33 @@ describe('workflows in the built-in archive', () => {
     expect(h.ctx.repos.workflows.runs({ workflowId: wf.id })[0]).toMatchObject({ status: 'skipped' });
     expect(h.ctx.repos.workflows.get(wf.id)?.suspendedReason).toMatch(/no longer an owner/);
   });
+
+  it('shows webhook credentials only to those who can change the workflow; others test the saved version', async () => {
+    h = await createHarness({ archive: 'builtin' });
+    const admin = await h.login();
+    const lib = local().ensureDefaultLibrary();
+    const userId = h.ctx.repos.users.create('vera', await hashPassword('vera password 1'), 'member');
+    h.ctx.repos.libraries.setMember(lib, 'user', userId, 'viewer');
+    const vera = `${SESSION_COOKIE}=${await issueSession(h.ctx, h.ctx.repos.users.byId(userId)!)}`;
+    const wf = await create(
+      admin,
+      def({ name: 'Hook', trigger: { type: 'manual' }, actions: [{ type: 'notify_webhook', url: 'https://ntfy.example/secret-topic?auth=abc', preset: 'ntfy', secret: 'hush' }] }),
+    );
+
+    const mine = (await h.inject({ method: 'GET', url: `/api/workflows/${wf.id}`, headers: { cookie: admin } })).json() as Workflow;
+    expect(mine.actions[0]).toMatchObject({ url: 'https://ntfy.example/secret-topic?auth=abc', secret: 'hush' });
+    const seen = (await h.inject({ method: 'GET', url: `/api/workflows/${wf.id}`, headers: { cookie: vera } })).json() as Workflow;
+    expect(seen.actions[0]).toEqual({ type: 'notify_webhook', preset: 'ntfy', url: 'https://ntfy.example/…', secret: '••••••' });
+    const list = (await h.inject({ method: 'GET', url: '/api/workflows', headers: { cookie: vera } })).json() as Workflow[];
+    expect(JSON.stringify(list)).not.toMatch(/secret-topic|hush|auth=abc/);
+
+    const id = await ingest(['Hook test'], { libraryId: lib });
+    const unsaved = await h.inject({ method: 'POST', url: '/api/workflows/dry-run', headers: { cookie: vera }, payload: { documentId: id, workflow: def({ trigger: { type: 'manual' }, actions: [] }) } });
+    expect(unsaved.statusCode).toBe(403);
+    const saved = await h.inject({ method: 'POST', url: '/api/workflows/dry-run', headers: { cookie: vera }, payload: { documentId: id, workflowId: wf.id } });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect((saved.json() as DryRunResult).matched).toBe(true);
+  });
 });
 
 describe('workflows with Paperless-ngx', () => {

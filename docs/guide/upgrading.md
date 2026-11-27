@@ -12,6 +12,10 @@ docker compose pull && docker compose up -d
 
 An installation that uses Paperless-ngx stays in that mode. Nothing changes until you choose to [move to the built-in archive](built-in-archive.md#moving-from-paperless-ngx).
 
+### To 4.7.1
+
+- **Scripts that sign in with a password** and send changes with the session cookie need the header `X-Requested-With` (any value), otherwise they get `403`. API keys are not affected.
+
 ### To 4.7
 
 - **OCR API server** is new and off: other apps send files to Paperless-AI to be read – Paperless-ngx as its remote OCR engine instead of Tesseract, scripts through `/api/ocr/read` ([setup](ocr.md#ocr-api-server)). API keys have a new permission for it, *OCR API*.

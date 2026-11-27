@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { LightMyRequestResponse } from 'fastify';
 import { SESSION_COOKIE } from '../../src/server/auth.js';
 import { OIDC_FLOW_COOKIE, OIDC_ID_TOKEN_COOKIE } from '../../src/server/oidc.js';
-import { createHarness, TEST_PASSWORD, TEST_USER, type Harness, type HarnessOptions } from '../helpers/appHarness.js';
+import { createHarness, TEST_PASSWORD, TEST_USER, withSetupCode, type Harness, type HarnessOptions } from '../helpers/appHarness.js';
 import { MockOidc } from '../helpers/mockOidc.js';
 
 let h: Harness | null = null;
@@ -22,7 +22,8 @@ const cookieOf = (res: LightMyRequestResponse, name: string) => {
 async function setup(opts: HarnessOptions & { oidc?: Record<string, unknown> } = {}) {
   idp = await new MockOidc().start();
   const oidc = { enabled: true, issuer: idp.url, clientId: idp.clientId, clientSecret: idp.clientSecret, buttonLabel: 'Sign in with Authentik', ...opts.oidc };
-  h = await createHarness({ ...opts, config: { ...opts.config, auth: { oidc } } });
+  // The first account of an instance with preset credentials needs the setup code (setupCode.test.ts).
+  h = withSetupCode(await createHarness({ ...opts, config: { ...opts.config, auth: { oidc } } }));
   return { hh: h, provider: idp };
 }
 
@@ -172,6 +173,16 @@ describe('single sign-on (OIDC)', () => {
     );
     // linking needs a signed-in user
     expect(location(await hh.inject({ method: 'GET', url: '/api/auth/oidc/login?link=1' }))).toBe('/login');
+    // … in the browser: an API key of the user (whatever its scope) cannot start a link – it would become a sign-in
+    const admin = hh.ctx.repos.users.byUsername(TEST_USER)!;
+    const ocrKey = hh.ctx.repos.apiKeys.create(admin.id, { name: 'ocr', scopes: ['ocr'] }).key;
+    expect(location(await hh.inject({ method: 'GET', url: '/api/auth/oidc/login?link=1', headers: { 'x-api-key': ocrKey } }))).toBe('/login');
+    // … and the browser that started it has to come back signed in
+    const started = await hh.inject({ method: 'GET', url: '/api/auth/oidc/login?link=1', headers: { cookie: second } });
+    const atProvider = await fetch(started.headers.location as string, { redirect: 'manual' });
+    const back = new URL(atProvider.headers.get('location')!);
+    const foreignCallback = await hh.inject({ method: 'GET', url: back.pathname + back.search, headers: { cookie: cookieOf(started, OIDC_FLOW_COOKIE)! } });
+    expect(location(foreignCallback)).toMatch(/sso_error=Sign%20in%20to%20Paperless-AI%20in%20this%20browser/);
 
     // unlinking works while the password login is on
     expect((await hh.inject({ method: 'POST', url: '/api/account/sso/unlink', headers: { cookie } })).json()).toEqual({ ok: true });
@@ -250,10 +261,12 @@ describe('single sign-on (OIDC)', () => {
 
   it('creates the first account during setup when the password login is off', async () => {
     idp = await new MockOidc().start();
-    h = await createHarness({
-      configured: false,
-      env: { OIDC_ENABLED: 'true', OIDC_ISSUER: idp.url, OIDC_CLIENT_ID: idp.clientId, OIDC_CLIENT_SECRET: idp.clientSecret, PASSWORD_LOGIN: 'false', OIDC_AUTO_CREATE: 'false' },
-    });
+    h = withSetupCode(
+      await createHarness({
+        configured: false,
+        env: { OIDC_ENABLED: 'true', OIDC_ISSUER: idp.url, OIDC_CLIENT_ID: idp.clientId, OIDC_CLIENT_SECRET: idp.clientSecret, PASSWORD_LOGIN: 'false', OIDC_AUTO_CREATE: 'false' },
+      }),
+    );
     expect((await h.inject({ method: 'GET', url: '/api/session' })).json()).toMatchObject({ needsUser: true, login: { password: false, sso: 'Sign in with SSO' } });
     const local = await h.inject({ method: 'POST', url: '/api/setup', payload: { username: 'admin', password: 'long enough password', config: {} } });
     expect(local.statusCode).toBe(400);

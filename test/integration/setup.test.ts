@@ -4,13 +4,14 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SESSION_COOKIE } from '../../src/server/auth.js';
 import { SECRET_MASK } from '../../src/server/config/schema.js';
-import { createHarness, type Harness } from '../helpers/appHarness.js';
+import { createHarness, withSetupCode, type Harness } from '../helpers/appHarness.js';
 import { startMockLlm } from '../helpers/mockLlm.js';
 import { startMockPaperless } from '../helpers/mockPaperless.js';
 
 let h: Harness;
 beforeAll(async () => {
-  h = await createHarness({ configured: false });
+  // The wizard sends the setup code once credentials are preset (see setupCode.test.ts).
+  h = withSetupCode(await createHarness({ configured: false }));
 });
 afterAll(() => h.close());
 

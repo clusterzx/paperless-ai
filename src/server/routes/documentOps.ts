@@ -310,6 +310,19 @@ function disposition(kind: 'inline' | 'attachment', filename: string): string {
   return `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
+/**
+ * A thumbnail as an image only: raster images, and the SVG placeholder sandboxed. Anything else (a
+ * Paperless-ngx answering with an HTML page …) is sent as bytes the browser does not render.
+ */
+export function sendThumbnail(reply: FastifyReply, data: Uint8Array, contentType: string): FastifyReply {
+  const type = /^image\/(webp|png|jpeg|gif|avif|svg\+xml)$/i.test(contentType.split(';')[0].trim()) ? contentType : 'application/octet-stream';
+  return reply
+    .header('Cache-Control', 'private, max-age=3600')
+    .header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+    .type(type)
+    .send(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+}
+
 export function sendFile(req: FastifyRequest, reply: FastifyReply, data: Uint8Array, contentType: string, filename: string, inline: boolean): FastifyReply {
   // Text without a charset: the one of the file (browsers guess wrong for Windows-1252 and UTF-16).
   if (/^text\//i.test(contentType) && !/charset=/i.test(contentType)) contentType = `${contentType}; charset=${textEncoding(data) ?? 'utf-8'}`;

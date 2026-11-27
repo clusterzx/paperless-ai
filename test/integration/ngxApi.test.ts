@@ -62,6 +62,32 @@ describe('signing in like the apps', () => {
     expect(wrong.json()).toEqual({ detail: 'Invalid token.' });
   });
 
+  it('works for the apps exactly as they send requests – without the headers of a browser', async () => {
+    // h.app.inject: no X-Requested-With, no Origin, no Sec-Fetch-* – like a native app.
+    const app = (method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, headers: Record<string, string> = {}, payload?: unknown) =>
+      h.app.inject({ method, url, headers: { accept: 'application/json; version=9', ...headers }, ...(payload !== undefined ? { payload: payload as string } : {}) });
+    const login = await app('POST', '/ngx/api/token/', {}, { username: 'admin', password: PASSWORD });
+    expect(login.statusCode, login.body).toBe(200);
+    const t = { authorization: `Token ${login.json().token}` };
+    const id = await addDocument('Handy Test', 'Rechnung vom Handy');
+    expect((await app('GET', '/ngx/api/documents/?ordering=-created', t)).json().count).toBeGreaterThan(0);
+    expect((await app('PATCH', `/ngx/api/documents/${id}/`, t, { title: 'Vom Handy geändert' })).statusCode).toBe(200);
+    expect((await app('POST', '/ngx/api/ui_settings/', t, { settings: { app: true } })).statusCode).toBe(200);
+    const thumb = await app('GET', `/ngx/api/documents/${id}/thumb/`, t);
+    expect(thumb.statusCode).toBe(200);
+    expect(thumb.headers['content-type']).toMatch(/^image\//);
+    const boundary = '----app';
+    const upload = await app('POST', '/ngx/api/documents/post_document/', { ...t, 'content-type': `multipart/form-data; boundary=${boundary}` }, Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="document"; filename="scan.pdf"\r\nContent-Type: application/pdf\r\n\r\n`),
+      makePdf([['Gescannt mit der App']]),
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]));
+    expect(upload.statusCode, upload.body).toBe(200);
+    expect((await app('DELETE', `/ngx/api/documents/${id}/`, t)).statusCode).toBe(204);
+    // The own profile with e-mail, as the apps show it.
+    expect((await app('GET', '/ngx/api/users/?username=admin', t)).json().results[0].username).toBe('admin');
+  });
+
   it('answers the server check of Paperparrot without signing in', async () => {
     // Paperparrot tests the address with the version check (open to anyone in Paperless-ngx) …
     const version = await h.inject({ method: 'GET', url: '/ngx/api/remote_version/', headers: { accept: 'application/json' } });
@@ -155,6 +181,16 @@ describe('signing in like the apps', () => {
     expect(users.results).toHaveLength(1);
     expect(users.results[0].inherited_permissions).toContain('view_document');
     expect(users.results[0]).toHaveProperty('is_mfa_enabled', false);
+    // E-mail addresses: the own one only (administrators see all).
+    const adminId = h.ctx.repos.users.byUsername('admin')!.id;
+    h.ctx.repos.users.setProfile(adminId, { email: 'admin@example.org' });
+    expect((await get('/ngx/api/users/?username=admin')).json().results[0].email).toBe('admin@example.org');
+    const otherId = h.ctx.repos.users.create('mia', 'x', 'member');
+    h.ctx.repos.users.setProfile(otherId, { email: 'mia@example.org' });
+    const miaKey = h.ctx.repos.apiKeys.create(otherId, { name: 'app', scopes: ['read'] }).key;
+    const asMia = (await h.inject({ method: 'GET', url: '/ngx/api/users/', headers: { authorization: `Token ${miaKey}` } })).json() as { results: { username: string; email: string }[] };
+    expect(asMia.results.find((u) => u.username === 'mia')?.email).toBe('mia@example.org');
+    expect(asMia.results.find((u) => u.username === 'admin')?.email).toBe('');
     expect((await get('/ngx/api/config/')).json()).toHaveLength(1);
     expect((await get('/ngx/api/remote_version/')).json()).toEqual({ version: expect.stringMatching(/^v\d/), update_available: false });
   });

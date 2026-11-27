@@ -574,6 +574,8 @@ export function WorkflowEditor({ initial, onSaved, onDeleted }: { initial: Workf
   const [saving, setSaving] = useState(false);
   const [dry, setDry] = useState(false);
   const locked = Boolean(initial?.locked);
+  /** The caller may change (and so test changes of) this workflow. */
+  const editable = !locked && (admin || (wf.libraryId !== null && ownLibraries.some((l) => l.id === wf.libraryId)));
   const data: EditorData = { libraries: libraries.data ?? [], prompts: prompts.data ?? [], ruleInfo: ruleInfo.data ?? null, directory: directory.data ?? { users: [], groups: [] } };
   const analysisOnly = wf.trigger.type === 'analysis.before';
   const actionTypes = (Object.keys(ACTION_LABELS) as ActionType[]).filter(
@@ -769,7 +771,7 @@ export function WorkflowEditor({ initial, onSaved, onDeleted }: { initial: Workf
           )}
         </div>
       </div>
-      {dry && <DryRunModal wf={wf} onClose={() => setDry(false)} />}
+      {dry && <DryRunModal wf={wf} savedId={initial && !editable ? initial.id : undefined} onClose={() => setDry(false)} />}
     </div>
   );
 }
@@ -800,7 +802,8 @@ function StepList({ steps }: { steps: RunStep[] }) {
   );
 }
 
-function DryRunModal({ wf, onClose }: { wf: WorkflowDefinition; onClose: () => void }) {
+/** `savedId`: the caller cannot change the workflow – the saved version is tested. */
+function DryRunModal({ wf, savedId, onClose }: { wf: WorkflowDefinition; savedId?: number; onClose: () => void }) {
   const meta = useMetadata();
   const [doc, setDoc] = useState<number | null>(null);
   const [result, setResult] = useState<DryRunResult | null>(null);
@@ -811,7 +814,8 @@ function DryRunModal({ wf, onClose }: { wf: WorkflowDefinition; onClose: () => v
     setBusy(true);
     setError(null);
     try {
-      setResult(await post<DryRunResult>('/api/workflows/dry-run', { documentId: id, workflow: { ...wf, name: wf.name || 'Test' } }));
+      const body = savedId !== undefined ? { documentId: id, workflowId: savedId } : { documentId: id, workflow: { ...wf, name: wf.name || 'Test' } };
+      setResult(await post<DryRunResult>('/api/workflows/dry-run', body));
     } catch (err) {
       setError(errorMessage(err));
       setResult(null);

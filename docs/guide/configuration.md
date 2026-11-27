@@ -32,7 +32,7 @@ Environment variables **override** stored settings (the UI shows them as locked)
 | `RESTRICT_TO_EXISTING_TAGS`, `RESTRICT_TO_EXISTING_CORRESPONDENTS`, `RESTRICT_TO_EXISTING_DOCUMENT_TYPES` | restrictions |
 | `CUSTOM_FIELDS` | custom fields (JSON, format of 3.x) |
 | `PROMPT_RULES` | [prompt rules](prompt-rules.md) as JSON (locks them in the web interface) |
-| `EXTERNAL_API_ENABLED`, `EXTERNAL_API_URL`, `EXTERNAL_API_METHOD`, `EXTERNAL_API_HEADERS`, `EXTERNAL_API_BODY`, `EXTERNAL_API_TIMEOUT`, `EXTERNAL_API_TRANSFORM` | external data |
+| `EXTERNAL_API_ENABLED`, `EXTERNAL_API_URL`, `EXTERNAL_API_METHOD`, `EXTERNAL_API_HEADERS`, `EXTERNAL_API_BODY`, `EXTERNAL_API_TIMEOUT`, `EXTERNAL_API_TRANSFORM` | external data; the transform is JavaScript that runs in a sandbox (QuickJS in WebAssembly): it sees only the response, not files, network or the server – 2 s, 64 MB |
 | `RAG_ENABLED` (or `RAG_SERVICE_ENABLED`), `RAG_EMBEDDING_PROVIDER`, `RAG_EMBEDDING_MODEL`, `RAG_QUERY_EXPANSION` | ask your archive |
 | `RAG_QUERY_PROMPT`, `RAG_DOCUMENT_PROMPT` | [embedding prompts](ask-your-archive.md#embedding-prompts) for questions (`{query}`) and passages (`{text}`, `{title}`); empty = automatic |
 | `ACTIVATE_CALENDAR` | find appointments, due dates and deadlines for the calendar (default off) |

@@ -44,6 +44,8 @@ interface Flow {
   next: string;
   /** Link the identity to this (signed-in) user instead of signing in. */
   linkUserId?: number;
+  /** The setup code was given: this sign-in may create the first account (see setupCode.ts). */
+  setupCode?: boolean;
 }
 
 export interface OidcIdentity {
@@ -53,9 +55,21 @@ export interface OidcIdentity {
   idToken: string | undefined;
 }
 
-/** Only paths on this origin ("/…", not "//host" or "/\host"). */
+/**
+ * Only paths on this origin ("/…", not "//host" or "/\host"). Browsers drop tabs and line breaks in
+ * a URL and read "\" as "/" – "/<tab>/host" would lead to another site: no control characters and
+ * no backslashes at all.
+ */
 export function safeNext(next: unknown, fallback = '/'): string {
-  return typeof next === 'string' && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : fallback;
+  if (typeof next !== 'string' || !next.startsWith('/') || next.startsWith('//')) return fallback;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f\\]/.test(next)) return fallback;
+  try {
+    const base = 'http://next.invalid';
+    return new URL(next, base).origin === base ? next : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 const services = new WeakMap<AppContext, OidcService>();
@@ -120,7 +134,7 @@ export class OidcService {
   }
 
   /** Redirect to the provider; the flow state goes into a signed cookie. */
-  async start(req: FastifyRequest, reply: FastifyReply, opts: { next: string; linkUserId?: number }): Promise<string> {
+  async start(req: FastifyRequest, reply: FastifyReply, opts: { next: string; linkUserId?: number; setupCode?: boolean }): Promise<string> {
     const config = await this.configuration();
     const flow: Flow = {
       state: client.randomState(),
@@ -129,6 +143,7 @@ export class OidcService {
       redirectUri: this.redirectUri(req),
       next: safeNext(opts.next),
       linkUserId: opts.linkUserId,
+      ...(opts.setupCode ? { setupCode: true } : {}),
     };
     const url = client.buildAuthorizationUrl(config, {
       redirect_uri: flow.redirectUri,

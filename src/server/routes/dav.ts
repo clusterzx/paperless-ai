@@ -8,7 +8,7 @@
  *   /dav/inbox/<library>/<a>/<b>/<file>  → plus the tags "a" and "b" (like watch folders)
  *
  * Nothing is ever listed or downloaded: the inbox looks empty, except for files put there in the
- * last minutes (some clients check after the upload that the file exists).
+ * last minutes by the same caller (some clients check after the upload that the file exists).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,14 +28,24 @@ const log = logger.child({ module: 'webdav' });
 export const DAV_METHODS = ['PROPFIND', 'PROPPATCH', 'MKCOL', 'COPY', 'MOVE', 'LOCK', 'UNLOCK'];
 const ROOT = '/dav/inbox';
 const RECENT_MS = 10 * 60_000;
+const MAX_RECENT = 200;
 
 function xmlEscape(s: string): string {
   return s.replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]!);
 }
 
+/** Percent-decoded (a malformed escape stays as it is instead of failing the request). */
+function decoded(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 function entry(href: string, collection: boolean, size = 0, modified = new Date()): string {
   return `<D:response><D:href>${xmlEscape(encodeURI(href))}</D:href><D:propstat><D:prop>
-<D:displayname>${xmlEscape(decodeURIComponent(path.posix.basename(href)) || 'inbox')}</D:displayname>
+<D:displayname>${xmlEscape(path.posix.basename(href) || 'inbox')}</D:displayname>
 <D:resourcetype>${collection ? '<D:collection/>' : ''}</D:resourcetype>
 ${collection ? '' : `<D:getcontentlength>${size}</D:getcontentlength><D:getcontenttype>application/octet-stream</D:getcontenttype>`}
 <D:getlastmodified>${modified.toUTCString()}</D:getlastmodified>
@@ -54,18 +64,33 @@ export const davRoutes =
     app.removeAllContentTypeParsers();
     app.addContentTypeParser('*', (_req, payload, done) => done(null, payload));
 
-    /** Files put recently (path → size), so a check right after the upload finds them. */
-    const recent = new Map<string, { size: number; at: number }>();
-    const remember = (p: string, size: number) => {
+    /**
+     * Files put recently (path → size), so a check right after the upload finds them – per caller
+     * (nobody sees the file names of others) and at most MAX_RECENT of them.
+     */
+    const recentByCaller = new Map<string, Map<string, { size: number; at: number }>>();
+    const callerOf = (req: FastifyRequest) => {
+      const p = req.principal;
+      return p?.kind === 'user' ? `user:${p.userId}` : (p?.kind ?? 'none');
+    };
+    const recentOf = (req: FastifyRequest) => recentByCaller.get(callerOf(req)) ?? new Map<string, { size: number; at: number }>();
+    const remember = (req: FastifyRequest, p: string, size: number) => {
       const now = Date.now();
-      for (const [k, v] of recent) if (now - v.at > RECENT_MS) recent.delete(k);
-      recent.set(`${p}`, { size, at: now });
+      for (const [caller, files] of recentByCaller) {
+        for (const [k, v] of files) if (now - v.at > RECENT_MS) files.delete(k);
+        if (!files.size) recentByCaller.delete(caller);
+      }
+      const files = recentOf(req);
+      files.delete(p);
+      files.set(p, { size, at: now });
+      while (files.size > MAX_RECENT) files.delete(files.keys().next().value!);
+      recentByCaller.set(callerOf(req), files);
     };
 
     const enabled = () => ctx.cfg.archive.builtin.webdav && ctx.archiveConfigured();
     /** Path segments below /dav/inbox/ (decoded, without empty ones). */
     const segments = (req: FastifyRequest) =>
-      decodeURIComponent(req.url.split('?')[0].slice(ROOT.length))
+      decoded(req.url.split('?')[0].slice(ROOT.length))
         .split('/')
         .filter(Boolean);
     /** Libraries the caller may add to (built-in archive); null in companion mode. */
@@ -101,6 +126,7 @@ export const davRoutes =
         case 'PROPFIND': {
           await drain(req.body);
           const depth = String(req.headers.depth ?? '1');
+          const recent = recentOf(req);
           const known = recent.get(href);
           if (known) return reply.code(207).type('application/xml; charset=utf-8').send(multistatus(entry(href, false, known.size, new Date(known.at))));
           // Everything else is a (virtual, empty) folder; the root lists the libraries.
@@ -139,7 +165,7 @@ export const davRoutes =
           // Windows creates the file empty first and writes it in a second PUT.
           if (size === 0) {
             fs.rmSync(tmp, { force: true });
-            remember(href, 0);
+            remember(req, href, 0);
             return reply.code(201).send();
           }
           try {
@@ -147,7 +173,7 @@ export const davRoutes =
             const res = await ctx.backend(req.access!).ingest({ path: tmp, filename: name }, 'webdav', { libraryId, tags: tags.length ? tags : undefined, context: { folder: segs.slice(0, -1).join('/') } });
             if (res.status === 'rejected') return reply.code(415).type('text/plain').send(res.reason ?? 'Not accepted');
             if (res.status === 'failed') return reply.code(503).header('Retry-After', '60').type('text/plain').send(res.reason ?? 'Could not be stored – try again');
-            remember(href, size);
+            remember(req, href, size);
             log.info(`WebDAV: "${name}" ${res.status}${res.documentId ? ` (document ${res.documentId})` : ''}`);
             return reply.code(201).send();
           } catch (err) {
@@ -161,17 +187,14 @@ export const davRoutes =
           await drain(req.body);
           return reply.code(201).send();
         case 'DELETE':
-          recent.delete(href);
+          recentOf(req).delete(href);
           return reply.code(204).send();
         case 'MOVE':
         case 'COPY': {
           // Uploads under a temporary name that are renamed afterwards are stored already.
           const dest = String(req.headers.destination ?? '');
-          if (dest) {
-            const destPath = decodeURIComponent(new URL(dest, 'http://x').pathname);
-            const known = recent.get(href);
-            if (known) remember(destPath, known.size);
-          }
+          const known = recentOf(req).get(href);
+          if (dest && known && URL.canParse(dest, 'http://x')) remember(req, decoded(new URL(dest, 'http://x').pathname), known.size);
           return reply.code(201).send();
         }
         case 'LOCK': {
@@ -192,7 +215,7 @@ export const davRoutes =
           return reply.code(207).type('application/xml; charset=utf-8').send(multistatus(entry(href, segs.length === 0)));
         case 'GET':
         case 'HEAD': {
-          if (recent.has(href)) return reply.code(404).send();
+          if (recentOf(req).has(href)) return reply.code(404).send();
           return reply.type('text/plain; charset=utf-8').send('Paperless-AI inbox – put files here (WebDAV). They are stored in the archive and do not stay in this folder.\n');
         }
         default:
