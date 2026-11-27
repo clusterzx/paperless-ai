@@ -155,6 +155,16 @@ describe('signing in like the apps', () => {
     expect(users.results).toHaveLength(1);
     expect(users.results[0].inherited_permissions).toContain('view_document');
     expect(users.results[0]).toHaveProperty('is_mfa_enabled', false);
+    // E-mail addresses: the own one only (administrators see all).
+    const adminId = h.ctx.repos.users.byUsername('admin')!.id;
+    h.ctx.repos.users.setProfile(adminId, { email: 'admin@example.org' });
+    expect((await get('/ngx/api/users/?username=admin')).json().results[0].email).toBe('admin@example.org');
+    const otherId = h.ctx.repos.users.create('mia', 'x', 'member');
+    h.ctx.repos.users.setProfile(otherId, { email: 'mia@example.org' });
+    const miaKey = h.ctx.repos.apiKeys.create(otherId, { name: 'app', scopes: ['read'] }).key;
+    const asMia = (await h.inject({ method: 'GET', url: '/ngx/api/users/', headers: { authorization: `Token ${miaKey}` } })).json() as { results: { username: string; email: string }[] };
+    expect(asMia.results.find((u) => u.username === 'mia')?.email).toBe('mia@example.org');
+    expect(asMia.results.find((u) => u.username === 'admin')?.email).toBe('');
     expect((await get('/ngx/api/config/')).json()).toHaveLength(1);
     expect((await get('/ngx/api/remote_version/')).json()).toEqual({ version: expect.stringMatching(/^v\d/), update_available: false });
   });

@@ -155,12 +155,14 @@ export const ngxRoutes =
       const id = userIdOf(scopeOf(req));
       return id !== null ? ctx.repos.users.byId(id) : undefined;
     };
-    const userJson = (u: { id: number; username: string; email?: string | null; display_name?: string | null; role: string; created_at: number; disabled_at?: number | null }, self?: { id: number; permissions: string[] }) => {
+    const userJson = (u: { id: number; username: string; email?: string | null; display_name?: string | null; role: string; created_at: number; disabled_at?: number | null }, self?: { id: number; permissions: string[]; admin?: boolean }) => {
       const [first, ...rest] = (u.display_name ?? '').split(' ');
+      // E-mail address and second factor: only the own account (and administrators) see them.
+      const private_ = Boolean(self && (self.id === u.id || self.admin));
       return {
         id: u.id,
         username: u.username,
-        email: u.email ?? '',
+        email: private_ ? (u.email ?? '') : '',
         password: '**********',
         first_name: first ?? '',
         last_name: rest.join(' '),
@@ -172,7 +174,7 @@ export const ngxRoutes =
         user_permissions: [],
         // The permissions of the caller (apps read their own from here); others: none listed.
         inherited_permissions: self && self.id === u.id ? self.permissions : [],
-        is_mfa_enabled: Boolean((u as { totp_enabled_at?: number | null }).totp_enabled_at),
+        is_mfa_enabled: private_ && Boolean((u as { totp_enabled_at?: number | null }).totp_enabled_at),
         inbox_tags: [],
       };
     };
@@ -257,7 +259,7 @@ export const ngxRoutes =
     app.get('/ngx/api/users/', auth, async (req) => {
       local();
       const q = req.query as Query;
-      const self = { id: userIdOf(scopeOf(req)) ?? 0, permissions: permissions(req) };
+      const self = { id: userIdOf(scopeOf(req)) ?? 0, permissions: permissions(req), admin: isAdmin(scopeOf(req)) };
       const wanted = (q.username ?? q.username__iexact)?.toLowerCase();
       const users = ctx.repos.users
         .list()
@@ -268,7 +270,7 @@ export const ngxRoutes =
     app.get('/ngx/api/users/:id/', auth, async (req) => {
       const u = ctx.repos.users.byId(Number((req.params as { id: string }).id));
       if (!u || u.disabled_at) throw notFoundError();
-      return userJson(u, { id: userIdOf(scopeOf(req)) ?? 0, permissions: permissions(req) });
+      return userJson(u, { id: userIdOf(scopeOf(req)) ?? 0, permissions: permissions(req), admin: isAdmin(scopeOf(req)) });
     });
     app.get('/ngx/api/groups/', auth, async (req) => paginateList(req, ctx.repos.groups.list().map((g) => ({ id: g.id, name: g.name, permissions: [] })), req.query as Query));
     app.get('/ngx/api/remote_version/', { config: { auth: 'public' } }, async () => {
