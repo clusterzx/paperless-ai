@@ -4,7 +4,7 @@
  * port) or a subdomain. Changes with the cookie need the header the pages of the app send.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHarness, type Harness } from '../helpers/appHarness.js';
+import { createHarness, TEST_PASSWORD, TEST_USER, type Harness } from '../helpers/appHarness.js';
 
 let h: Harness;
 let cookie: string;
@@ -38,5 +38,20 @@ describe('cross-site request forgery', () => {
     expect((await h.inject({ method: 'POST', url: '/api/processing/pause', headers: { cookie, 'sec-fetch-site': 'same-origin' } })).statusCode).toBe(200);
     expect((await h.app.inject({ method: 'POST', url: '/api/processing/resume', headers: h.apiKeyHeaders() })).statusCode).toBe(200);
     expect((await h.app.inject({ method: 'GET', url: '/api/documents', headers: { cookie } })).statusCode).toBe(200);
+  });
+
+  it('keeps signing in to the own page: no CORS, no requests from other sites', async () => {
+    const login = { username: TEST_USER, password: TEST_PASSWORD };
+    const preflight = await h.app.inject({ method: 'OPTIONS', url: '/api/auth/login', headers: { origin: 'https://evil.example', 'access-control-request-method': 'POST' } });
+    expect(preflight.statusCode).toBe(403);
+    expect(preflight.headers['access-control-allow-origin']).toBeUndefined();
+    const foreign = await h.app.inject({ method: 'POST', url: '/api/auth/login', headers: { 'sec-fetch-site': 'cross-site', origin: 'https://evil.example' }, payload: login });
+    expect(foreign.statusCode).toBe(403);
+    expect(foreign.cookies).toHaveLength(0);
+    const own = await h.app.inject({ method: 'POST', url: '/api/auth/login', headers: { 'sec-fetch-site': 'same-origin' }, payload: login });
+    expect(own.statusCode).toBe(200);
+    expect(own.headers['access-control-allow-origin']).toBeUndefined();
+    // The API itself stays open to other origins with an API key.
+    expect((await h.app.inject({ method: 'GET', url: '/api/documents', headers: h.apiKeyHeaders() })).headers['access-control-allow-origin']).toBe('*');
   });
 });

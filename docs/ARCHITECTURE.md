@@ -278,5 +278,6 @@ question ─▶ query analysis with the LLM (standalone query for follow-ups + s
   password login. The ID token is kept in an `httpOnly` cookie for RP-initiated logout. Discovery is
   cached for an hour and refreshed on config changes. The password login can only be switched off while
   SSO is usable and – in the UI – only by a linked account. The local 2FA applies to the password login.
-* CORS allows any origin without credentials (API key only), so browser extensions keep working.
+* CORS allows any origin without credentials (API key only), so browser extensions keep working –
+  except signing in (`/api/auth/*`) and the setup wizard, which only their own page may call.
 * Server-sent events are used for chats and the live log; disconnecting clients abort the LLM request.

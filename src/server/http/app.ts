@@ -123,6 +123,15 @@ function sentByOtherPage(req: FastifyRequest, url: string): boolean {
 }
 
 /** Browsers tell with Sec-Fetch-Site who sent a request (only to https:// and localhost addresses). */
+/**
+ * Signing in (password, second factor, single sign-on, logout) is only for the own page: other
+ * sites get no CORS headers here – a page on the internet could otherwise try passwords against an
+ * instance in the visitor's home network and read the answers.
+ */
+function isSignInRequest(req: FastifyRequest): boolean {
+  return req.url.split('?')[0].toLowerCase().startsWith('/api/auth/');
+}
+
 function isFromOtherSite(req: FastifyRequest): boolean {
   const site = req.headers['sec-fetch-site'];
   return typeof site === 'string' && site !== 'same-origin' && site !== 'none';
@@ -174,6 +183,13 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     if (isSetupRequest(req)) {
       if (req.method === 'OPTIONS' || isFromOtherSite(req)) {
         return reply.code(403).send({ error: 'The setup wizard can only be used from its own page' });
+      }
+      return;
+    }
+    if (isSignInRequest(req)) {
+      // The provider sends the browser back to the single sign-on callback (a GET from its site).
+      if (req.method === 'OPTIONS' || (!['GET', 'HEAD'].includes(req.method) && isFromOtherSite(req))) {
+        return reply.code(403).send({ error: 'Signing in is only possible on the page of Paperless-AI' });
       }
       return;
     }
