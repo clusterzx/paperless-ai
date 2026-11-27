@@ -2,7 +2,7 @@
  * User and group management (admins), personal API keys, the audit log and in-app notifications.
  * See docs/standalone/access-control.md.
  */
-import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { ApiKeyInfo, AuditEntryInfo, GroupInfo, NotificationInfo, UserInfo } from '../../shared/api.js';
@@ -12,6 +12,7 @@ import { hashPassword, validatePassword } from '../auth.js';
 import { API_SCOPES, canEdit, isAdmin, type AccessScope } from '../access/scope.js';
 import { allowedScopes, audit } from '../access/context.js';
 import type { ApiKeyRow } from '../db/accessRepo.js';
+import { AVATAR_MAX_BYTES, AvatarError, avatarUrl, prepareAvatar } from '../access/avatar.js';
 import { logger } from '../logger.js';
 
 const log = logger.child({ module: 'access' });
@@ -64,6 +65,7 @@ export const accessRoutes =
         password: u.password,
         twoFactor: u.two_factor,
         groups: memberships.get(u.id) ?? [],
+        avatarUrl: avatarUrl(u.id, u.avatar_at),
       }));
     };
 
@@ -325,6 +327,92 @@ export const accessRoutes =
         return { ok: true };
       },
     );
+
+    // ---------------------------------------------------------------- profile pictures
+
+    /** The picture of a multipart upload (field `file`), checked and resized. */
+    const uploadedAvatar = async (req: FastifyRequest) => {
+      if (!req.isMultipart()) throw badRequest('Send the picture as multipart/form-data (field "file")');
+      let bytes: Buffer;
+      try {
+        const part = await req.file({ limits: { fileSize: AVATAR_MAX_BYTES, files: 1 } });
+        if (!part) throw badRequest('Send the picture as multipart/form-data (field "file")');
+        bytes = await part.toBuffer();
+      } catch (err) {
+        if ((err as { code?: string }).code === 'FST_REQ_FILE_TOO_LARGE') throw new HttpProblem(413, `The picture is larger than ${AVATAR_MAX_BYTES / 1024 / 1024} MB`);
+        throw err;
+      }
+      try {
+        return await prepareAvatar(bytes);
+      } catch (err) {
+        if (err instanceof AvatarError) throw badRequest(err.message);
+        throw err;
+      }
+    };
+
+    const sendAvatar = (req: FastifyRequest, reply: FastifyReply, userId: number) => {
+      const avatar = users.avatar(userId);
+      if (!avatar) throw notFound('No profile picture');
+      const etag = `"${avatar.hash}"`;
+      // The address with the current version (avatarUrl) never shows another picture: browsers keep it.
+      const versioned = (req.query as { v?: string } | undefined)?.v === String(avatar.updated_at);
+      reply
+        .header('ETag', etag)
+        .header('Cache-Control', versioned ? 'private, max-age=31536000, immutable' : 'private, no-cache')
+        .header('Content-Security-Policy', "default-src 'none'; sandbox");
+      if (req.headers['if-none-match'] === etag) return reply.code(304).send();
+      return reply.type(avatar.mime).send(avatar.data);
+    };
+
+    const avatarQuery = z.object({ v: z.string().max(20).optional() });
+    const upload = {
+      consumes: ['multipart/form-data'],
+      description: `A PNG, JPEG or WebP picture of at most ${AVATAR_MAX_BYTES / 1024 / 1024} MB (multipart field \`file\`). With sharp (part of the Docker image) it is cut to a square of 256×256 and stored as WebP.`,
+    };
+
+    app.get(
+      '/api/users/:id/avatar',
+      {
+        schema: {
+          params: id,
+          querystring: avatarQuery,
+          description: 'The profile picture of a user (404 when they have none). Every signed-in user and API keys with the `read` scope can see it.',
+        },
+      },
+      async (req, reply) => {
+        if (!users.byId(req.params.id)) throw notFound('User not found');
+        return sendAvatar(req, reply, req.params.id);
+      },
+    );
+
+    app.put('/api/users/:id/avatar', { config: sessionOnly, schema: { params: id, ...upload } }, async (req) => {
+      const user = users.byId(req.params.id);
+      if (!user) throw notFound('User not found');
+      const at = users.setAvatar(user.id, await uploadedAvatar(req));
+      audit(ctx, req.access, 'user.avatar_changed', `user:${user.id}`, { username: user.username });
+      return { avatarUrl: avatarUrl(user.id, at) };
+    });
+
+    app.delete('/api/users/:id/avatar', { config: sessionOnly, schema: { params: id } }, async (req) => {
+      const user = users.byId(req.params.id);
+      if (!user) throw notFound('User not found');
+      if (users.deleteAvatar(user.id)) audit(ctx, req.access, 'user.avatar_removed', `user:${user.id}`, { username: user.username });
+      return { ok: true };
+    });
+
+    app.get('/api/account/avatar', { schema: { querystring: avatarQuery, description: 'Your own profile picture (404 when you have none).' } }, async (req, reply) =>
+      sendAvatar(req, reply, me(req).userId),
+    );
+
+    app.put('/api/account/avatar', { config: { auth: 'session' }, schema: upload }, async (req) => {
+      const userId = me(req).userId;
+      return { avatarUrl: avatarUrl(userId, users.setAvatar(userId, await uploadedAvatar(req))) };
+    });
+
+    app.delete('/api/account/avatar', { config: { auth: 'session' } }, async (req) => {
+      users.deleteAvatar(me(req).userId);
+      return { ok: true };
+    });
 
     // ---------------------------------------------------------------- audit log
 

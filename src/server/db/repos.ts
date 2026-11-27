@@ -49,6 +49,17 @@ export interface UserListRow {
   sso: boolean;
   password: boolean;
   two_factor: boolean;
+  /** When the profile picture was last changed (null: none). */
+  avatar_at: number | null;
+}
+
+/** A stored profile picture. */
+export interface AvatarRow {
+  data: Buffer;
+  mime: string;
+  /** SHA-256 of data (the ETag). */
+  hash: string;
+  updated_at: number;
 }
 
 export interface RecoveryCodeRow {
@@ -66,9 +77,10 @@ export class UsersRepo {
   list(): UserListRow[] {
     const rows = this.db
       .prepare(
-        `SELECT id, username, role, display_name, email, disabled_at, created_at,
-                oidc_subject IS NOT NULL AS sso, password_hash != '' AS password, totp_enabled_at IS NOT NULL AS two_factor
-         FROM users ORDER BY username COLLATE NOCASE`,
+        `SELECT u.id, u.username, u.role, u.display_name, u.email, u.disabled_at, u.created_at,
+                u.oidc_subject IS NOT NULL AS sso, u.password_hash != '' AS password, u.totp_enabled_at IS NOT NULL AS two_factor,
+                a.updated_at AS avatar_at
+         FROM users u LEFT JOIN user_avatars a ON a.user_id = u.id ORDER BY u.username COLLATE NOCASE`,
       )
       .all() as (Omit<UserListRow, 'sso' | 'password' | 'two_factor'> & { sso: number; password: number; two_factor: number })[];
     return rows.map((r) => ({ ...r, sso: Boolean(r.sso), password: Boolean(r.password), two_factor: Boolean(r.two_factor) }));
@@ -96,6 +108,34 @@ export class UsersRepo {
     this.db
       .prepare('UPDATE users SET display_name = ?, email = ?, updated_at = ? WHERE id = ?')
       .run(profile.displayName !== undefined ? profile.displayName : u.display_name, profile.email !== undefined ? profile.email : u.email, Date.now(), id);
+  }
+
+  // ---------------------------------------------------------------- profile picture
+
+  avatar(id: number): AvatarRow | undefined {
+    return this.db.prepare('SELECT data, mime, hash, updated_at FROM user_avatars WHERE user_id = ?').get(id) as AvatarRow | undefined;
+  }
+
+  /** When the profile picture of the account was last changed (null: none). */
+  avatarAt(id: number): number | null {
+    return (this.db.prepare('SELECT updated_at FROM user_avatars WHERE user_id = ?').get(id) as { updated_at: number } | undefined)?.updated_at ?? null;
+  }
+
+  setAvatar(id: number, avatar: { data: Buffer; mime: string; hash: string }): number {
+    // Strictly increasing: the time is the version in the picture's URL, so a new picture gets a new one.
+    const at = Math.max(Date.now(), (this.avatarAt(id) ?? 0) + 1);
+    this.db
+      .prepare(
+        `INSERT INTO user_avatars (user_id, data, mime, hash, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, mime = excluded.mime, hash = excluded.hash, updated_at = excluded.updated_at`,
+      )
+      .run(id, avatar.data, avatar.mime, avatar.hash, at);
+    return at;
+  }
+
+  /** False when the account had no picture. */
+  deleteAvatar(id: number): boolean {
+    return this.db.prepare('DELETE FROM user_avatars WHERE user_id = ?').run(id).changes > 0;
   }
 
   setDefaultLibrary(id: number, libraryId: number | null): void {

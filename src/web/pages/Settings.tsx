@@ -21,6 +21,7 @@ import {
   Users,
   Archive as ArchiveIcon,
   Inbox as InboxIcon,
+  Image as ImageIcon,
   ScrollText,
   Webhook,
   Workflow,
@@ -30,6 +31,7 @@ import { ArchiveSection, NotificationsSection } from '../components/archiveSetti
 import { Page } from '../components/Layout';
 import { TwoFactorCard } from '../components/twoFactor';
 import { SingleSignOnCard } from '../components/singleSignOn';
+import { AvatarPicker } from '../components/avatarPicker';
 import {
   AiSection,
   ConnectionSection,
@@ -59,7 +61,7 @@ import {
   useToast,
 } from '../components/ui';
 import type { AccountInfo, LibraryInfo } from '@shared/api';
-import { ApiError, errorMessage, get, patch, post, put } from '../lib/api';
+import { ApiError, del, errorMessage, get, patch, post, postForm, put } from '../lib/api';
 import { changedPaths, useDraft } from '../lib/draft';
 import { useAsync, useUnsavedChanges } from '../lib/hooks';
 import { useMetadata } from '../lib/metadata';
@@ -252,6 +254,35 @@ function PasswordCard() {
   );
 }
 
+/** The profile picture of the signed-in user (header, user lists). */
+function ProfilePictureCard({ account, onChange }: { account: AccountInfo; onChange: () => void }) {
+  const toast = useToast();
+  const { refresh } = useSession();
+  const changed = async (message: string) => {
+    toast.success(message);
+    onChange();
+    await refresh();
+  };
+  return (
+    <Card title="Profile picture" icon={<ImageIcon className="size-4" />} className="max-w-xl">
+      <AvatarPicker
+        name={account.user?.displayName || account.user?.username || ''}
+        url={account.user?.avatarUrl ?? null}
+        upload={async (file) => {
+          const form = new FormData();
+          form.append('file', file);
+          await postForm('/api/account/avatar', form, 'PUT');
+          await changed('Profile picture saved');
+        }}
+        remove={async () => {
+          await del('/api/account/avatar');
+          await changed('Profile picture removed');
+        }}
+      />
+    </Card>
+  );
+}
+
 /** Built-in archive: where the user's uploads go without a chosen library (share, WebDAV, apps, API). */
 function UploadsCard({ account, onChange }: { account: AccountInfo; onChange: () => void }) {
   const toast = useToast();
@@ -310,6 +341,7 @@ function AccountTab() {
   if (!a) return <Skeleton className="h-64 max-w-xl rounded-xl" />;
   return (
     <div className="space-y-6">
+      {a.user && <ProfilePictureCard account={a} onChange={() => void account.reload()} />}
       {a.hasPassword ? (
         <PasswordCard />
       ) : (

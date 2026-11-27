@@ -33,7 +33,7 @@ document                          belongs to exactly one library
 | Users, groups, roles | ✓ | – |
 | Create libraries | ✓ | ✓ (setting `archive.membersCreateLibraries`, default on) |
 | Manage membership of any library (audited) | ✓ | – |
-| Own profile, password, 2FA, own API keys | ✓ | ✓ |
+| Own profile (and profile picture), password, 2FA, own API keys | ✓ | ✓ |
 | Prompt library, prompt wizard, playground | ✓ | view / try only |
 
 Admins are **not** implicitly members of every library. They can manage membership, including

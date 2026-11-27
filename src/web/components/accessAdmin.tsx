@@ -1,11 +1,12 @@
 /**
  * Settings → Users & groups (admins), API keys (everyone), Audit log (admins and library owners).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Ban, Check, Copy, KeyRound, Plus, ScrollText, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react';
 import { API_SCOPES, type ApiKeyInfo, type ApiScope, type AuditEntryInfo, type GroupInfo, type LibraryInfo, type UserInfo } from '@shared/api';
-import { Alert, Badge, Button, Card, CopySnippet, EmptyState, Field, IconButton, Input, Modal, Select, Skeleton, useConfirm, useToast } from './ui';
-import { del, errorMessage, get, patch, post } from '../lib/api';
+import { Alert, Avatar, Badge, Button, Card, CopySnippet, EmptyState, Field, IconButton, Input, Modal, Select, Skeleton, useConfirm, useToast } from './ui';
+import { del, errorMessage, get, patch, post, postForm } from '../lib/api';
+import { AvatarPicker } from './avatarPicker';
 import { useAsync } from '../lib/hooks';
 import { formatDate, timeAgo } from '../lib/format';
 import { useSession } from '../lib/session';
@@ -91,12 +92,35 @@ function UserModal({ user, groups, onClose, onSaved }: { user: UserInfo | null; 
   const [memberOf, setMemberOf] = useState<number[]>(user?.groups.map((g) => g.id) ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { session, refresh } = useSession();
+  // The picture is saved at once for existing users; a new user gets it once the account exists.
+  const [picture, setPicture] = useState<string | null>(user?.avatarUrl ?? null);
+  const [pendingPicture, setPendingPicture] = useState<File | null>(null);
+  useEffect(
+    () => () => {
+      if (picture?.startsWith('blob:')) URL.revokeObjectURL(picture);
+    },
+    [picture],
+  );
+  const uploadPicture = async (userId: number, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return (await postForm<{ avatarUrl: string }>(`/api/users/${userId}/avatar`, form, 'PUT')).avatarUrl;
+  };
+  const pictureChanged = () => {
+    onSaved();
+    if (user && user.id === session?.user?.id) void refresh();
+  };
   const save = async () => {
     setBusy(true);
     setError(null);
     try {
       const body = { username: username.trim(), displayName: displayName.trim() || null, email: email.trim() || null, role, ...(password ? { password } : {}) };
       const saved = user ? await patch<UserInfo>(`/api/users/${user.id}`, body) : await post<UserInfo>('/api/users', body);
+      if (pendingPicture) {
+        // The account exists now: a refused picture must not keep the dialog open (saving again would create it twice).
+        await uploadPicture(saved.id, pendingPicture).catch((err) => toast.error(`The profile picture was not saved: ${errorMessage(err)}`));
+      }
       // Group memberships are stored on the groups.
       for (const g of groups.filter((x) => !x.sso)) {
         const has = g.members.includes(saved.id);
@@ -130,6 +154,31 @@ function UserModal({ user, groups, onClose, onSaved }: { user: UserInfo | null; 
     >
       <div className="space-y-4">
         {error && <Alert tone="danger">{error}</Alert>}
+        <Field label="Profile picture">
+          <AvatarPicker
+            name={displayName.trim() || username.trim()}
+            url={picture}
+            upload={async (file) => {
+              if (!user) {
+                setPendingPicture(file);
+                setPicture(URL.createObjectURL(file));
+                return;
+              }
+              setPicture(await uploadPicture(user.id, file));
+              pictureChanged();
+            }}
+            remove={async () => {
+              if (!user) {
+                setPendingPicture(null);
+                setPicture(null);
+                return;
+              }
+              await del(`/api/users/${user.id}/avatar`);
+              setPicture(null);
+              pictureChanged();
+            }}
+          />
+        </Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="User name">
             <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
@@ -298,6 +347,7 @@ export function UsersTab() {
           <ul className="divide-y divide-border">
             {userList.map((u) => (
               <li key={u.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
+                <Avatar name={u.displayName || u.username} src={u.avatarUrl} className="size-9" />
                 <div className="min-w-0 flex-1">
                   <button type="button" className="font-medium text-fg hover:underline" onClick={() => setEditUser(u)}>
                     {u.displayName || u.username}

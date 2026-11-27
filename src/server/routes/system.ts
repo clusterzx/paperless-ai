@@ -20,6 +20,7 @@ import {
 } from '../auth.js';
 import { OIDC_ID_TOKEN_COOKIE, oidcService, oidcUsable, passwordLoginAllowed } from '../oidc.js';
 import { twoFactorStatus } from '../twoFactor.js';
+import { avatarUrl } from '../access/avatar.js';
 import { configSchema, type AppConfig, type DeepPartial } from '../config/schema.js';
 import { deepMerge } from '../config/store.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../config/defaults.js';
@@ -55,7 +56,7 @@ export const systemRoutes =
         setupRequired: ctx.needsSetup(),
         needsUser: ctx.repos.users.count() === 0,
         setupCode: setupCodeRequired(ctx),
-        user: p?.kind === 'user' ? { id: p.userId, username: p.username, role: p.role } : undefined,
+        user: p?.kind === 'user' ? { id: p.userId, username: p.username, role: p.role, avatarUrl: avatarUrl(p.userId, ctx.repos.users.avatarAt(p.userId)) } : undefined,
         version: ctx.version,
         features: { rag: ctx.cfg.rag.enabled, calendar: ctx.cfg.processing.functions.events },
         archive: archiveInfo(ctx),
@@ -214,7 +215,7 @@ export const systemRoutes =
       return {
         user:
           p.kind === 'user' && me
-            ? { id: me.id, username: me.username, role: me.role, displayName: me.display_name, email: me.email }
+            ? { id: me.id, username: me.username, role: me.role, displayName: me.display_name, email: me.email, avatarUrl: avatarUrl(me.id, ctx.repos.users.avatarAt(me.id)) }
             : null,
         groups: p.kind === 'user' ? ctx.repos.groups.groupsOf(p.userId).map((g) => ({ id: g.id, name: g.name })) : [],
         users,

@@ -509,6 +509,22 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX ocr_remote_reads_at ON ocr_remote_reads(at);
       `),
   },
+  {
+    version: 21,
+    name: 'profile pictures',
+    up: (db) =>
+      db.exec(`
+        -- The profile picture of an account: a PNG, JPEG or WebP (WebP 256×256 when sharp is installed)
+        CREATE TABLE user_avatars (
+          user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          data BLOB NOT NULL,
+          mime TEXT NOT NULL,
+          -- SHA-256 of data (the ETag)
+          hash TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {

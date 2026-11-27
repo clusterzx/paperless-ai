@@ -66,6 +66,8 @@ const ENTRIES: Entry[] = [
   ['*', '/api/logs*', admin],
   ['*', '/api/debug/*', admin],
   ['GET', '/api/usage', admin],
+  // Profile pictures are seen by everyone who can sign in (as the user names in /api/account).
+  ['GET', '/api/users/:id/avatar', read],
   ['*', '/api/users*', admin],
   ['*', '/api/groups*', admin],
   ['GET', '/api/api-keys', admin],

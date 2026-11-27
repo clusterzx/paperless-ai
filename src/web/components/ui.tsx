@@ -172,8 +172,21 @@ export function IconChip({ children, tone = 'neutral', className }: { children: 
   );
 }
 
-/** Round initials avatar with an accent gradient. */
-export function Avatar({ name, className }: { name: string; className?: string }) {
+/** Round avatar: the profile picture, or the initials on an accent gradient without one (or when it does not load). */
+export function Avatar({ name, src, className }: { name: string; src?: string | null; className?: string }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  if (src && failed !== src) {
+    return (
+      <img
+        src={src}
+        alt=""
+        aria-hidden
+        draggable={false}
+        onError={() => setFailed(src)}
+        className={cn('inline-block size-8 shrink-0 rounded-full bg-surface-2 object-cover shadow-[var(--highlight)]', className)}
+      />
+    );
+  }
   const initials = name
     .split(/[\s._-]+/)
     .filter(Boolean)

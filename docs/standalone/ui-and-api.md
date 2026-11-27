@@ -176,6 +176,9 @@ Conventions:
 | GET / PUT | `/api/libraries/:id/members` | O / A | M5 |
 | CRUD | `/api/libraries/:id/intake/folders`, `/api/libraries/:id/intake/mail` | O, B | M3 / M6 |
 | CRUD | `/api/users`, `/api/groups` | A | M1 |
+| GET | `/api/users/:id/avatar`, `/api/account/avatar` (profile picture, 404 without one) | R | – |
+| PUT / DELETE | `/api/account/avatar` (multipart `file`: PNG, JPEG or WebP ≤ 2 MB) | session | – |
+| PUT / DELETE | `/api/users/:id/avatar` | A (session) | – |
 | CRUD | `/api/me/api-keys` | session | M1 |
 | GET | `/api/audit-log` | A / O | M1 |
 | CRUD | `/api/workflows` | O / A | M6 |

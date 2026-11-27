@@ -127,6 +127,7 @@ function UserMenu({ onLogout, onSupport }: { onLogout: () => void; onSupport: ()
   const close = useCallback(() => setOpen(false), []);
   useDialog(panel, open, close);
   const name = session?.user?.username ?? '';
+  const picture = session?.user?.avatarUrl;
   return (
     <div className="relative">
       {open && (
@@ -140,7 +141,7 @@ function UserMenu({ onLogout, onSupport }: { onLogout: () => void; onSupport: ()
             className="animate-pop absolute bottom-full left-0 z-50 mb-2 w-[min(17rem,calc(100vw-2rem))] rounded-2xl border border-border bg-surface p-1.5 shadow-pop outline-none"
           >
             <div className="flex items-center gap-3 px-2.5 pt-2 pb-3">
-              <Avatar name={name} />
+              <Avatar name={name} src={picture} />
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-fg">{name}</div>
                 <div className="text-xs text-faint">Paperless-AI v{session?.version}</div>
@@ -193,7 +194,7 @@ function UserMenu({ onLogout, onSupport }: { onLogout: () => void; onSupport: ()
         aria-expanded={open}
         className="flex w-full items-center gap-2.5 rounded-xl p-1.5 text-left transition hover:bg-surface/80"
       >
-        <Avatar name={name} className="size-7 text-[11px]" />
+        <Avatar name={name} src={picture} className="size-7 text-[11px]" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium text-fg">{name}</span>
           <span className="block text-[11px] text-faint">Account & appearance</span>
