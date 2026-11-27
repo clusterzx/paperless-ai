@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createHarness, type Harness } from '../helpers/appHarness.js';
+import { createHarness, type Harness, TEST_USER } from '../helpers/appHarness.js';
 import type { ApiKeyInfo, GroupInfo, UserInfo } from '../../src/shared/api.js';
 
 let h: Harness;
@@ -141,6 +141,19 @@ describe('personal API keys', () => {
 
   it('keeps the legacy global key working as an admin key', async () => {
     expect((await h.inject({ method: 'GET', url: '/api/users', headers: h.apiKeyHeaders() })).statusCode).toBe(200);
+  });
+
+  it('changes accounts and groups only from a signed-in browser – no key becomes an account to sign in with', async () => {
+    const adminId = h.ctx.repos.users.byUsername(TEST_USER)!.id;
+    const adminKey = { 'x-api-key': h.ctx.repos.apiKeys.create(adminId, { name: 'admin', scopes: ['admin', 'read', 'write'] }).key };
+    for (const headers of [adminKey, h.apiKeyHeaders()]) {
+      const created = await h.inject({ method: 'POST', url: '/api/users', headers, payload: { username: 'keyuser', password: 'key user password 1', role: 'admin' } });
+      expect(created.statusCode).toBe(403);
+      const reset = await h.inject({ method: 'PATCH', url: `/api/users/${adminId}`, headers, payload: { password: 'taken over password 1' } });
+      expect(reset.statusCode).toBe(403);
+      expect((await h.inject({ method: 'POST', url: '/api/groups', headers, payload: { name: 'key group' } })).statusCode).toBe(403);
+    }
+    expect(h.ctx.repos.users.byUsername('keyuser')).toBeUndefined();
   });
 });
 
