@@ -50,12 +50,13 @@ export const systemRoutes =
 
     app.get('/api/session', { config: { auth: 'public' } }, async (req): Promise<SessionInfo> => {
       const p = req.principal;
+      const me = p?.kind === 'user' ? ctx.repos.users.byId(p.userId) : undefined;
       return {
         authenticated: Boolean(p),
         setupRequired: ctx.needsSetup(),
         needsUser: ctx.repos.users.count() === 0,
         setupCode: setupCodeRequired(ctx),
-        user: p?.kind === 'user' ? { id: p.userId, username: p.username, role: p.role } : undefined,
+        user: p?.kind === 'user' ? { id: p.userId, username: p.username, role: p.role, displayName: me?.display_name ?? null } : undefined,
         version: ctx.version,
         features: { rag: ctx.cfg.rag.enabled, calendar: ctx.cfg.processing.functions.events },
         archive: archiveInfo(ctx),

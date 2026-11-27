@@ -456,7 +456,8 @@ export interface SessionInfo {
   needsUser: boolean;
   /** The setup asks for the code from the log (credentials were configured before the first account). */
   setupCode: boolean;
-  user?: { id: number; username: string; role: InstanceRole };
+  /** displayName is null when the account has none – show the username then. */
+  user?: { id: number; username: string; role: InstanceRole; displayName: string | null };
   version: string;
   features: { rag: boolean; calendar: boolean };
   /** The archive backend (null while it is not configured). */
