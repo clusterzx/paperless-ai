@@ -83,6 +83,7 @@ function McpSetup({ apiKey }: { apiKey: string }) {
 
 function UserModal({ user, groups, onClose, onSaved }: { user: UserInfo | null; groups: GroupInfo[]; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
+  const { session, refresh } = useSession();
   const [username, setUsername] = useState(user?.username ?? '');
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
@@ -104,6 +105,8 @@ function UserModal({ user, groups, onClose, onSaved }: { user: UserInfo | null; 
         if (has !== wants) await patch(`/api/groups/${g.id}`, { members: wants ? [...g.members, saved.id] : g.members.filter((m) => m !== saved.id) });
       }
       toast.success(user ? 'User saved' : 'User created');
+      // The header and the dashboard show the own name from the session.
+      if (saved.id === session?.user?.id) void refresh();
       onSaved();
       onClose();
     } catch (err) {

@@ -400,7 +400,7 @@ export default function DashboardPage() {
           <div className="mb-1.5 text-[13px] font-medium text-faint">{new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</div>
           <h1 className="text-[28px] leading-tight font-semibold tracking-[-0.03em] text-fg sm:text-[32px]">
             {greeting()}
-            {session?.user?.username ? `, ${session.user.username}` : ''}
+            {session?.user ? `, ${session.user.displayName || session.user.username}` : ''}
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
             {d ? (

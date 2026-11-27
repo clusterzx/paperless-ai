@@ -126,7 +126,7 @@ function UserMenu({ onLogout, onSupport }: { onLogout: () => void; onSupport: ()
   const panel = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
   useDialog(panel, open, close);
-  const name = session?.user?.username ?? '';
+  const name = session?.user?.displayName || session?.user?.username || '';
   return (
     <div className="relative">
       {open && (
