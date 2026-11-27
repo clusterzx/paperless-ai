@@ -18,7 +18,7 @@ import { documentFilterParams, documentSort, parseDocumentFilter, toRow } from '
 import { applySearchSyntax } from '../http/searchSyntax.js';
 import { canEdit, hasScope, roleIn, userIdOf, type AccessScope } from '../access/scope.js';
 import { badRequest, HttpProblem } from '../http/helpers.js';
-import { bulkEdit, documentActivity, receiveUploads, sendFile } from './documentOps.js';
+import { bulkEdit, documentActivity, receiveUploads, sendFile, sendThumbnail } from './documentOps.js';
 import type { Principal } from '../auth.js';
 import type { Services } from '../http/app.js';
 import { sendEventStream } from '../http/helpers.js';
@@ -136,7 +136,7 @@ export const documentRoutes =
 
     app.get('/api/documents/:id/thumb', { schema: { params: z.object({ id: z.coerce.number().int().positive() }), hide: true } }, async (req, reply) => {
       const { data, contentType } = await ctx.backend(req.access!).thumbnail(req.params.id);
-      return reply.header('Cache-Control', 'private, max-age=3600').type(contentType).send(data);
+      return sendThumbnail(reply, data, contentType);
     });
 
     app.patch(

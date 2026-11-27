@@ -150,6 +150,15 @@ describe('document browsing', () => {
     expect(thumb.statusCode).toBe(200);
     expect(thumb.headers['content-type']).toBe('image/webp');
     expect(thumb.body).toBe('THUMB-2');
+    expect(thumb.headers['content-security-policy']).toContain('sandbox');
+    // Only images are sent as images: an HTML page from upstream is not rendered on this origin.
+    h.paperless.thumbContentType = 'text/html';
+    try {
+      const html = await h.inject({ method: 'GET', url: '/api/documents/2/thumb', headers: auth });
+      expect(html.headers['content-type']).toBe('application/octet-stream');
+    } finally {
+      h.paperless.thumbContentType = 'image/webp';
+    }
   });
 
   it('lists metadata', async () => {

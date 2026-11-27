@@ -18,7 +18,7 @@ import { canEdit, canRead, hasScope, isAdmin, userIdOf, type AccessScope } from 
 import type { ArchiveDocument, ChangeOrigin, CustomFieldType, DocumentFilter, DocumentPatch, MetadataKind, MetadataUpdate } from '../backend/types.js';
 import { statusOf } from '../backend/types.js';
 import { HttpProblem } from '../http/helpers.js';
-import { sendFile } from '../routes/documentOps.js';
+import { sendFile, sendThumbnail } from '../routes/documentOps.js';
 import { postDocumentHandler } from './postDocument.js';
 import { verifyPassword, hashPassword } from '../auth.js';
 import { passwordLoginAllowed } from '../oidc.js';
@@ -628,9 +628,8 @@ export const ngxRoutes =
     app.get('/ngx/api/documents/:id/thumb/', auth, async (req, reply) => {
       const doc = await documentOf(req);
       const t = await ctx.backend(scopeOf(req)).thumbnail(doc.id);
-      reply.header('Cache-Control', 'private, max-age=3600');
-      if (t.contentType === 'image/svg+xml') return reply.type('image/png').send(await placeholder());
-      return reply.type(t.contentType).send(Buffer.from(t.data));
+      if (t.contentType === 'image/svg+xml') return sendThumbnail(reply, await placeholder(), 'image/png');
+      return sendThumbnail(reply, t.data, t.contentType);
     });
 
     app.get('/ngx/api/documents/:id/metadata/', auth, async (req) => {
