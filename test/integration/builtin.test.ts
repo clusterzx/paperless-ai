@@ -213,6 +213,15 @@ describe('versions, change log and trash', () => {
     const after = (await h.inject({ method: 'GET', url: `/api/documents/${id}/activity`, headers: { cookie } })).json() as ActivityItem[];
     expect(after.find((a) => a.kind === 'restored')?.undo ?? null).toBeNull();
     expect(after.find((a) => a.kind === 'deleted')?.reverted).toBe(true);
+
+    // Undoing a restore moves the document to the trash again: an API key needs the "delete" scope.
+    await h.inject({ method: 'DELETE', url: `/api/documents/${id}`, headers: { cookie } });
+    await (h.ctx.archive() as LocalBackend).restoreDocument(SYSTEM_SCOPE, id, { actor: 'user', actorId: null, ref: 'test' });
+    const plainRestore = events().filter((e) => e.kind === 'restored').at(-1)!;
+    const writer = { 'x-api-key': h.ctx.repos.apiKeys.create(h.ctx.repos.users.byUsername('admin')!.id, { name: 'writer', scopes: ['read', 'write'] }).key };
+    const refused = await h.inject({ method: 'POST', url: `/api/documents/${id}/events/${plainRestore.id}/undo`, headers: writer, payload: {} });
+    expect(refused.statusCode).toBe(403);
+    expect((await h.inject({ method: 'GET', url: `/api/documents/${id}`, headers: { cookie } })).statusCode).toBe(200);
   });
 
   it('undoes single changes and detects conflicts', async () => {
