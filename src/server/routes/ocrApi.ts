@@ -17,6 +17,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { Services } from '../http/app.js';
 import { HttpProblem } from '../http/helpers.js';
+import { isSecureRequest } from '../auth.js';
 import { OcrApiBusy, OcrApiServer, type OcrJob } from '../ocr/apiServer.js';
 
 /** The Azure models Paperless-AI answers for (all of them read text; layout and tables are not analysed). */
@@ -105,7 +106,7 @@ export const ocrApiRoutes =
         if (err instanceof OcrApiBusy) return fail(reply.header('Retry-After', '30'), 429, 'TooManyRequests', err.message);
         throw err;
       }
-      const location = `${req.protocol}://${req.host}${BASE}/${model}/analyzeResults/${job.id}?api-version=${encodeURIComponent(versionOf(req))}`;
+      const location = `${isSecureRequest(req) ? 'https' : req.protocol}://${req.host}${BASE}/${model}/analyzeResults/${job.id}?api-version=${encodeURIComponent(versionOf(req))}`;
       return reply
         .code(202)
         .header('Operation-Location', location)

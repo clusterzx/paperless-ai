@@ -180,8 +180,16 @@ export async function resolveAccess(ctx: AppContext, req: FastifyRequest): Promi
   return { principal: a.principal, access: scopeFor(ctx, a.principal, a.key), key: a.key };
 }
 
+/**
+ * Whether the browser talks HTTPS with us. Behind a reverse proxy that ends TLS the request comes
+ * as HTTP; without TRUST_PROXY its X-Forwarded-Proto still counts here – it only decides whether
+ * cookies are `Secure` (a forged header would only keep the forger's own cookie off plain HTTP).
+ */
 export function isSecureRequest(req: FastifyRequest): boolean {
-  return req.protocol === 'https';
+  if (req.protocol === 'https') return true;
+  const forwarded = req.headers['x-forwarded-proto'];
+  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim().toLowerCase();
+  return first === 'https';
 }
 
 export function setSessionCookie(reply: FastifyReply, req: FastifyRequest, token: string, hours: number): void {
