@@ -110,13 +110,26 @@ export class UsersRepo {
     return this.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
   }
 
+  /**
+   * The id for a new account: never one an account had before. SQLite would hand out the id of the
+   * last account again after it was deleted – and everything still bound to that id (a session of
+   * the deleted account, entries without a foreign key) would belong to the new one.
+   */
+  private nextId(): number {
+    const max = (this.db.prepare('SELECT MAX(id) AS m FROM users').get() as { m: number | null }).m ?? 0;
+    const row = this.db.prepare("SELECT value FROM kv WHERE key = 'users.lastId'").get() as { value: string } | undefined;
+    const id = Math.max(max, Number(row?.value) || 0) + 1;
+    this.db.prepare("INSERT INTO kv (key, value) VALUES ('users.lastId', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(id));
+    return id;
+  }
+
   create(username: string, passwordHash: string, role: 'admin' | 'member' = 'member'): number {
     const now = Date.now();
-    return Number(
-      this.db
-        .prepare('INSERT INTO users (username, password_hash, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-        .run(username, passwordHash, role, now, now).lastInsertRowid,
-    );
+    return this.db.transaction(() => {
+      const id = this.nextId();
+      this.db.prepare('INSERT INTO users (id, username, password_hash, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, username, passwordHash, role, now, now);
+      return id;
+    })();
   }
 
   /** Changing the password also invalidates all existing sessions of that user. */
@@ -143,11 +156,13 @@ export class UsersRepo {
   /** An account that signs in only with single sign-on (no password). */
   createOidc(username: string, issuer: string, subject: string, role: 'admin' | 'member' = 'member'): number {
     const now = Date.now();
-    return Number(
+    return this.db.transaction(() => {
+      const id = this.nextId();
       this.db
-        .prepare("INSERT INTO users (username, password_hash, oidc_issuer, oidc_subject, role, created_at, updated_at) VALUES (?, '', ?, ?, ?, ?, ?)")
-        .run(username, issuer, subject, role, now, now).lastInsertRowid,
-    );
+        .prepare("INSERT INTO users (id, username, password_hash, oidc_issuer, oidc_subject, role, created_at, updated_at) VALUES (?, ?, '', ?, ?, ?, ?, ?)")
+        .run(id, username, issuer, subject, role, now, now);
+      return id;
+    })();
   }
 
   setOidc(id: number, identity: { issuer: string; subject: string } | null): void {
