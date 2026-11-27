@@ -148,4 +148,13 @@ describe('library isolation', () => {
     await h.engine.drain();
     expect((await h.ctx.backend().getDocument(foreign)).title).toBe('Quokka Kontoauszug März');
   });
+
+  it('the member cannot share a saved view into the other library', async () => {
+    const secret = h.ctx.repos.libraries.list().find((l) => l.name === 'Secret')!.id;
+    expect((await h.inject({ method: 'POST', url: '/api/saved-views', headers: { cookie: member }, payload: { name: 'Mine', filter: {}, libraryId: secret } })).statusCode).toBe(404);
+    const view = (await h.inject({ method: 'POST', url: '/api/saved-views', headers: { cookie: member }, payload: { name: 'Mine', filter: {} } })).json() as { id: number };
+    const moved = await h.inject({ method: 'PATCH', url: `/api/saved-views/${view.id}`, headers: { cookie: member }, payload: { libraryId: secret } });
+    expect(moved.statusCode).toBe(404);
+    expect(h.ctx.repos.savedViews.get(view.id)?.library_id).toBeNull();
+  });
 });
