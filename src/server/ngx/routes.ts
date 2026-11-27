@@ -135,7 +135,7 @@ export const ngxRoutes =
         const code = String(body.code ?? '').trim();
         if (!code) throw refuse('MFA code is required');
         const second = await checkSecondFactor(ctx, user, code);
-        if (!second.ok) throw refuse(secondFactorError(second.reason));
+        if (!second.ok) throw refuse(secondFactorError(second.reason, second.retryAfterMinutes));
       }
       const agent = String(req.headers['user-agent'] ?? '').split(/[/ (]/)[0].slice(0, 40) || 'app';
       const { key } = ctx.repos.apiKeys.create(user.id, { name: `Paperless-ngx app (${agent})`, scopes: ['read', 'write', 'delete', 'metadata', 'upload'] });

@@ -11,11 +11,45 @@ const log = logger.child({ module: 'auth' });
 
 export type SecondFactorResult =
   | { ok: true; method: 'totp' | 'recovery'; recoveryCodesLeft: number }
-  | { ok: false; reason: 'invalid' | 'reused' | 'off' };
+  | { ok: false; reason: 'invalid' | 'reused' | 'off' | 'locked'; retryAfterMinutes?: number };
+
+/** Wrong second factors in a row per account, before the account waits (per account, not per address). */
+const MAX_FAILURES = 5;
+const LOCK_MS = 15 * 60_000;
+const failures = new Map<string, { count: number; lockedUntil: number }>();
+/** Account key: the id alone could be one of an earlier, deleted account. */
+const accountKey = (user: UserRow) => `${user.id}:${user.created_at}`;
+
+/** The account waits after too many wrong codes – a six-digit code is guessed otherwise, from many addresses. */
+function lockedFor(key: string): number {
+  const f = failures.get(key);
+  return f && f.lockedUntil > Date.now() ? Math.ceil((f.lockedUntil - Date.now()) / 60_000) : 0;
+}
+
+function recordFailure(key: string): void {
+  const f = failures.get(key) ?? { count: 0, lockedUntil: 0 };
+  f.count++;
+  if (f.count >= MAX_FAILURES) {
+    f.count = 0;
+    f.lockedUntil = Date.now() + LOCK_MS;
+  }
+  failures.set(key, f);
+}
 
 export async function checkSecondFactor(ctx: AppContext, user: UserRow, code: string): Promise<SecondFactorResult> {
-  const users = ctx.repos.users;
   if (!user.totp_secret || !user.totp_enabled_at) return { ok: false, reason: 'off' };
+  const key = accountKey(user);
+  const wait = lockedFor(key);
+  if (wait) return { ok: false, reason: 'locked', retryAfterMinutes: wait };
+  const res = await checkCode(ctx, user, code);
+  if (res.ok) failures.delete(key);
+  else if (res.reason === 'invalid') recordFailure(key);
+  return res;
+}
+
+async function checkCode(ctx: AppContext, user: UserRow, code: string): Promise<SecondFactorResult> {
+  const users = ctx.repos.users;
+  if (!user.totp_secret) return { ok: false, reason: 'off' };
   const compact = code.replace(/\s/g, '');
   if (/^\d{6}$/.test(compact)) {
     const step = verifyTotp(user.totp_secret, compact);
@@ -34,7 +68,8 @@ export async function checkSecondFactor(ctx: AppContext, user: UserRow, code: st
   return { ok: false, reason: 'invalid' };
 }
 
-export function secondFactorError(reason: 'invalid' | 'reused' | 'off'): string {
+export function secondFactorError(reason: 'invalid' | 'reused' | 'off' | 'locked', retryAfterMinutes?: number): string {
+  if (reason === 'locked') return `Too many wrong codes – try again in ${retryAfterMinutes ?? 15} minute(s)`;
   if (reason === 'reused') return 'This code was already used – wait for the next one';
   if (reason === 'off') return 'Two-factor authentication is not enabled';
   return 'Invalid code';

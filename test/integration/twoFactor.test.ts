@@ -93,6 +93,25 @@ describe('two-factor authentication', () => {
     expect((await send('POST', '/api/auth/login/2fa', { ticket, code: fresh[1] })).json().code).toBe('ticket_expired');
   });
 
+  it('makes the account wait after five wrong codes – from any address and on both sign-in routes', async () => {
+    const { hh, cookie, send } = await setup();
+    const setupRes = (await send('POST', '/api/account/2fa/setup', {}, cookie)).json() as TwoFactorSetup;
+    const code = () => totpCode(setupRes.secret, timeStep());
+    expect((await send('POST', '/api/account/2fa/enable', { password: PASSWORD, code: code() }, cookie)).statusCode).toBe(200);
+    const ticket = (await send('POST', '/api/auth/login', { username: USER, password: PASSWORD })).json().ticket as string;
+    const wrong = code() === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 5; i++) {
+      const res = await hh.inject({ method: 'POST', url: '/api/auth/login/2fa', remoteAddress: `198.51.100.${i + 1}`, payload: { ticket, code: wrong } });
+      expect(res.json().error).toBe('Invalid code');
+    }
+    const right = await send('POST', '/api/auth/login/2fa', { ticket, code: code() });
+    expect(right.statusCode).toBe(401);
+    expect(right.json().error).toMatch(/Too many wrong codes – try again in 15 minute/);
+    const app = await send('POST', '/ngx/api/token/', { username: USER, password: PASSWORD, code: code() });
+    expect(app.statusCode).toBe(400);
+    expect(JSON.stringify(app.json())).toMatch(/Too many wrong codes/);
+  });
+
   it('is only available to logged-in users', async () => {
     const { hh, send } = await setup();
     expect((await send('POST', '/api/account/2fa/setup', {}, undefined, hh.apiKeyHeaders())).statusCode).toBe(403);

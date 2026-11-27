@@ -35,7 +35,7 @@ export const twoFactorRoutes =
     };
     const requireSecondFactor = async (user: UserRow, given: string) => {
       const res = await checkSecondFactor(ctx, user, given);
-      if (!res.ok) throw new HttpProblem(400, secondFactorError(res.reason));
+      if (!res.ok) throw new HttpProblem(400, secondFactorError(res.reason, res.retryAfterMinutes));
       return res;
     };
     const newCodes = async (userId: number) => {
@@ -63,7 +63,7 @@ export const twoFactorRoutes =
         const res = await checkSecondFactor(ctx, user, req.body.code);
         if (!res.ok) {
           log.warn(`Failed second sign-in step for "${user.username}" from ${req.ip}`);
-          return reply.code(401).send({ error: secondFactorError(res.reason) });
+          return reply.code(401).send({ error: secondFactorError(res.reason, res.retryAfterMinutes) });
         }
         await renewSession(reply, req, user.id);
         if (res.method === 'recovery') log.warn(`User "${user.username}" signed in with a recovery code (${res.recoveryCodesLeft} left)`);
