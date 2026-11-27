@@ -139,6 +139,15 @@ describe('reading order', () => {
 });
 
 describe('text quality', () => {
+  it('rates long tokens in linear time (the patterns backtrack on them)', () => {
+    for (const token of [`1${'.'.repeat(200_000)}x`, `ab${"'".repeat(200_000)}!`, `a${'-'.repeat(200_000)}b`]) {
+      const started = performance.now();
+      const q = assessText(`Rechnung über 42,50 EUR ${token} vom 03.11.2026`, 1);
+      expect(performance.now() - started).toBeLessThan(500);
+      expect(q.score).toBeLessThan(100);
+    }
+  });
+
   it('rates missing, garbled and good text', () => {
     expect(assessText('', 2)).toMatchObject({ level: 'missing', score: 0 });
     expect(assessText("Rchng Nr . l2O4 ; ' ~ | ] Mlrmstr Kpp l . ii| ,, Btrg : 4l2 ,8O EUR ~ _ ' | ; ° ¬ l1 I | ' . -- ' ; :").level).toBe('poor');

@@ -39,12 +39,19 @@ async function pdfiumLibrary() {
   return pdfium;
 }
 
+/** PDFium aborted on a crafted PDF: that instance is unusable, the next PDF gets a new one. */
+function afterPdfiumError(err: unknown): void {
+  const msg = err instanceof Error ? `${err.name} ${err.message}` : String(err);
+  if (/abort|RuntimeError|memory access out of bounds|unreachable/i.test(msg)) pdfium = null;
+}
+
 async function* renderPdf(bytes: Uint8Array, opts: RenderOptions): AsyncGenerator<RenderedPage> {
   const lib = await pdfiumLibrary();
   let doc;
   try {
     doc = await lib.loadDocument(bytes);
   } catch (err) {
+    afterPdfiumError(err);
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(/password/i.test(msg) ? 'The PDF is password protected' : `The PDF cannot be opened: ${msg}`, { cause: err });
   }
@@ -65,6 +72,9 @@ async function* renderPdf(bytes: Uint8Array, opts: RenderOptions): AsyncGenerato
       }
       yield { index: i, total, image: fromPixels(r.data, r.width, r.height, 1), textChars };
     }
+  } catch (err) {
+    afterPdfiumError(err);
+    throw err;
   } finally {
     doc.destroy();
   }

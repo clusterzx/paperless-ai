@@ -25,6 +25,12 @@ describe('tokenize / queryTerms', () => {
     expect(tokenize('Grüße, Müller-Lüdenscheidt! Rechnung #2024-17 l’été')).toEqual(['grüße', 'müller-lüdenscheidt', 'rechnung', '2024-17', 'l’été']);
   });
 
+  it('splits long runs of marks in linear time', () => {
+    const started = Date.now();
+    expect(tokenize(`a${'-'.repeat(200_000)}b c’’’`)).toEqual([`a${'-'.repeat(200_000)}b`, 'c']);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
   it('removes stop words (en/de/fr) and duplicates', () => {
     expect(queryTerms('What is the amount of my latest electricity invoice from ACME? The invoice!')).toEqual([
       'amount',

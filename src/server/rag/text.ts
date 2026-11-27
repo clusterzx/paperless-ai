@@ -32,7 +32,14 @@ de het een en van ik je hij zij wij jullie zij is zijn was op aan met voor`
 );
 
 export function tokenize(text: string): string[] {
-  return (text.toLowerCase().normalize('NFC').match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? []).map((t) => t.replace(/['’-]+$/g, ''));
+  return (text.toLowerCase().normalize('NFC').match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? []).map(trimTrailingMarks);
+}
+
+/** Apostrophes and dashes at the end of a token off – in a loop: the regex /['’-]+$/ takes quadratic time on "a-----b". */
+function trimTrailingMarks(t: string): string {
+  let end = t.length;
+  while (end > 0 && (t[end - 1] === "'" || t[end - 1] === '’' || t[end - 1] === '-')) end--;
+  return end === t.length ? t : t.slice(0, end);
 }
 
 /** Meaningful search terms of a question (stop words removed, de-duplicated). */

@@ -12,6 +12,8 @@ export { sniffBinary as sniffType, extensionFor } from './formats.js';
 
 const MAX_TEXT_PAGES = 1000;
 const THUMB_WIDTH = 480;
+/** A thumbnail is never higher than this (a page can be 300,000 points high – memory for gigabytes). */
+const THUMB_MAX_HEIGHT = 1600;
 
 type PdfiumLibrary = InstanceType<(typeof import('@hyzyla/pdfium'))['PDFiumLibrary']>;
 let pdfium: Promise<PdfiumLibrary | null> | null = null;
@@ -24,6 +26,18 @@ function pdfiumLibrary(): Promise<PdfiumLibrary | null> {
       return null;
     });
   return pdfium;
+}
+
+/**
+ * PDFium aborted (a crafted PDF): this instance is unusable – every later PDF would come back
+ * without pages and text until a restart. The next PDF gets a new one.
+ */
+function afterPdfiumError(err: unknown): void {
+  const msg = err instanceof Error ? `${err.name} ${err.message}` : String(err);
+  if (/abort|RuntimeError|memory access out of bounds|unreachable/i.test(msg)) {
+    log.warn(`PDFium failed on a PDF (${msg.slice(0, 200)}) – it is loaded again for the next one`);
+    pdfium = null;
+  }
 }
 
 type Sharp = (typeof import('sharp'))['default'];
@@ -88,6 +102,7 @@ export async function inspectFile(bytes: Uint8Array, mime: string): Promise<File
     return { pages: meta.pages ?? 1, text: '' };
   } catch (err) {
     log.warn(`Could not read the file (${mime}): ${err instanceof Error ? err.message : String(err)}`);
+    if (mime === 'application/pdf') afterPdfiumError(err);
     return { pages: null, text: '' };
   }
 }
@@ -104,8 +119,9 @@ export async function renderThumbnail(bytes: Uint8Array, mime: string): Promise<
       try {
         if (!doc.getPageCount()) return null;
         const page = doc.getPage(0);
-        const { originalWidth } = page.getOriginalSize();
-        const r = await page.render({ scale: Math.min(3, THUMB_WIDTH / Math.max(originalWidth, 1)), render: 'bitmap' } as Parameters<typeof page.render>[0]);
+        const { originalWidth, originalHeight } = page.getOriginalSize();
+        const scale = Math.min(3, THUMB_WIDTH / Math.max(originalWidth, 1), THUMB_MAX_HEIGHT / Math.max(originalHeight, 1));
+        const r = await page.render({ scale, render: 'bitmap' } as Parameters<typeof page.render>[0]);
         const channels = r.data.length / (r.width * r.height);
         return await s(Buffer.from(r.data.buffer, r.data.byteOffset, r.data.byteLength), { raw: { width: r.width, height: r.height, channels: channels as 1 | 3 | 4 } })
           .flatten({ background: '#ffffff' })
@@ -123,6 +139,7 @@ export async function renderThumbnail(bytes: Uint8Array, mime: string): Promise<
       .toBuffer();
   } catch (err) {
     log.debug(`No thumbnail: ${err instanceof Error ? err.message : String(err)}`);
+    if (mime === 'application/pdf') afterPdfiumError(err);
     return null;
   }
 }

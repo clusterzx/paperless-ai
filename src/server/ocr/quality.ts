@@ -13,6 +13,12 @@ const NUMBER = /^[([]*[-+]?[€$£¥]?\d[\d.,:/'%€$£¥-]*[)\].,:;]*$/u;
 const CODE = /^[\p{L}\d][\p{L}\d./_@#&+-]*[\p{L}\d]$/u;
 const VOWELS = /[aeiouyäöüàáâãåæèéêëìíîïòóôõøùúûýÿœ]/i;
 const LATIN = /\p{Script=Latin}/u;
+/**
+ * Longer tokens are no word or number (rather a joined line or garbage) and count as implausible
+ * without a test: the patterns above backtrack on long tokens (time grows with the square of the
+ * length – one long token of a file would stall the server).
+ */
+const MAX_TOKEN = 64;
 
 /** Score 0–100 and a level for the text of a document. `pages` improves the "too little text" check. */
 export function assessText(content: string | null | undefined, pages?: number | null, poorBelow = 50): TextQuality {
@@ -35,6 +41,7 @@ export function assessText(content: string | null | undefined, pages?: number | 
       if (/[\p{L}\d&§%€$]/u.test(t)) plausible += 0.5;
       continue;
     }
+    if (t.length > MAX_TOKEN) continue;
     if (WORD.test(t)) {
       words++;
       const letters = t.replace(/[^\p{L}]/gu, '');

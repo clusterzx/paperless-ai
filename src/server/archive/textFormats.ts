@@ -14,7 +14,52 @@ export const MAX_TEXT_CHARS = 5_000_000;
 const cap = (text: string) =>
   text.length > MAX_TEXT_CHARS ? `${text.slice(0, MAX_TEXT_CHARS)}\n\n[… the rest of the file is not part of the text]` : text;
 
+/** Deeper than this, html-to-text takes time growing with the square of the depth (and then overflows its stack). */
+const MAX_HTML_DEPTH = 400;
+const VOID_ELEMENTS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+
+/** The deepest nesting of elements, read in one pass (no parser). */
+export function htmlDepth(html: string): number {
+  let depth = 0;
+  let max = 0;
+  for (const m of html.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)[^>]*?(\/?)>/g)) {
+    if (VOID_ELEMENTS.has(m[2].toLowerCase()) || m[3]) continue;
+    depth = m[1] ? Math.max(0, depth - 1) : depth + 1;
+    if (depth > max) max = depth;
+  }
+  return max;
+}
+
+/** The text of an HTML page without a parser: tags out, a few entities in – for pages too deep to parse. */
+function strippedText(html: string): string {
+  let out = '';
+  let i = 0;
+  while (i < html.length) {
+    const open = html.indexOf('<', i);
+    if (open < 0) {
+      out += html.slice(i);
+      break;
+    }
+    out += `${html.slice(i, open)} `;
+    const close = html.indexOf('>', open);
+    if (close < 0) break;
+    i = close + 1;
+  }
+  return out
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 export function htmlToText(html: string): string {
+  // A crafted page nested thousands of levels deep would stall the server in the parser.
+  if (htmlDepth(html) > MAX_HTML_DEPTH) return strippedText(html);
   return convert(html, {
     wordwrap: false,
     selectors: [
