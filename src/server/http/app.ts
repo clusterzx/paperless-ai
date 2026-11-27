@@ -326,6 +326,8 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(mcpRoutes(services));
 
   // Web UI (single page app)
+  const UI_CSP =
+    "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'";
   const staticDir = opts.staticDir;
   const indexFile = staticDir ? path.join(staticDir, 'index.html') : null;
   const hasUi = Boolean(indexFile && fs.existsSync(indexFile));
@@ -338,7 +340,8 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
       maxAge: '7d',
       immutable: true,
       setHeaders: (res, file) => {
-        if (file.endsWith('.html')) res.header('Cache-Control', 'no-cache');
+        // Also /index.html itself: the same policy as the pages (no framing by other sites).
+        if (file.endsWith('.html')) res.header('Cache-Control', 'no-cache').header('Content-Security-Policy', UI_CSP);
       },
     });
   }
@@ -350,10 +353,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
       return reply
         .type('text/html; charset=utf-8')
         .header('Cache-Control', 'no-cache')
-        .header(
-          'Content-Security-Policy',
-          "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'",
-        )
+        .header('Content-Security-Policy', UI_CSP)
         .send(indexHtml);
     }
     if (req.method === 'GET' && !isApi && !indexHtml) {

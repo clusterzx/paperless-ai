@@ -38,6 +38,8 @@ export interface HarnessOptions {
   configured?: boolean;
   memoryDb?: boolean;
   env?: Record<string, string | undefined>;
+  /** Directory with a built web UI (index.html) to serve. */
+  staticDir?: string;
   /** Run with the built-in archive instead of the mock Paperless-ngx. */
   archive?: 'paperless' | 'builtin';
 }
@@ -114,7 +116,7 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
   const workflows = new WorkflowEngine(ctx, engine);
   engine.workflows = workflows;
   workflows.start();
-  const app = await buildApp({ ctx, engine, rag, ocr, workflows });
+  const app = await buildApp({ ctx, engine, rag, ocr, workflows }, { staticDir: opts.staticDir });
   await app.ready();
 
   let cookie: string | null = null;

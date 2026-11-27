@@ -4,7 +4,9 @@
  * port) or a subdomain. Changes with the cookie need the header the pages of the app send.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHarness, TEST_PASSWORD, TEST_USER, type Harness } from '../helpers/appHarness.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createHarness, makeTempDir, TEST_PASSWORD, TEST_USER, type Harness } from '../helpers/appHarness.js';
 
 let h: Harness;
 let cookie: string;
@@ -53,5 +55,22 @@ describe('cross-site request forgery', () => {
     expect(own.headers['access-control-allow-origin']).toBeUndefined();
     // The API itself stays open to other origins with an API key.
     expect((await h.app.inject({ method: 'GET', url: '/api/documents', headers: h.apiKeyHeaders() })).headers['access-control-allow-origin']).toBe('*');
+  });
+});
+
+describe('pages of the web UI', () => {
+  it('carry the content security policy, also /index.html itself', async () => {
+    const dir = makeTempDir();
+    fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>Paperless-AI</title>');
+    const ui = await createHarness({ staticDir: dir });
+    try {
+      for (const url of ['/', '/documents', '/index.html']) {
+        const res = await ui.app.inject({ method: 'GET', url });
+        expect(res.statusCode, url).toBe(200);
+        expect(String(res.headers['content-security-policy']), url).toContain("frame-ancestors 'self'");
+      }
+    } finally {
+      await ui.close();
+    }
   });
 });
