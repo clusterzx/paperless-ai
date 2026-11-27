@@ -38,7 +38,8 @@ export const oidcRoutes =
         if (!oidcUsable(ctx.cfg)) return fail(reply, 'Single sign-on is not set up', linking);
         let linkUserId: number | undefined;
         if (linking) {
-          if (req.principal?.kind !== 'user') return reply.redirect('/login');
+          // Only from the signed-in browser: an API key must never be turned into a sign-in of its user.
+          if (req.principal?.kind !== 'user' || req.principal.via !== 'session') return reply.redirect('/login');
           linkUserId = req.principal.userId;
         }
         // The first account of an instance that already holds credentials needs the setup code.
@@ -69,9 +70,14 @@ export const oidcRoutes =
         const owner = users.byOidc(identity.issuer, identity.subject);
 
         if (flow.linkUserId !== undefined) {
+          // The same signed-in browser has to come back (not a link started elsewhere).
+          if (req.principal?.kind !== 'user' || req.principal.via !== 'session' || req.principal.userId !== flow.linkUserId) {
+            throw new OidcLoginError('Sign in to Paperless-AI in this browser first, then link single sign-on in Settings → Account');
+          }
           const user = users.byId(flow.linkUserId);
           if (!user) throw new OidcLoginError('The account to link no longer exists');
           if (owner && owner.id !== user.id) throw new OidcLoginError(`This sign-in is already linked to the account "${owner.username}"`);
+          if (user.oidc_subject && !owner) throw new OidcLoginError('This account is linked with another sign-in – remove that link first');
           users.setOidc(user.id, identity);
           log.info(`Account "${user.username}" linked with single sign-on`);
           return reply.redirect('/settings?tab=account&sso=linked');

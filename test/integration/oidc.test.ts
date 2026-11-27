@@ -173,6 +173,16 @@ describe('single sign-on (OIDC)', () => {
     );
     // linking needs a signed-in user
     expect(location(await hh.inject({ method: 'GET', url: '/api/auth/oidc/login?link=1' }))).toBe('/login');
+    // … in the browser: an API key of the user (whatever its scope) cannot start a link – it would become a sign-in
+    const admin = hh.ctx.repos.users.byUsername(TEST_USER)!;
+    const ocrKey = hh.ctx.repos.apiKeys.create(admin.id, { name: 'ocr', scopes: ['ocr'] }).key;
+    expect(location(await hh.inject({ method: 'GET', url: '/api/auth/oidc/login?link=1', headers: { 'x-api-key': ocrKey } }))).toBe('/login');
+    // … and the browser that started it has to come back signed in
+    const started = await hh.inject({ method: 'GET', url: '/api/auth/oidc/login?link=1', headers: { cookie: second } });
+    const atProvider = await fetch(started.headers.location as string, { redirect: 'manual' });
+    const back = new URL(atProvider.headers.get('location')!);
+    const foreignCallback = await hh.inject({ method: 'GET', url: back.pathname + back.search, headers: { cookie: cookieOf(started, OIDC_FLOW_COOKIE)! } });
+    expect(location(foreignCallback)).toMatch(/sso_error=Sign%20in%20to%20Paperless-AI%20in%20this%20browser/);
 
     // unlinking works while the password login is on
     expect((await hh.inject({ method: 'POST', url: '/api/account/sso/unlink', headers: { cookie } })).json()).toEqual({ ok: true });
