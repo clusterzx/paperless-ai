@@ -44,6 +44,8 @@ interface Flow {
   next: string;
   /** Link the identity to this (signed-in) user instead of signing in. */
   linkUserId?: number;
+  /** The setup code was given: this sign-in may create the first account (see setupCode.ts). */
+  setupCode?: boolean;
 }
 
 export interface OidcIdentity {
@@ -120,7 +122,7 @@ export class OidcService {
   }
 
   /** Redirect to the provider; the flow state goes into a signed cookie. */
-  async start(req: FastifyRequest, reply: FastifyReply, opts: { next: string; linkUserId?: number }): Promise<string> {
+  async start(req: FastifyRequest, reply: FastifyReply, opts: { next: string; linkUserId?: number; setupCode?: boolean }): Promise<string> {
     const config = await this.configuration();
     const flow: Flow = {
       state: client.randomState(),
@@ -129,6 +131,7 @@ export class OidcService {
       redirectUri: this.redirectUri(req),
       next: safeNext(opts.next),
       linkUserId: opts.linkUserId,
+      ...(opts.setupCode ? { setupCode: true } : {}),
     };
     const url = client.buildAuthorizationUrl(config, {
       redirect_uri: flow.redirectUri,

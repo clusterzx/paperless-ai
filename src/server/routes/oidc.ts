@@ -1,4 +1,5 @@
 import { audit } from '../access/context.js';
+import { discardSetupCode, setupCodeAccepted, setupCodeRequired } from '../setupCode.js';
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -27,7 +28,10 @@ export const oidcRoutes =
       '/api/auth/oidc/login',
       {
         config: { auth: 'public', rateLimit: LIMIT },
-        schema: { hide: true, querystring: z.object({ next: z.string().max(2000).optional(), link: z.enum(['1']).optional() }) },
+        schema: {
+          hide: true,
+          querystring: z.object({ next: z.string().max(2000).optional(), link: z.enum(['1']).optional(), setupCode: z.string().max(100).optional() }),
+        },
       },
       async (req, reply) => {
         const linking = req.query.link === '1';
@@ -37,8 +41,13 @@ export const oidcRoutes =
           if (req.principal?.kind !== 'user') return reply.redirect('/login');
           linkUserId = req.principal.userId;
         }
+        // The first account of an instance that already holds credentials needs the setup code.
+        const firstWithCode = !linking && setupCodeRequired(ctx);
+        if (firstWithCode && !setupCodeAccepted(ctx, req.query.setupCode)) {
+          return fail(reply, 'Enter the setup code first: it is in the log of Paperless-AI (docker logs) and in data/setup-code', false);
+        }
         try {
-          const url = await oidc.start(req, reply, { next: safeNext(req.query.next), linkUserId });
+          const url = await oidc.start(req, reply, { next: safeNext(req.query.next), linkUserId, setupCode: firstWithCode });
           return reply.redirect(url);
         } catch (err) {
           log.error(`Single sign-on: the provider could not be reached – ${describeOidcError(err)}`);
@@ -76,9 +85,11 @@ export const oidcRoutes =
           if (!ctx.cfg.auth.oidc.autoCreate && !first) {
             throw new OidcLoginError('There is no Paperless-AI account for this sign-in – sign in with your password once and link it in Settings → Account');
           }
+          if (first && setupCodeRequired(ctx) && !flow.setupCode) throw new OidcLoginError('Enter the setup code first: it is in the log of Paperless-AI and in data/setup-code');
           const name = oidc.username(identity);
           user = users.byId(users.createOidc(name, identity.issuer, identity.subject, first || adminByGroups ? 'admin' : 'member'))!;
           log.info(`Created account "${name}" from single sign-on`);
+          if (first) discardSetupCode(ctx);
           audit(ctx, null, 'user.created', `user:${user.id}`, { username: name, via: 'sso', role: user.role });
         } else if (adminByGroups !== null && (user.role === 'admin') !== adminByGroups) {
           // Admin groups decide the role – but the last admin is never demoted.

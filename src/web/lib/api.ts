@@ -44,10 +44,20 @@ function describeError(data: unknown, status: number): string {
   return details.length ? `${message} – ${details.slice(0, 5).join('; ')}` : message;
 }
 
+/** The setup code (from the server log) for the requests of the setup wizard – see setupCode.ts. */
+let setupCodeValue: string | null = null;
+export function setSetupCode(code: string | null): void {
+  setupCodeValue = code;
+}
+export const currentSetupCode = () => setupCodeValue;
+
 export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (init.body !== undefined) headers['Content-Type'] = 'application/json';
+  if (setupCodeValue && path.startsWith('/api/setup')) headers['X-Setup-Code'] = setupCodeValue;
   const res = await fetch(path, {
     method: init.method ?? (init.body !== undefined ? 'POST' : 'GET'),
-    headers: init.body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     credentials: 'same-origin',
     signal: init.signal,

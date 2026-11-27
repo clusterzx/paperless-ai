@@ -3,6 +3,7 @@
  * RagService, Fastify app) wired to the mock Paperless and mock LLM servers.
  * HTTP tests use Fastify's `inject` – no real port is opened for the app.
  */
+import { setupCode, setupCodeRequired } from '../../src/server/setupCode.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -192,4 +193,23 @@ export function analysisJson(overrides: Record<string, unknown> = {}): string {
     language: 'en',
     ...overrides,
   });
+}
+
+/**
+ * Send the setup code with the setup requests and the single sign-on start, as the wizard does once
+ * the owner typed it in (credentials preset before the first account – see src/server/setupCode.ts).
+ */
+export function withSetupCode(h: Harness): Harness {
+  const inject = h.inject.bind(h);
+  h.inject = ((opts: Parameters<Harness['inject']>[0]) => {
+    if (typeof opts !== 'object' || opts === null || !setupCodeRequired(h.ctx)) return inject(opts);
+    const o = opts as { url?: string; headers?: Record<string, string> };
+    const code = setupCode(h.ctx);
+    if (o.url?.startsWith('/api/setup')) return inject({ ...o, headers: { 'x-setup-code': code, ...o.headers } } as never);
+    if (o.url?.startsWith('/api/auth/oidc/login') && !o.url.includes('link=1')) {
+      return inject({ ...o, url: `${o.url}${o.url.includes('?') ? '&' : '?'}setupCode=${code}` } as never);
+    }
+    return inject(opts);
+  }) as Harness['inject'];
+  return h;
 }

@@ -20,6 +20,7 @@ import { PaperlessError } from '../paperless/client.js';
 import { ArchiveError } from '../backend/types.js';
 import { hasScope, isAdmin } from '../access/scope.js';
 import { policyFor } from './policy.js';
+import { setupCodeAccepted } from '../setupCode.js';
 import { AiError } from '../ai/types.js';
 import { logger } from '../logger.js';
 import { endEventStreams, HttpProblem } from './helpers.js';
@@ -199,7 +200,14 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     if (level === 'setup') {
       // Open only on a fresh installation (nobody could log in yet); afterwards a logged-in user is
       // required – never an API key, the setup endpoints contact arbitrary URLs.
-      if (ctx.needsSetup() && ctx.repos.users.count() === 0) return;
+      if (ctx.needsSetup() && ctx.repos.users.count() === 0) {
+        // Credentials configured before the first account (environment, data/.env): only the one who
+        // runs the server – who can read the log – may create the administrator who gets them.
+        if (!setupCodeAccepted(ctx, req.headers['x-setup-code'])) {
+          return deny(403, 'Enter the setup code: it is in the log of Paperless-AI (docker logs) and in data/setup-code', { code: 'setup_code_required' });
+        }
+        return;
+      }
       level = 'session';
     }
     if (!req.principal || !req.access) {

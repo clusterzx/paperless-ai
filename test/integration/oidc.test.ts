@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { LightMyRequestResponse } from 'fastify';
 import { SESSION_COOKIE } from '../../src/server/auth.js';
 import { OIDC_FLOW_COOKIE, OIDC_ID_TOKEN_COOKIE } from '../../src/server/oidc.js';
-import { createHarness, TEST_PASSWORD, TEST_USER, type Harness, type HarnessOptions } from '../helpers/appHarness.js';
+import { createHarness, TEST_PASSWORD, TEST_USER, withSetupCode, type Harness, type HarnessOptions } from '../helpers/appHarness.js';
 import { MockOidc } from '../helpers/mockOidc.js';
 
 let h: Harness | null = null;
@@ -22,7 +22,8 @@ const cookieOf = (res: LightMyRequestResponse, name: string) => {
 async function setup(opts: HarnessOptions & { oidc?: Record<string, unknown> } = {}) {
   idp = await new MockOidc().start();
   const oidc = { enabled: true, issuer: idp.url, clientId: idp.clientId, clientSecret: idp.clientSecret, buttonLabel: 'Sign in with Authentik', ...opts.oidc };
-  h = await createHarness({ ...opts, config: { ...opts.config, auth: { oidc } } });
+  // The first account of an instance with preset credentials needs the setup code (setupCode.test.ts).
+  h = withSetupCode(await createHarness({ ...opts, config: { ...opts.config, auth: { oidc } } }));
   return { hh: h, provider: idp };
 }
 
@@ -250,10 +251,12 @@ describe('single sign-on (OIDC)', () => {
 
   it('creates the first account during setup when the password login is off', async () => {
     idp = await new MockOidc().start();
-    h = await createHarness({
-      configured: false,
-      env: { OIDC_ENABLED: 'true', OIDC_ISSUER: idp.url, OIDC_CLIENT_ID: idp.clientId, OIDC_CLIENT_SECRET: idp.clientSecret, PASSWORD_LOGIN: 'false', OIDC_AUTO_CREATE: 'false' },
-    });
+    h = withSetupCode(
+      await createHarness({
+        configured: false,
+        env: { OIDC_ENABLED: 'true', OIDC_ISSUER: idp.url, OIDC_CLIENT_ID: idp.clientId, OIDC_CLIENT_SECRET: idp.clientSecret, PASSWORD_LOGIN: 'false', OIDC_AUTO_CREATE: 'false' },
+      }),
+    );
     expect((await h.inject({ method: 'GET', url: '/api/session' })).json()).toMatchObject({ needsUser: true, login: { password: false, sso: 'Sign in with SSO' } });
     const local = await h.inject({ method: 'POST', url: '/api/setup', payload: { username: 'admin', password: 'long enough password', config: {} } });
     expect(local.statusCode).toBe(400);
