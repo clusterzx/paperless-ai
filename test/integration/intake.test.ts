@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHarness, type Harness } from '../helpers/appHarness.js';
 import { makePdf } from '../helpers/pdf.js';
 import type { LocalBackend } from '../../src/server/archive/backend.js';
+import { hashPassword } from '../../src/server/auth.js';
 
 let h: Harness;
 let auth: Record<string, string>;
@@ -68,6 +69,25 @@ describe('WebDAV inbox', () => {
     expect(check.body).toContain(`<D:getcontentlength>${pdf.length}</D:getcontentlength>`);
     const lock = await h.inject({ method: 'LOCK' as 'GET', url: '/dav/inbox/x.pdf', headers: auth });
     expect(lock.headers['lock-token']).toMatch(/^<opaquelocktoken:/);
+
+    // Somebody else does not see the names of these files.
+    const otherId = h.ctx.repos.users.create('otto', await hashPassword('otto password 1'), 'member');
+    h.ctx.repos.libraries.setMember(main, 'user', otherId, 'editor');
+    const other = { authorization: `Basic ${Buffer.from(`x:${h.ctx.repos.apiKeys.create(otherId, { name: 'k', scopes: ['upload'] }).key}`).toString('base64')}` };
+    const mine = await h.inject({ method: 'PROPFIND' as 'GET', url: '/dav/inbox/', headers: { ...auth, depth: '1' } });
+    expect(mine.body).toContain('scan%20001.pdf');
+    const theirs = await h.inject({ method: 'PROPFIND' as 'GET', url: '/dav/inbox/', headers: { ...other, depth: '1' } });
+    expect(theirs.statusCode).toBe(207);
+    expect(theirs.body).not.toContain('scan');
+    expect((await h.inject({ method: 'PROPFIND' as 'GET', url: '/dav/inbox/Familie/Steuer/2024/beleg.pdf', headers: { ...other, depth: '0' } })).body).not.toContain('getcontentlength');
+
+    // Malformed escapes and odd names are no server error.
+    expect((await h.inject({ method: 'PROPFIND' as 'GET', url: '/dav/inbox/%E0%A4%A', headers: { ...auth, depth: '0' } })).statusCode).toBeLessThan(500);
+    expect((await put('/dav/inbox/100%25%20fertig.pdf', makePdf([['Hundert Prozent']]))).statusCode).toBe(201);
+    const percent = await h.inject({ method: 'PROPFIND' as 'GET', url: '/dav/inbox/100%25%20fertig.pdf', headers: { ...auth, depth: '0' } });
+    expect(percent.statusCode).toBe(207);
+    expect(percent.body).toContain('<D:displayname>100% fertig.pdf</D:displayname>');
+    expect((await h.inject({ method: 'MOVE' as 'GET', url: '/dav/inbox/100%25%20fertig.pdf', headers: { ...auth, destination: 'http://[bad' } })).statusCode).toBe(201);
   });
 });
 
