@@ -130,7 +130,9 @@ export async function createHarness(opts: HarnessOptions = {}): Promise<Harness>
     paperless,
     llm,
     dataDir,
-    inject: (o) => app.inject(o),
+    // As the pages of the app: they send X-Requested-With with every request (CSRF check in app.ts –
+    // tested without it in csrf.test.ts through h.app.inject).
+    inject: (o) => app.inject(typeof o === 'object' && o !== null ? { ...o, headers: { 'x-requested-with': 'Paperless-AI', ...(o.headers as Record<string, string>) } } : o),
     async login(username = TEST_USER, password = TEST_PASSWORD) {
       if (cookie && username === TEST_USER && password === TEST_PASSWORD) return cookie;
       // The default test user administrates the instance (like the account created by the setup).

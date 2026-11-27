@@ -103,6 +103,25 @@ function isSetupRequest(req: FastifyRequest): boolean {
   return /^\/api\/setup(\/|$)/.test(pathname);
 }
 
+/**
+ * A change made with the session cookie, sent by another page than one of this app. The pages of
+ * the app send X-Requested-With with every change; a form of another page cannot set a header, and
+ * a script of another origin cannot send one with the cookie (CORS never allows credentials here).
+ * Browsers that name the sender (Sec-Fetch-Site, on https and localhost) are held to it as well.
+ * Requests with a key or a token in a header cannot be forged by another page and are not concerned.
+ */
+function sentByOtherPage(req: FastifyRequest, url: string): boolean {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return false;
+  const p = req.principal;
+  const withCookie = p?.kind === 'user' && p.via === 'session' && !req.headers.authorization && !req.headers['x-api-key'];
+  if (!withCookie) return false;
+  const site = req.headers['sec-fetch-site'];
+  if (typeof site === 'string' && site !== 'same-origin' && site !== 'none') return true;
+  // The share target of the installed app is a form the system sends (it can only add a document).
+  if (url === '/share-target') return false;
+  return !req.headers['x-requested-with'];
+}
+
 /** Browsers tell with Sec-Fetch-Site who sent a request (only to https:// and localhost addresses). */
 function isFromOtherSite(req: FastifyRequest): boolean {
   const site = req.headers['sec-fetch-site'];
@@ -233,6 +252,12 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
     }
     if (level === 'session' && !(req.principal.kind === 'user' && req.principal.via === 'session')) {
       return deny(403, 'This action requires a logged-in user (API keys are not allowed)');
+    }
+    // Cross-site request forgery: the session cookie also comes along with a form or request that
+    // another page sends – SameSite=Lax keeps only other sites out, not other apps on the same host
+    // (another port) or another subdomain. Changes with the cookie must come from this app's pages.
+    if (sentByOtherPage(req, url)) {
+      return deny(403, 'This request came from another page – open Paperless-AI itself to do this', { code: 'cross_site' });
     }
     const policy = policyFor(req.method, url);
     if (policy.admin && !isAdmin(req.access)) return deny(403, 'Only administrators can do this', { code: 'admin_required' });

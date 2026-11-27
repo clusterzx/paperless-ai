@@ -5,6 +5,19 @@
 import { expect, test, type Page } from '@playwright/test';
 import { makePdf } from '../test/helpers/pdf.js';
 
+/** Requests as the pages of the app send them: with the header the server wants for changes (CSRF, app.ts). */
+function appRequest(page: Page) {
+  const headers = { 'X-Requested-With': 'Paperless-AI' };
+  type Options = Parameters<Page['request']['post']>[1];
+  const withHeader = (o: Options = {}) => ({ ...o, headers: { ...headers, ...(o?.headers ?? {}) } });
+  return {
+    post: (url: string, o?: Options) => page.request.post(url, withHeader(o)),
+    put: (url: string, o?: Options) => page.request.put(url, withHeader(o)),
+    patch: (url: string, o?: Options) => page.request.patch(url, withHeader(o)),
+    delete: (url: string, o?: Options) => page.request.delete(url, withHeader(o)),
+  };
+}
+
 test.describe.configure({ mode: 'serial' });
 
 test.beforeEach(async ({ context }) => {
@@ -121,7 +134,7 @@ test('adds a version, compares the texts, switches back with undo', async ({ pag
 test('creates a library and adds a member with a role', async ({ page }) => {
   await login(page);
   // A second account to add as a member.
-  expect((await page.request.post('/api/users', { data: { username: 'kim', password: 'kim-password-123', role: 'member' } })).ok()).toBe(true);
+  expect((await appRequest(page).post('/api/users', { data: { username: 'kim', password: 'kim-password-123', role: 'member' } })).ok()).toBe(true);
   await page.goto('/libraries');
   await expect(page.getByText('Familie')).toBeVisible();
   await page.getByRole('button', { name: 'New library' }).click();
@@ -202,7 +215,7 @@ test('the dashboard follows new documents without a reload', async ({ page }) =>
   const tile = page.getByText(/^\d+ of \d+ documents$/);
   await expect(tile).toBeVisible();
   const before = Number(/of (\d+)/.exec((await tile.textContent()) ?? '')?.[1]);
-  const res = await page.request.post('/api/documents/upload', {
+  const res = await appRequest(page).post('/api/documents/upload', {
     multipart: { file: { name: 'wasserrechnung.pdf', mimeType: 'application/pdf', buffer: makePdf([['Stadtwerke Wasserrechnung 2024', 'Betrag: 31,50 EUR']]) } },
   });
   expect(res.ok(), await res.text()).toBe(true);
@@ -216,7 +229,7 @@ test('shows a correspondent the AI created after the lists were loaded', async (
   const list = (await (await page.request.get('/api/documents?pageSize=1')).json()) as { results: { id: number }[] };
   await page.goto(`/documents/${list.results[0].id}`);
   await expect(page.getByLabel('Correspondent')).toBeVisible();
-  const res = await page.request.post('/api/documents/upload', {
+  const res = await appRequest(page).post('/api/documents/upload', {
     multipart: { file: { name: 'bfj.pdf', mimeType: 'application/pdf', buffer: makePdf([['Bundesamt für Justiz', 'Zahlungsbestätigung über 13,00 EUR']]) } },
   });
   const id = ((await res.json()) as { results: { documentId: number }[] }).results[0].documentId;
@@ -229,7 +242,7 @@ test('shows a correspondent the AI created after the lists were loaded', async (
 test('finds duplicate correspondents and merges them under one name', async ({ page }) => {
   await login(page);
   for (const name of ['ADAC Versicherung', 'ADAC Versicherung AG', 'Stadtwerke Bonn', 'Stadtwerke Essen']) {
-    const res = await page.request.post('/api/correspondents', { data: { name } });
+    const res = await appRequest(page).post('/api/correspondents', { data: { name } });
     expect(res.ok(), `${name}: ${await res.text()}`).toBe(true);
   }
   await page.goto('/metadata?kind=correspondents');
@@ -246,7 +259,7 @@ test('finds duplicate correspondents and merges them under one name', async ({ p
 
 test('searches with tag:, title: … and completes names', async ({ page }) => {
   await login(page);
-  const res = await page.request.post('/api/documents/upload', {
+  const res = await appRequest(page).post('/api/documents/upload', {
     multipart: { file: { name: 'urlaub.pdf', mimeType: 'application/pdf', buffer: makePdf([['Buchungsbestätigung Ferienhaus Ostsee']]) }, tags: 'Urlaubsreise', skipAnalysis: 'true', title: 'Ferienhaus Ostsee' },
   });
   expect(res.ok(), await res.text()).toBe(true);
@@ -271,8 +284,8 @@ test('shows a monetary field as amount and currency and saves it in the stored f
   await login(page);
   const list = (await (await page.request.get('/api/documents?limit=1')).json()) as { results: { id: number; library_id: number }[] };
   const doc = list.results[0];
-  expect((await page.request.post('/api/custom-fields', { data: { name: 'Rechnungssumme', dataType: 'monetary', currency: 'EUR', libraryId: doc.library_id } })).ok()).toBe(true);
-  expect((await page.request.patch(`/api/documents/${doc.id}`, { data: { customFields: [{ field_name: 'Rechnungssumme', value: 'EUR134.89' }] } })).ok()).toBe(true);
+  expect((await appRequest(page).post('/api/custom-fields', { data: { name: 'Rechnungssumme', dataType: 'monetary', currency: 'EUR', libraryId: doc.library_id } })).ok()).toBe(true);
+  expect((await appRequest(page).patch(`/api/documents/${doc.id}`, { data: { customFields: [{ field_name: 'Rechnungssumme', value: 'EUR134.89' }] } })).ok()).toBe(true);
 
   await page.goto(`/documents/${doc.id}`);
   const amount = page.getByLabel('Rechnungssumme', { exact: true });
@@ -295,12 +308,12 @@ test('sorts tags by name and by number of documents', async ({ page }) => {
     ['mmm-sort', 'Sortiertest eins'],
     ['mmm-sort,zzz-sort', 'Sortiertest zwei'],
   ]) {
-    const res = await page.request.post('/api/documents/upload', {
+    const res = await appRequest(page).post('/api/documents/upload', {
       multipart: { file: { name: `${text}.pdf`, mimeType: 'application/pdf', buffer: makePdf([[text]]) }, tags: name, skipAnalysis: 'true' },
     });
     expect(res.ok(), await res.text()).toBe(true);
   }
-  expect((await page.request.post('/api/tags', { data: { name: 'aaa-sort' } })).ok()).toBe(true);
+  expect((await appRequest(page).post('/api/tags', { data: { name: 'aaa-sort' } })).ok()).toBe(true);
   await page.goto('/metadata?kind=tags');
   await page.getByLabel('Find').fill('-sort');
   const order = async () =>
@@ -323,7 +336,7 @@ test('sorts tags by name and by number of documents', async ({ page }) => {
 
 test('names the libraries in the filter of the document list', async ({ page }) => {
   await login(page);
-  const res = await page.request.post('/api/documents/upload', {
+  const res = await appRequest(page).post('/api/documents/upload', {
     multipart: { file: { name: 'verein.pdf', mimeType: 'application/pdf', buffer: makePdf([['Protokoll der Mitgliederversammlung']]) }, library: 'Verein', skipAnalysis: 'true' },
   });
   expect(res.ok(), await res.text()).toBe(true);

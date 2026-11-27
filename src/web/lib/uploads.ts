@@ -9,7 +9,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { UploadResult } from '@shared/api';
-import { get } from './api';
+import { APP_HEADER, get } from './api';
 
 export type UploadState = 'queued' | 'sending' | 'processing' | 'done' | 'error';
 
@@ -50,6 +50,7 @@ function send(it: UploadItem): Promise<UploadResult> {
     form.append('file', it.file, it.file.name);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/documents/upload?background=true');
+    for (const [name, value] of Object.entries(APP_HEADER)) xhr.setRequestHeader(name, value);
     xhr.upload.onprogress = (e) => e.lengthComputable && update(it.key, { progress: e.loaded / e.total });
     xhr.onload = () => {
       try {
