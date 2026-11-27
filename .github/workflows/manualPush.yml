@@ -1,50 +1,78 @@
 name: Manual Docker Build and Push
 
+# Builds the version on main with exactly the tags a release gets – nothing to choose:
+#   default image (amd64 + arm64): latest, latest-cpu, <version>, <version>-cpu
+#   NVIDIA GPU image (amd64):      latest-cuda, <version>-cuda
+# <version> is the one in package.json. For a fix pushed after a release, or a release build that went
+# wrong. Docker Hub and the GitHub Container Registry get the same tags.
+
 on:
-  workflow_dispatch:  # Ermöglicht manuelle Auslösung über GitHub UI
-    inputs:
-      tag:
-        description: 'Custom tag (optional, defaults to latest)'
-        required: false
-        default: 'latest'
-        type: string
-      variant:
-        description: 'Image variant: cpu (default image) or cuda (NVIDIA GPU, adds the -cuda suffix to the tags)'
-        required: false
-        default: 'cpu'
-        type: choice
-        options:
-          - cpu
-          - cuda
+  workflow_dispatch:
 
 jobs:
   docker:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Default image – runs everywhere, OCR on the CPU.
+          - variant: cpu
+            platforms: linux/amd64,linux/arm64
+          # NVIDIA GPU image – CUDA 13, amd64 only.
+          - variant: cuda
+            platforms: linux/amd64
     steps:
+      - name: Only from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::These tags (latest, the version) are only built from main – started from ${GITHUB_REF#refs/heads/}"
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-          
+
+      - name: Version
+        id: version
+        run: |
+          version=$(jq -r .version package.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # The release should be the same code as the images.
+          tag="v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            tagged=$(git rev-list -n 1 "$tag")
+            if [ "$tagged" != "$GITHUB_SHA" ]; then
+              echo "::warning::The Git tag $tag points to ${tagged:0:7}, these images are built from ${GITHUB_SHA:0:7} – the release and the images differ"
+            fi
+          else
+            echo "::notice::There is no Git tag $tag yet"
+          fi
+
+      - name: Free disk space for the CUDA base image
+        if: matrix.variant == 'cuda'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
-        
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
-        
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-          
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GHCR_PAT }}
-          
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v4
@@ -54,27 +82,27 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/paperless-ai
           flavor: |
             latest=false
-            suffix=${{ inputs.variant == 'cuda' && '-cuda' || '' }}
           tags: |
-            type=raw,value=${{ inputs.tag }}
-            type=sha,prefix={{branch}}-
-            
+            type=raw,value=latest,enable=${{ matrix.variant == 'cpu' }}
+            type=raw,value=latest-${{ matrix.variant }}
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.variant == 'cpu' }}
+            type=raw,value=${{ steps.version.outputs.version }}-${{ matrix.variant }}
+
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
           context: .
           push: true
-          platforms: ${{ inputs.variant == 'cuda' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          platforms: ${{ matrix.platforms }}
           build-args: |
-            VARIANT=${{ inputs.variant }}
+            VARIANT=${{ matrix.variant }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          
+
       - name: Summary
         run: |
-          echo "## 🚀 Docker Build Complete" >> $GITHUB_STEP_SUMMARY
-          echo "Successfully built and pushed the **${{ inputs.variant }}** image: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Docker build complete (${{ matrix.variant }}, version ${{ steps.version.outputs.version }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Images pushed to:" >> $GITHUB_STEP_SUMMARY
-          echo "- Docker Hub: \`${{ secrets.DOCKER_USERNAME }}/paperless-ai\`" >> $GITHUB_STEP_SUMMARY
-          echo "- GitHub Container Registry: \`ghcr.io/${{ github.repository_owner }}/paperless-ai\`" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
