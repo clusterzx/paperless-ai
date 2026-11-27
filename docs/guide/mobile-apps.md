@@ -55,3 +55,7 @@ Not available (empty lists or a clear message in the app): storage paths, saved 
 - A document without a document date shows the day it was added (Paperless-ngx always has a date, and the apps need one). That date is not saved when the app sends the document back; a date picked in the app is.
 - Changes made through the apps appear in the change log of the document with “ngx-api” as their source and can be undone in Paperless-AI.
 - With Paperless-ngx as the archive the compatible API is not there – connect the app to Paperless-ngx itself.
+
+## Building your own app
+
+Apps written for Paperless-AI itself use its own API (`/api/…`, both modes): they sign in with `POST /api/auth/token` (username, password, device name, second factor) and get a personal API key for the device – no key to copy by hand. Checksums, `ETag` and the list of all ids help to keep a local copy in sync. See [API](api.md).
