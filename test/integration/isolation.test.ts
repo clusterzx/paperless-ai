@@ -163,6 +163,13 @@ describe('library isolation', () => {
     }
   });
 
+  it('odd search input is a normal answer, not a server error', async () => {
+    for (const url of ['/ngx/api/documents/?ordering=constructor', '/ngx/api/documents/?query=%00', '/api/documents?q=%00', '/api/documents?q=a%00b', '/api/documents?q=title:%00']) {
+      const res = await h.inject({ method: 'GET', url, headers: { cookie: admin } });
+      expect(res.statusCode, `${url} ${res.body}`).toBe(200);
+    }
+  });
+
   it('the member cannot share a saved view into the other library', async () => {
     const secret = h.ctx.repos.libraries.list().find((l) => l.name === 'Secret')!.id;
     expect((await h.inject({ method: 'POST', url: '/api/saved-views', headers: { cookie: member }, payload: { name: 'Mine', filter: {}, libraryId: secret } })).statusCode).toBe(404);

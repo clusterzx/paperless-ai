@@ -79,7 +79,9 @@ export function buildFtsQuery(terms: string[]): string | null {
   const parts = [
     ...new Set(
       terms
-        .map((t) => t.replace(/"/g, ''))
+        // Quotes and control characters (NUL ends an FTS5 string early: a syntax error).
+        // eslint-disable-next-line no-control-regex
+        .map((t) => t.replace(/["\u0000-\u001f]/g, ''))
         .filter(Boolean)
         .map((t) => (t.length >= 4 && !/^\d+$/.test(t) ? `"${stem(t)}"*` : `"${t}"`)),
     ),

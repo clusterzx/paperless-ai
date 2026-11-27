@@ -527,7 +527,7 @@ export class HistoryRepo {
     }
     if (!q.includeReverted) where.push('reverted_at IS NULL');
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const sortCol = HISTORY_SORT[q.sort ?? 'createdAt'] ?? 'created_at';
+    const sortCol = Object.hasOwn(HISTORY_SORT, q.sort ?? 'createdAt') ? HISTORY_SORT[q.sort ?? 'createdAt'] : 'created_at';
     const dir = q.order === 'asc' ? 'ASC' : 'DESC';
     const pageSize = Math.min(Math.max(q.pageSize ?? 25, 1), 500);
     const page = Math.max(q.page ?? 1, 1);

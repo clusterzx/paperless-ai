@@ -3,7 +3,8 @@
  * made-up fallback date (the old implementation used 1990-01-01).
  */
 
-export const MONTHS: Record<string, number> = {
+/** Month names → number (no prototype: "constructor" is no month). */
+export const MONTHS: Record<string, number> = Object.assign(Object.create(null) as Record<string, number>, {
   jan: 1, january: 1, januar: 1, jänner: 1, janvier: 1, enero: 1, gennaio: 1,
   feb: 2, february: 2, februar: 2, février: 2, fevrier: 2, febrero: 2, febbraio: 2,
   mar: 3, march: 3, märz: 3, maerz: 3, mars: 3, marzo: 3,
@@ -16,7 +17,7 @@ export const MONTHS: Record<string, number> = {
   oct: 10, okt: 10, october: 10, oktober: 10, octobre: 10, octubre: 10, ottobre: 10,
   nov: 11, november: 11, novembre: 11, noviembre: 11,
   dec: 12, dez: 12, december: 12, dezember: 12, décembre: 12, decembre: 12, diciembre: 12, dicembre: 12,
-};
+});
 
 function valid(y: number, m: number, d: number): string | null {
   if (y < 100) y += y >= 70 ? 1900 : 2000;

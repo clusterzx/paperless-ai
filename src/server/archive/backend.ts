@@ -498,7 +498,7 @@ export class LocalBackend implements DocumentBackend {
 
   async listDocuments(scope: AccessScope, q: DocumentListQuery = {}): Promise<ArchiveDocument[]> {
     const w = this.whereOf(scope, { ids: q.ids, tagsAny: q.tagsAny, tagsNone: q.tagsNone, libraryIds: q.libraryIds });
-    const order = ORDERING[q.ordering ?? '-added'] ?? ORDERING['-added'];
+    const order = Object.hasOwn(ORDERING, q.ordering ?? '-added') ? ORDERING[q.ordering ?? '-added'] : ORDERING['-added'];
     const rows = await this.reader.all<DocRow>(`SELECT d.* FROM lib_documents d WHERE ${w.sql} ORDER BY ${order}`, w.params);
     const withContent = Boolean(q.fields?.includes('content'));
     const out: ArchiveDocument[] = [];
