@@ -163,6 +163,15 @@ describe('library isolation', () => {
     }
   });
 
+  it('the list of all ids (sync clients) holds only readable documents', async () => {
+    for (const headers of [{ cookie: member }, memberKey]) {
+      const ids = ((await h.inject({ method: 'GET', url: '/api/documents/ids', headers })).json() as { ids: number[] }).ids;
+      expect(ids).toContain(own);
+      expect(ids).not.toContain(foreign);
+    }
+    expect(((await h.inject({ method: 'GET', url: '/api/documents/ids', headers: { cookie: admin } })).json() as { ids: number[] }).ids).toContain(foreign);
+  });
+
   it('odd search input is a normal answer, not a server error', async () => {
     for (const url of ['/ngx/api/documents/?ordering=constructor', '/ngx/api/documents/?query=%00', '/api/documents?q=%00', '/api/documents?q=a%00b', '/api/documents?q=title:%00']) {
       const res = await h.inject({ method: 'GET', url, headers: { cookie: admin } });

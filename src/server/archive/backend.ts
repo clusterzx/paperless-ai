@@ -418,6 +418,10 @@ export class LocalBackend implements DocumentBackend {
     };
     range('created', f.createdFrom, f.createdTo);
     range('added', f.addedFrom, f.addedTo);
+    if (f.modifiedFrom) {
+      conds.push('d.modified >= ?');
+      params.push(f.modifiedFrom);
+    }
     if (f.createdYear) {
       const y = f.createdYear;
       const from = f.createdMonth ? `${y}-${String(f.createdMonth).padStart(2, '0')}-01` : `${y}-01-01`;
@@ -910,6 +914,35 @@ export class LocalBackend implements DocumentBackend {
 
   // ---------------------------------------------------------------- files
 
+  /**
+   * SHA-256 of the files of the current versions (the blobs are stored by it): original and
+   * archived PDF per document – for sync clients, without reading a file.
+   */
+  fileChecksums(docs: { id: number; current_version?: number }[]): Map<number, { original: string | null; archive: string | null }> {
+    const out = new Map<number, { original: string | null; archive: string | null }>();
+    const current = new Map(docs.map((d) => [d.id, d.current_version ?? 1]));
+    const ids = [...current.keys()];
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      const rows = this.db
+        .prepare(`SELECT document_id, version, kind, blob_sha256 FROM lib_document_files WHERE document_id IN (${chunk.map(() => '?').join(',')})`)
+        .all(...chunk) as { document_id: number; version: number; kind: 'original' | 'archive'; blob_sha256: string }[];
+      for (const r of rows) {
+        if (r.version !== current.get(r.document_id)) continue;
+        const sums = out.get(r.document_id) ?? { original: null, archive: null };
+        sums[r.kind] = r.blob_sha256;
+        out.set(r.document_id, sums);
+      }
+    }
+    return out;
+  }
+
+  /** Ids of all documents of the filter the caller can read, ascending (sync clients find deletions with them). */
+  async documentIds(scope: AccessScope, filter: DocumentFilter = {}): Promise<number[]> {
+    const w = this.whereOf(scope, filter, { tags: 'in' });
+    return (await this.reader.all<{ id: number }>(`SELECT d.id FROM lib_documents d WHERE ${w.sql} ORDER BY d.id`, w.params)).map((r) => r.id);
+  }
+
   fileRow(id: number, version: number, kind: 'original' | 'archive') {
     return this.db.prepare('SELECT * FROM lib_document_files WHERE document_id = ? AND version = ? AND kind = ?').get(id, version, kind) as
       | { blob_sha256: string; mime_type: string; original_filename: string | null; size: number; page_count: number | null }
@@ -957,13 +990,21 @@ export class LocalBackend implements DocumentBackend {
     return true;
   }
 
+  /** SHA-256 of the file download() would send (without reading it). */
+  fileSha256(scope: AccessScope, id: number, opts: { original: boolean; version?: number }): string | null {
+    const row = this.readableRow(scope, id);
+    const version = opts.version ?? row.current_version;
+    const file = (!opts.original ? this.fileRow(id, version, 'archive') : undefined) ?? this.fileRow(id, version, 'original');
+    return file?.blob_sha256 ?? null;
+  }
+
   async download(scope: AccessScope, id: number, opts: { original: boolean; version?: number }): Promise<FileData> {
     const row = this.readableRow(scope, id);
     const version = opts.version ?? row.current_version;
     const file = (!opts.original ? this.fileRow(id, version, 'archive') : undefined) ?? this.fileRow(id, version, 'original');
     if (!file) throw notFound('File');
     const data = await this.blobs.read(file.blob_sha256);
-    return { data, contentType: file.mime_type, filename: file.original_filename ?? row.original_filename ?? `document-${id}` };
+    return { data, contentType: file.mime_type, filename: file.original_filename ?? row.original_filename ?? `document-${id}`, sha256: file.blob_sha256 };
   }
 
   /** Thumbnail of a file: the first page of its PDF (the archived one first), or the outline of its text. */
@@ -1016,7 +1057,7 @@ export class LocalBackend implements DocumentBackend {
     this.readableRow(scope, id);
     return this.db
       .prepare(
-        `SELECT f.version, f.kind, f.original_filename, f.mime_type, f.size, f.page_count, f.comment, f.created_at, f.created_by,
+        `SELECT f.version, f.kind, f.original_filename, f.mime_type, f.size, f.page_count, f.comment, f.created_at, f.created_by, f.blob_sha256,
                 (SELECT username FROM users WHERE id = f.created_by) AS created_by_name,
                 (SELECT LENGTH(text) FROM lib_document_text t WHERE t.document_id = f.document_id AND t.version = f.version) AS text_length,
                 (SELECT source FROM lib_document_text t WHERE t.document_id = f.document_id AND t.version = f.version) AS text_source
@@ -1025,6 +1066,7 @@ export class LocalBackend implements DocumentBackend {
       .all(id) as {
       version: number;
       kind: 'original' | 'archive';
+      blob_sha256: string;
       original_filename: string | null;
       mime_type: string;
       size: number;

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -14,7 +15,8 @@ import type {
   DocumentUpdateInput,
   UploadResult,
 } from '../../shared/api.js';
-import { documentFilterParams, documentSort, parseDocumentFilter, toRow } from '../http/documentQuery.js';
+import { documentFilterParams, documentSort, parseDocumentFilter, toRow, type FileChecksums } from '../http/documentQuery.js';
+import { LocalBackend } from '../archive/backend.js';
 import { applySearchSyntax } from '../http/searchSyntax.js';
 import { canEdit, hasScope, roleIn, userIdOf, type AccessScope } from '../access/scope.js';
 import { badRequest, HttpProblem } from '../http/helpers.js';
@@ -44,13 +46,26 @@ function summary(d: ArchiveDocument): DocumentSummary {
   };
 }
 
+/** If-None-Match: one of the listed ETags (weak or strong) or `*`. */
+export function etagMatches(header: string | string[] | undefined, sha256: string): boolean {
+  if (!header) return false;
+  const tags = (Array.isArray(header) ? header.join(',') : header).split(',').map((t) => t.trim().replace(/^W\//, ''));
+  return tags.includes('*') || tags.includes(`"${sha256}"`);
+}
+
 export const documentRoutes =
   ({ ctx, rag, ocr, engine }: Services): FastifyPluginAsync =>
   async (fastify) => {
     const app = fastify.withTypeProvider<ZodTypeProvider>();
 
+    /** SHA-256 of the current files (built-in archive; Paperless-ngx: none). */
+    const checksumsOf = (docs: ArchiveDocument[]): Map<number, FileChecksums> | null => {
+      const b = ctx.archive();
+      return b instanceof LocalBackend ? b.fileChecksums(docs) : null;
+    };
+
     const detail = (d: ArchiveDocument, scope: AccessScope): DocumentDetail => ({
-      ...toRow(d, ctx.repos.documents),
+      ...toRow(d, ctx.repos.documents, undefined, checksumsOf([d])?.get(d.id)),
       content: d.content ?? '',
       user_can_change: d.user_can_change,
       modified: d.modified,
@@ -113,13 +128,29 @@ export const documentRoutes =
           withCount: q.count ?? true,
         });
         const states = ctx.repos.documents;
+        const sums = checksumsOf(res.results);
         return {
           count: res.count,
           ...(page ? { page } : {}),
-          results: res.results.map((d) => toRow(d, states, res.snippets?.[d.id])),
+          results: res.results.map((d) => toRow(d, states, res.snippets?.[d.id], sums?.get(d.id))),
           nextCursor: res.nextCursor,
           ...(terms.length ? { search: terms } : {}),
         };
+      },
+    );
+
+    app.get(
+      '/api/documents/ids',
+      {
+        schema: {
+          description:
+            'The ids of all documents of the filter the caller can read, ascending – for sync clients: a document they have that is not in the list was deleted (or can no longer be read). With `modifiedFrom`: only the ones changed since then.',
+          querystring: documentFilterParams,
+        },
+      },
+      async (req): Promise<{ ids: number[] }> => {
+        const { filter } = await applySearchSyntax(ctx, req.access!, parseDocumentFilter(req.query));
+        return { ids: await ctx.backend(req.access!).documentIds(filter) };
       },
     );
 
@@ -220,8 +251,19 @@ export const documentRoutes =
       async (req, reply) => {
         const backend = ctx.backend(req.access!);
         const doc = await backend.getDocument(req.params.id);
-        const file = await backend.download(doc.id, { original: req.query.original, version: req.query.version });
-        return sendFile(req, reply, file.data, file.contentType, file.filename ?? doc.original_file_name ?? `document-${doc.id}`, req.query.inline);
+        const opts = { original: req.query.original, version: req.query.version };
+        // Built-in archive: the checksum is known without reading the file – an unchanged one is not sent again.
+        const archive = ctx.archive();
+        const known = archive instanceof LocalBackend ? archive.fileSha256(req.access!, doc.id, opts) : null;
+        if (known && etagMatches(req.headers['if-none-match'], known)) return reply.code(304).header('ETag', `"${known}"`).header('Cache-Control', 'private, no-cache').send();
+        const file = await backend.download(doc.id, opts);
+        const sha256 = file.sha256 ?? createHash('sha256').update(file.data).digest('hex');
+        reply
+          .header('ETag', `"${sha256}"`)
+          .header('Repr-Digest', `sha-256=:${Buffer.from(sha256, 'hex').toString('base64')}:`);
+        if (etagMatches(req.headers['if-none-match'], sha256)) return reply.code(304).header('Cache-Control', 'private, no-cache').send();
+        // Revalidated with the ETag instead of kept for a fixed time.
+        return sendFile(req, reply, file.data, file.contentType, file.filename ?? doc.original_file_name ?? `document-${doc.id}`, req.query.inline, 'private, no-cache');
       },
     );
 

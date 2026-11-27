@@ -153,6 +153,10 @@ export interface DocumentDetail extends DocumentSummary {
   status?: DocumentStatus | null;
   /** Role of the caller in the document's library (built-in archive); null = full access (companion mode). */
   role?: LibraryRole | null;
+  /** SHA-256 of the current files, as in DocumentRow (built-in archive; null with Paperless-ngx). */
+  original_sha256?: string | null;
+  archive_sha256?: string | null;
+  sha256?: string | null;
 }
 
 export type DocumentStatus = 'processed' | 'failed' | 'skipped';
@@ -170,6 +174,13 @@ export interface DocumentRow extends DocumentSummary {
   library_id: number | null;
   custom_fields: CustomFieldValue[];
   status: DocumentStatus | null;
+  /**
+   * SHA-256 (hex) of the files of the current version – built-in archive; null with Paperless-ngx.
+   * `sha256` is the file GET /api/documents/:id/file sends (the archived PDF if there is one).
+   */
+  original_sha256: string | null;
+  archive_sha256: string | null;
+  sha256: string | null;
   /** Full text search: matching passage with <mark> highlights. */
   snippet?: string;
 }
@@ -221,6 +232,8 @@ export interface DocumentFilterParams {
   createdTo?: string;
   addedFrom?: string;
   addedTo?: string;
+  /** Changed at or after this moment: ISO 8601 date or date and time (`2026-11-27T10:00:00Z`). */
+  modifiedFrom?: string;
   /** JSON array of custom field conditions: [{ field, op: exists|eq|gte|lte|contains, value }] */
   cf?: string;
 }
@@ -800,6 +813,8 @@ export interface WatchFolder {
 export interface DocumentVersionInfo {
   version: number;
   kind: 'original' | 'archive';
+  /** SHA-256 (hex) of the file. */
+  sha256: string;
   filename: string | null;
   mimeType: string;
   size: number;
