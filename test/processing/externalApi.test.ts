@@ -30,10 +30,22 @@ describe('runTransform', () => {
     process.env.PAI_TEST_SECRET = 'secret';
     try {
       await expect(runTransform('throw new Error("boom")', data)).rejects.toThrow('Transform failed: boom');
-      expect(await runTransform('return data.constructor.constructor("return process.env.PAI_TEST_SECRET")()', data)).toBeUndefined();
+      // The way out of node:vm (constructor of an outside object → Function → process) leads nowhere in QuickJS.
+      await expect(runTransform('return data.constructor.constructor("return process.env.PAI_TEST_SECRET")()', data)).rejects.toThrow(/process/);
+      await expect(runTransform("return data.constructor.constructor('return process')().getBuiltinModule('child_process').execSync('id').toString()", data)).rejects.toThrow(/process/);
+      expect(await runTransform('return [typeof process, typeof require, typeof fetch, typeof globalThis.Buffer]', data)).toEqual(['undefined', 'undefined', 'undefined', 'undefined']);
       await expect(runTransform('return new Promise(() => {})', data)).rejects.toThrow(/did not return a result/);
     } finally {
       delete process.env.PAI_TEST_SECRET;
     }
+  });
+});
+
+describe('runTransform limits', () => {
+  it('stops transforms that take too much memory and handles large responses', async () => {
+    await expect(runTransform('const a = []; for (;;) a.push("x".repeat(1000)); ', {}, 5000)).rejects.toThrow(/memory|did not finish/);
+    const big = { items: Array.from({ length: 20_000 }, (_, i) => ({ name: `Kunde ${i}`, id: i })) };
+    expect(await runTransform('return data.items.filter((i) => i.id % 1000 === 0).map((i) => i.name)', big)).toHaveLength(20);
+    expect(await runTransform('return data.length', 'plain text answer')).toBe(17);
   });
 });
