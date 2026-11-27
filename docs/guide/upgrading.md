@@ -12,6 +12,11 @@ docker compose pull && docker compose up -d
 
 An installation that uses Paperless-ngx stays in that mode. Nothing changes until you choose to [move to the built-in archive](built-in-archive.md#moving-from-paperless-ngx).
 
+### To 4.8
+
+- Nothing to do: the database migration (profile pictures) runs on start.
+- **New for apps and scripts:** sign-in for native apps (`POST /api/auth/token`), checksums, `ETag` and the list of all ids for sync clients, profile pictures – see [API](api.md).
+
 ### To 4.7.1
 
 - **Scripts that sign in with a password** and send changes with the session cookie need the header `X-Requested-With` (any value), otherwise they get `403`. API keys are not affected.

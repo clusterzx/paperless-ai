@@ -4,7 +4,8 @@
 import { useState } from 'react';
 import { Ban, Check, Copy, KeyRound, Plus, ScrollText, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react';
 import { API_SCOPES, type ApiKeyInfo, type ApiScope, type AuditEntryInfo, type GroupInfo, type LibraryInfo, type UserInfo } from '@shared/api';
-import { Alert, Badge, Button, Card, CopySnippet, EmptyState, Field, IconButton, Input, Modal, Select, Skeleton, useConfirm, useToast } from './ui';
+import { Alert, Avatar, Badge, Button, Card, CopySnippet, EmptyState, Field, IconButton, Input, Modal, Select, Skeleton, useConfirm, useToast } from './ui';
+import { AvatarEditor } from './avatarEditor';
 import { del, errorMessage, get, patch, post } from '../lib/api';
 import { useAsync } from '../lib/hooks';
 import { formatDate, timeAgo } from '../lib/format';
@@ -81,8 +82,10 @@ function McpSetup({ apiKey }: { apiKey: string }) {
 
 // ---------------------------------------------------------------- users
 
-function UserModal({ user, groups, onClose, onSaved }: { user: UserInfo | null; groups: GroupInfo[]; onClose: () => void; onSaved: () => void }) {
+function UserModal({ user, groups, onClose, onSaved, onAvatarChanged }: { user: UserInfo | null; groups: GroupInfo[]; onClose: () => void; onSaved: () => void; onAvatarChanged?: () => void }) {
   const toast = useToast();
+  const { session, refresh } = useSession();
+  const [avatar, setAvatar] = useState(user?.avatarUrl ?? null);
   const [username, setUsername] = useState(user?.username ?? '');
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
@@ -104,6 +107,8 @@ function UserModal({ user, groups, onClose, onSaved }: { user: UserInfo | null; 
         if (has !== wants) await patch(`/api/groups/${g.id}`, { members: wants ? [...g.members, saved.id] : g.members.filter((m) => m !== saved.id) });
       }
       toast.success(user ? 'User saved' : 'User created');
+      // The header and the dashboard show the own name from the session.
+      if (saved.id === session?.user?.id) void refresh();
       onSaved();
       onClose();
     } catch (err) {
@@ -130,6 +135,20 @@ function UserModal({ user, groups, onClose, onSaved }: { user: UserInfo | null; 
     >
       <div className="space-y-4">
         {error && <Alert tone="danger">{error}</Alert>}
+        {user && (
+          <Field label="Profile picture">
+            <AvatarEditor
+              name={user.displayName || user.username}
+              url={avatar}
+              endpoint={`/api/users/${user.id}/avatar`}
+              onChange={(url) => {
+                setAvatar(url);
+                onAvatarChanged?.();
+                if (user.id === session?.user?.id) void refresh();
+              }}
+            />
+          </Field>
+        )}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="User name">
             <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
@@ -298,6 +317,7 @@ export function UsersTab() {
           <ul className="divide-y divide-border">
             {userList.map((u) => (
               <li key={u.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
+                <Avatar name={u.displayName || u.username} src={u.avatarUrl} />
                 <div className="min-w-0 flex-1">
                   <button type="button" className="font-medium text-fg hover:underline" onClick={() => setEditUser(u)}>
                     {u.displayName || u.username}
@@ -376,7 +396,7 @@ export function UsersTab() {
           </ul>
         )}
       </Card>
-      {editUser && <UserModal user={editUser === 'new' ? null : editUser} groups={groupList} onClose={() => setEditUser(null)} onSaved={reload} />}
+      {editUser && <UserModal user={editUser === 'new' ? null : editUser} groups={groupList} onClose={() => setEditUser(null)} onSaved={reload} onAvatarChanged={reload} />}
       {editGroup && <GroupModal group={editGroup === 'new' ? null : editGroup} users={userList} onClose={() => setEditGroup(null)} onSaved={reload} />}
     </div>
   );

@@ -66,7 +66,12 @@ describe('authentication', () => {
     const anon = await h.inject({ method: 'GET', url: '/api/session' });
     expect(anon.json()).toMatchObject({ authenticated: false, setupRequired: false });
     const user = await h.inject({ method: 'GET', url: '/api/session', headers: { cookie } });
-    expect(user.json()).toMatchObject({ authenticated: true, user: { username: TEST_USER }, features: { rag: true } });
+    expect(user.json()).toMatchObject({ authenticated: true, user: { username: TEST_USER, displayName: null }, features: { rag: true } });
+    const me = h.ctx.repos.users.byUsername(TEST_USER)!;
+    h.ctx.repos.users.setProfile(me.id, { displayName: 'Jane Doe' });
+    const named = await h.inject({ method: 'GET', url: '/api/session', headers: { cookie } });
+    expect(named.json().user).toMatchObject({ username: TEST_USER, displayName: 'Jane Doe' });
+    h.ctx.repos.users.setProfile(me.id, { displayName: null });
     const key = await h.inject({ method: 'GET', url: '/api/session', headers: h.apiKeyHeaders() });
     expect(key.json()).toMatchObject({ authenticated: true });
     expect(key.json().user).toBeUndefined();

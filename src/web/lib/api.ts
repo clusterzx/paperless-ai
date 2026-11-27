@@ -77,8 +77,8 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
 export const get = <T>(path: string, signal?: AbortSignal) => api<T>(path, { signal });
 
 /** Multipart upload (files and form fields) without progress reporting. */
-export async function postForm<T>(path: string, form: FormData): Promise<T> {
-  const res = await fetch(path, { method: 'POST', body: form, headers: APP_HEADER, credentials: 'same-origin' });
+export async function postForm<T>(path: string, form: FormData, method: 'POST' | 'PUT' = 'POST'): Promise<T> {
+  const res = await fetch(path, { method, body: form, headers: APP_HEADER, credentials: 'same-origin' });
   const data = await parse(res);
   if (!res.ok) {
     const body = data && typeof data === 'object' ? (data as Record<string, unknown>) : null;

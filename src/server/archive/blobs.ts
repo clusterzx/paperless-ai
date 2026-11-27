@@ -110,7 +110,8 @@ export class BlobStore {
   }
 
   private async fsyncFile(file: string): Promise<void> {
-    const fh = await fsp.open(file, 'r');
+    // With write access: on Windows fsync (FlushFileBuffers) fails with EPERM on a read-only handle.
+    const fh = await fsp.open(file, 'r+');
     try {
       await fh.sync();
     } finally {

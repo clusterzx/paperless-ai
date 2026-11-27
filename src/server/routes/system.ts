@@ -27,6 +27,7 @@ import { localEmbeddingsAvailable } from '../rag/localEmbedder.js';
 import { request } from '../util/http.js';
 import { logBuffer, logger, type LogEntry } from '../logger.js';
 import { storedPaperlessToken, testAiConnection, testPaperlessConnection, withoutMaskedSecrets } from './connectionTests.js';
+import { avatarUrl } from '../avatars.js';
 
 const log = logger.child({ module: 'auth' });
 let dummy: Promise<string> | null = null;
@@ -50,12 +51,16 @@ export const systemRoutes =
 
     app.get('/api/session', { config: { auth: 'public' } }, async (req): Promise<SessionInfo> => {
       const p = req.principal;
+      const me = p?.kind === 'user' ? ctx.repos.users.byId(p.userId) : undefined;
       return {
         authenticated: Boolean(p),
         setupRequired: ctx.needsSetup(),
         needsUser: ctx.repos.users.count() === 0,
         setupCode: setupCodeRequired(ctx),
-        user: p?.kind === 'user' ? { id: p.userId, username: p.username, role: p.role } : undefined,
+        user:
+          p?.kind === 'user'
+            ? { id: p.userId, username: p.username, role: p.role, displayName: me?.display_name ?? null, avatarUrl: avatarUrl(p.userId, ctx.repos.users.avatarSha256(p.userId)) }
+            : undefined,
         version: ctx.version,
         features: { rag: ctx.cfg.rag.enabled, calendar: ctx.cfg.processing.functions.events },
         archive: archiveInfo(ctx),
@@ -214,7 +219,7 @@ export const systemRoutes =
       return {
         user:
           p.kind === 'user' && me
-            ? { id: me.id, username: me.username, role: me.role, displayName: me.display_name, email: me.email }
+            ? { id: me.id, username: me.username, role: me.role, displayName: me.display_name, email: me.email, avatarUrl: avatarUrl(me.id, ctx.repos.users.avatarSha256(me.id)) }
             : null,
         groups: p.kind === 'user' ? ctx.repos.groups.groupsOf(p.userId).map((g) => ({ id: g.id, name: g.name })) : [],
         users,

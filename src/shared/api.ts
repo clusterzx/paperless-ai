@@ -153,6 +153,10 @@ export interface DocumentDetail extends DocumentSummary {
   status?: DocumentStatus | null;
   /** Role of the caller in the document's library (built-in archive); null = full access (companion mode). */
   role?: LibraryRole | null;
+  /** SHA-256 of the current files, as in DocumentRow (built-in archive; null with Paperless-ngx). */
+  original_sha256?: string | null;
+  archive_sha256?: string | null;
+  sha256?: string | null;
 }
 
 export type DocumentStatus = 'processed' | 'failed' | 'skipped';
@@ -170,6 +174,13 @@ export interface DocumentRow extends DocumentSummary {
   library_id: number | null;
   custom_fields: CustomFieldValue[];
   status: DocumentStatus | null;
+  /**
+   * SHA-256 (hex) of the files of the current version – built-in archive; null with Paperless-ngx.
+   * `sha256` is the file GET /api/documents/:id/file sends (the archived PDF if there is one).
+   */
+  original_sha256: string | null;
+  archive_sha256: string | null;
+  sha256: string | null;
   /** Full text search: matching passage with <mark> highlights. */
   snippet?: string;
 }
@@ -221,6 +232,8 @@ export interface DocumentFilterParams {
   createdTo?: string;
   addedFrom?: string;
   addedTo?: string;
+  /** Changed at or after this moment: ISO 8601 date or date and time (`2026-11-27T10:00:00Z`). */
+  modifiedFrom?: string;
   /** JSON array of custom field conditions: [{ field, op: exists|eq|gte|lte|contains, value }] */
   cf?: string;
 }
@@ -456,7 +469,8 @@ export interface SessionInfo {
   needsUser: boolean;
   /** The setup asks for the code from the log (credentials were configured before the first account). */
   setupCode: boolean;
-  user?: { id: number; username: string; role: InstanceRole };
+  /** displayName is null when the account has none – show the username then. */
+  user?: { id: number; username: string; role: InstanceRole; displayName: string | null; avatarUrl: string | null };
   version: string;
   features: { rag: boolean; calendar: boolean };
   /** The archive backend (null while it is not configured). */
@@ -528,6 +542,8 @@ export interface UserInfo {
   password: boolean;
   twoFactor: boolean;
   groups: { id: number; name: string }[];
+  /** Profile picture (GET it with the session or a key); null: none – show the initials. */
+  avatarUrl: string | null;
 }
 
 export interface GroupInfo {
@@ -576,7 +592,7 @@ export interface NotificationInfo {
 }
 
 export interface AccountInfo {
-  user: { id: number; username: string; role: InstanceRole; displayName: string | null; email: string | null } | null;
+  user: { id: number; username: string; role: InstanceRole; displayName: string | null; email: string | null; avatarUrl: string | null } | null;
   groups: { id: number; name: string }[];
   users: { id: number; username: string; createdAt: number }[];
   twoFactor: TwoFactorStatus | null;
@@ -799,6 +815,8 @@ export interface WatchFolder {
 export interface DocumentVersionInfo {
   version: number;
   kind: 'original' | 'archive';
+  /** SHA-256 (hex) of the file. */
+  sha256: string;
   filename: string | null;
   mimeType: string;
   size: number;

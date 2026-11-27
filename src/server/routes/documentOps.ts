@@ -323,7 +323,7 @@ export function sendThumbnail(reply: FastifyReply, data: Uint8Array, contentType
     .send(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
 }
 
-export function sendFile(req: FastifyRequest, reply: FastifyReply, data: Uint8Array, contentType: string, filename: string, inline: boolean): FastifyReply {
+export function sendFile(req: FastifyRequest, reply: FastifyReply, data: Uint8Array, contentType: string, filename: string, inline: boolean, cacheControl = 'private, max-age=300'): FastifyReply {
   // Text without a charset: the one of the file (browsers guess wrong for Windows-1252 and UTF-16).
   if (/^text\//i.test(contentType) && !/charset=/i.test(contentType)) contentType = `${contentType}; charset=${textEncoding(data) ?? 'utf-8'}`;
   const safeInline = inline && INLINE.test(contentType);
@@ -331,7 +331,7 @@ export function sendFile(req: FastifyRequest, reply: FastifyReply, data: Uint8Ar
   reply
     .header('Content-Type', contentType)
     .header('Content-Disposition', disposition(safeInline ? 'inline' : 'attachment', filename))
-    .header('Cache-Control', 'private, max-age=300')
+    .header('Cache-Control', cacheControl)
     .header('Accept-Ranges', 'bytes')
     .header('X-Content-Type-Options', 'nosniff');
   // PDFs are shown by the browser's viewer (which a sandbox would block); anything else shown inline

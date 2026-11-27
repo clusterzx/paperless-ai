@@ -490,6 +490,7 @@ export const archiveRoutes =
       return b.versions(req.access!, req.params.id).map((v) => ({
         version: v.version,
         kind: v.kind,
+        sha256: v.blob_sha256,
         filename: v.original_filename,
         mimeType: v.mime_type,
         size: v.size,

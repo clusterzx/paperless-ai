@@ -104,6 +104,8 @@ export interface DocumentFilter {
   createdMonth?: number;
   addedFrom?: string;
   addedTo?: string;
+  /** Changed (metadata, file or text) at or after this moment – ISO 8601 in UTC (`…Z`). */
+  modifiedFrom?: string;
   /** Custom field conditions. */
   customFields?: { field: number; op: 'exists' | 'eq' | 'gte' | 'lte' | 'contains'; value?: string | number | boolean }[];
   /** Search syntax (title:, text:, -word, -tag: …): words in the title / in the text. */
@@ -178,6 +180,8 @@ export interface FileData {
   data: Uint8Array;
   contentType: string;
   filename?: string | null;
+  /** SHA-256 of the file when the backend knows it without reading it (built-in archive). */
+  sha256?: string;
 }
 
 export interface BackendInfo {
@@ -299,6 +303,8 @@ export interface DocumentBackend {
 
   /** Built-in archive: take a document back out of the trash. */
   restoreDocument?(scope: AccessScope, id: number, origin: ChangeOrigin): Promise<void>;
+  /** Ids of all documents of the filter the caller can read, ascending. */
+  documentIds?(scope: AccessScope, filter?: DocumentFilter): Promise<number[]>;
   /** Next free archive serial number (in the library of the built-in archive). */
   nextAsn?(libraryId: number | null): Promise<number>;
   /** Built-in archive: the change log of a document as activity items. */

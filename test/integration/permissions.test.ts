@@ -13,7 +13,8 @@ let memberCookie: string;
 const keys: Partial<Record<ApiScope | 'all', string>> = {};
 
 /** Streams and routes that never answer quickly. */
-const SKIP = new Set(['GET /api/logs/stream', 'GET /api/events']);
+// Streams stay open; signing out an app revokes the key of the request (test/integration/appToken.test.ts).
+const SKIP = new Set(['GET /api/logs/stream', 'GET /api/events', 'DELETE /api/auth/token']);
 
 beforeAll(async () => {
   h = await createHarness();
@@ -75,7 +76,7 @@ describe('permission matrix', () => {
           if (res.status !== 403) wrong.push(`[${scope}] ${r.method} ${r.url} is a session route but answered ${res.status}`);
           continue;
         }
-        const allowed = !policy.admin && policy.scope === scope;
+        const allowed = !policy.admin && (policy.scope === null || policy.scope === scope);
         if (allowed === policyDenied(res)) wrong.push(`[${scope}] ${r.method} ${r.url} → ${res.status} ${res.code ?? ''} (needs ${policy.admin ? 'admin' : policy.scope})`);
       }
     }

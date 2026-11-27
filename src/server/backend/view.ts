@@ -67,6 +67,12 @@ export class BackendView {
     return this.backend.countDocuments(this.scope, filter);
   }
 
+  /** Ids of all documents of the filter the caller can read, ascending. */
+  async documentIds(filter: DocumentFilter = {}): Promise<number[]> {
+    if (!this.backend.documentIds) throw new Error(`${this.backend.label} cannot list document ids`);
+    return this.backend.documentIds(this.scope, filter);
+  }
+
   getDocument(id: number): Promise<ArchiveDocument> {
     return this.backend.getDocument(this.scope, id);
   }

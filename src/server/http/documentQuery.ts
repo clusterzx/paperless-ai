@@ -25,6 +25,11 @@ export const documentFilterParams = z.object({
   createdTo: day.optional(),
   addedFrom: day.optional(),
   addedTo: day.optional(),
+  modifiedFrom: z
+    .string()
+    .max(40)
+    .refine((v) => /^\d{4}-\d{2}-\d{2}([T ][\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/.test(v) && Number.isFinite(Date.parse(v)), 'an ISO 8601 date or date and time')
+    .optional(),
   cf: z.string().max(4000).optional(),
 });
 
@@ -64,6 +69,8 @@ export function parseDocumentFilter(p: DocumentFilterParams): DocumentFilter {
   if (p.createdTo) f.createdTo = p.createdTo;
   if (p.addedFrom) f.addedFrom = p.addedFrom;
   if (p.addedTo) f.addedTo = p.addedTo;
+  // Stored as ISO 8601 in UTC: compared as text in the same form.
+  if (p.modifiedFrom) f.modifiedFrom = new Date(/T| /.test(p.modifiedFrom) ? p.modifiedFrom : `${p.modifiedFrom}T00:00:00Z`).toISOString();
   if (p.cf) {
     let parsed: unknown;
     try {
@@ -79,7 +86,9 @@ export function parseDocumentFilter(p: DocumentFilterParams): DocumentFilter {
   return f;
 }
 
-export function toRow(d: ArchiveDocument, states: DocumentsRepo, snippet?: string): DocumentRow {
+export type FileChecksums = { original: string | null; archive: string | null };
+
+export function toRow(d: ArchiveDocument, states: DocumentsRepo, snippet?: string, sums?: FileChecksums | null): DocumentRow {
   return {
     id: d.id,
     title: d.title,
@@ -98,6 +107,9 @@ export function toRow(d: ArchiveDocument, states: DocumentsRepo, snippet?: strin
     library_id: d.library_id ?? null,
     custom_fields: d.custom_fields ?? [],
     status: (states.get(d.id)?.status as DocumentRow['status']) ?? null,
+    original_sha256: sums?.original ?? null,
+    archive_sha256: sums?.archive ?? null,
+    sha256: sums?.archive ?? sums?.original ?? null,
     ...(snippet ? { snippet } : {}),
   };
 }

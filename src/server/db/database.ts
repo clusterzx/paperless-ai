@@ -509,6 +509,20 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX ocr_remote_reads_at ON ocr_remote_reads(at);
       `),
   },
+  {
+    version: 21,
+    name: 'profile pictures',
+    up: (db) =>
+      db.exec(`
+        -- One picture per account, already made a 256×256 WebP (never the uploaded file itself)
+        CREATE TABLE user_avatars (
+          user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          image BLOB NOT NULL,
+          sha256 TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `),
+  },
 ];
 
 export function openDatabase(file: string): Db {

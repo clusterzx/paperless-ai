@@ -145,6 +145,11 @@ export class PaperlessBackend implements DocumentBackend {
     return this.client.count('/documents/', await this.filterQuery(filter));
   }
 
+  async documentIds(_scope: AccessScope, filter: DocumentFilter = {}): Promise<number[]> {
+    const docs = await this.client.listAll<{ id: number }>('/documents/', { ...(await this.filterQuery(filter)), fields: 'id', ordering: 'id' }, 1000);
+    return docs.map((d) => d.id).sort((a, b) => a - b);
+  }
+
   getDocument(_scope: AccessScope, id: number): Promise<ArchiveDocument> {
     return this.client.getDocument(id);
   }
@@ -270,6 +275,7 @@ export class PaperlessBackend implements DocumentBackend {
     if (f.createdMonth) q.created__month = f.createdMonth;
     if (f.addedFrom) q.added__date__gte = f.addedFrom;
     if (f.addedTo) q.added__date__lte = f.addedTo;
+    if (f.modifiedFrom) q.modified__gte = f.modifiedFrom;
     // Words to leave out: Paperless-ngx's full text search understands NOT (next to other words).
     const exclude = (f.notQuery ?? '').split(/\s+/).filter(Boolean);
     if (f.query?.trim()) q.query = [f.query.trim(), ...exclude.map((w) => `NOT ${w.replace(/["()]/g, '')}`)].join(' ');

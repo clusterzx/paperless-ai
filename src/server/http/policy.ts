@@ -11,8 +11,8 @@ import type { ApiScope } from '../access/scope.js';
 export interface RoutePolicy {
   /** Only admins (sessions of admins, admin API keys with the `admin` scope, the legacy key). */
   admin: boolean;
-  /** API key scope needed (sessions have all scopes). */
-  scope: ApiScope;
+  /** API key scope needed (sessions have all scopes); null: any key. */
+  scope: ApiScope | null;
 }
 
 type Entry = [method: string, url: string, policy: RoutePolicy];
@@ -27,6 +27,8 @@ const metadata: RoutePolicy = { admin: false, scope: 'metadata' };
 const mcp: RoutePolicy = { admin: false, scope: 'mcp' };
 const ocr: RoutePolicy = { admin: false, scope: 'ocr' };
 const admin: RoutePolicy = { admin: true, scope: 'admin' };
+/** Any signed-in caller, whatever the permissions of its key. */
+const anyKey: RoutePolicy = { admin: false, scope: null };
 
 /** Managing tags, correspondents, document types and custom fields – in our API and the Paperless-ngx compatible one. */
 const LABEL_ENTRIES: Entry[] = [
@@ -51,6 +53,11 @@ const LABEL_ENTRIES: Entry[] = [
  * Method `*` matches every method. The first matching entry wins.
  */
 const ENTRIES: Entry[] = [
+  // ---------------------------------------------------------------- profile pictures (also for apps with a key)
+  ['GET', '/api/users/:id/avatar', read],
+  ['PUT', '/api/account/avatar', write],
+  ['DELETE', '/api/account/avatar', write],
+
   // ---------------------------------------------------------------- own account (session routes)
   ['*', '/api/account*', read],
   ['*', '/api/me/*', read],
@@ -136,6 +143,9 @@ const ENTRIES: Entry[] = [
 
   // ---------------------------------------------------------------- library administration (owners, checked per library)
   ['GET', '/api/audit-log', read],
+
+  // ---------------------------------------------------------------- an app signs out: revokes its own key
+  ['DELETE', '/api/auth/token', anyKey],
 
   // ---------------------------------------------------------------- everything else: read for GET, write otherwise
   ['GET', '*', read],

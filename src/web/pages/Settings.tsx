@@ -21,6 +21,7 @@ import {
   Users,
   Archive as ArchiveIcon,
   Inbox as InboxIcon,
+  Image as ImageIcon,
   ScrollText,
   Webhook,
   Workflow,
@@ -30,6 +31,7 @@ import { ArchiveSection, NotificationsSection } from '../components/archiveSetti
 import { Page } from '../components/Layout';
 import { TwoFactorCard } from '../components/twoFactor';
 import { SingleSignOnCard } from '../components/singleSignOn';
+import { AvatarEditor } from '../components/avatarEditor';
 import {
   AiSection,
   ConnectionSection,
@@ -296,7 +298,7 @@ function AccountTab() {
   const search = useSearch();
   const [, navigate] = useLocation();
   const account = useAsync((signal) => get<AccountInfo>('/api/account', signal), []);
-  const { session } = useSession();
+  const { session, refresh } = useSession();
   // Back from linking at the provider: ?sso=linked or ?sso_error=…
   const [ssoError] = useState(() => new URLSearchParams(search).get('sso_error'));
   useEffect(() => {
@@ -310,6 +312,20 @@ function AccountTab() {
   if (!a) return <Skeleton className="h-64 max-w-xl rounded-xl" />;
   return (
     <div className="space-y-6">
+      {a.user && (
+        <Card title="Profile picture" icon={<ImageIcon className="size-4" />} className="max-w-xl">
+          <AvatarEditor
+            name={a.user.displayName || a.user.username}
+            url={a.user.avatarUrl}
+            endpoint="/api/account/avatar"
+            onChange={() => {
+              void account.reload();
+              void refresh();
+            }}
+          />
+          <p className="mt-3 text-xs text-muted">PNG, JPEG or WebP up to 2 MB. Everyone signed in to Paperless-AI can see it.</p>
+        </Card>
+      )}
       {a.hasPassword ? (
         <PasswordCard />
       ) : (
