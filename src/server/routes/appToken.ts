@@ -22,6 +22,7 @@ import type { UserRow } from '../db/repos.js';
 import { passwordLoginAllowed } from '../oidc.js';
 import { checkSecondFactor, secondFactorError } from '../twoFactor.js';
 import { logger } from '../logger.js';
+import { avatarUrl } from '../avatars.js';
 
 const log = logger.child({ module: 'auth' });
 
@@ -99,7 +100,7 @@ export const appTokenRoutes =
           token: key,
           keyId,
           scopes,
-          user: { id: user.id, username: user.username, displayName: user.display_name ?? null, role: user.role },
+          user: { id: user.id, username: user.username, displayName: user.display_name ?? null, role: user.role, avatarUrl: avatarUrl(user.id, ctx.repos.users.avatarSha256(user.id)) },
         };
       },
     );

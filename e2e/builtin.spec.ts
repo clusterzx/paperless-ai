@@ -3,6 +3,7 @@
  * trash. Runs against its own demo server (playwright.builtin.config.ts).
  */
 import { expect, test, type Page } from '@playwright/test';
+import sharp from 'sharp';
 import { makePdf } from '../test/helpers/pdf.js';
 
 /** Requests as the pages of the app send them: with the header the server wants for changes (CSRF, app.ts). */
@@ -345,4 +346,22 @@ test('names the libraries in the filter of the document list', async ({ page }) 
   await expect(filter.getByText('Verein', { exact: true })).toBeVisible();
   await expect(filter.getByText('Familie', { exact: true })).toBeVisible();
   await expect(filter.getByText(/^Library \d+$/)).toHaveCount(0);
+});
+
+test('sets a profile picture that shows in the account menu and removes it', async ({ page }) => {
+  await login(page);
+  await page.goto('/settings?tab=account');
+  // A photo-sized PNG – the server makes a 256×256 WebP of it.
+  const png = await sharp({ create: { width: 640, height: 480, channels: 3, background: '#2f6fd6' } }).png().toBuffer();
+  const answer = page.waitForResponse((r) => r.url().endsWith('/api/account/avatar') && r.request().method() === 'PUT');
+  await page.getByLabel('Choose a profile picture').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: png });
+  const res = await answer;
+  expect(res.status(), await res.text()).toBe(200);
+  await expect(page.getByText('Profile picture saved')).toBeVisible();
+  const menu = page.getByRole('button', { name: /Account & appearance/ });
+  await expect(menu.locator('img')).toHaveAttribute('src', /^\/api\/users\/\d+\/avatar\?v=[0-9a-f]{12}$/);
+  await expect.poll(async () => menu.locator('img').evaluate((img) => (img as unknown as { naturalWidth: number }).naturalWidth)).toBe(256);
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(page.getByText('Profile picture removed')).toBeVisible();
+  await expect(menu.locator('img')).toHaveCount(0);
 });

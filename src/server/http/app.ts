@@ -36,6 +36,7 @@ import { promptRoutes } from '../routes/prompts.js';
 import { promptRuleRoutes } from '../routes/promptRules.js';
 import { twoFactorRoutes } from '../routes/twoFactor.js';
 import { appTokenRoutes } from '../routes/appToken.js';
+import { avatarRoutes } from '../routes/avatars.js';
 import { archiveRoutes } from '../routes/archive.js';
 import { workflowRoutes } from '../routes/workflows.js';
 import { DAV_METHODS, davRoutes } from '../routes/dav.js';
@@ -317,6 +318,7 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
   await app.register(promptRuleRoutes(services));
   await app.register(twoFactorRoutes(services));
   await app.register(appTokenRoutes(services));
+  await app.register(avatarRoutes(services));
   await app.register(calendarRoutes(services));
   await app.register(accessRoutes(services));
   await app.register(metadataRoutes(services));

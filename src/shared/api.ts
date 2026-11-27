@@ -470,7 +470,7 @@ export interface SessionInfo {
   /** The setup asks for the code from the log (credentials were configured before the first account). */
   setupCode: boolean;
   /** displayName is null when the account has none – show the username then. */
-  user?: { id: number; username: string; role: InstanceRole; displayName: string | null };
+  user?: { id: number; username: string; role: InstanceRole; displayName: string | null; avatarUrl: string | null };
   version: string;
   features: { rag: boolean; calendar: boolean };
   /** The archive backend (null while it is not configured). */
@@ -542,6 +542,8 @@ export interface UserInfo {
   password: boolean;
   twoFactor: boolean;
   groups: { id: number; name: string }[];
+  /** Profile picture (GET it with the session or a key); null: none – show the initials. */
+  avatarUrl: string | null;
 }
 
 export interface GroupInfo {
@@ -590,7 +592,7 @@ export interface NotificationInfo {
 }
 
 export interface AccountInfo {
-  user: { id: number; username: string; role: InstanceRole; displayName: string | null; email: string | null } | null;
+  user: { id: number; username: string; role: InstanceRole; displayName: string | null; email: string | null; avatarUrl: string | null } | null;
   groups: { id: number; name: string }[];
   users: { id: number; username: string; createdAt: number }[];
   twoFactor: TwoFactorStatus | null;

@@ -13,6 +13,7 @@ import { API_SCOPES, canEdit, isAdmin, type AccessScope } from '../access/scope.
 import { allowedScopes, audit } from '../access/context.js';
 import type { ApiKeyRow } from '../db/accessRepo.js';
 import { logger } from '../logger.js';
+import { avatarUrl } from '../avatars.js';
 
 const log = logger.child({ module: 'access' });
 
@@ -64,6 +65,7 @@ export const accessRoutes =
         password: u.password,
         twoFactor: u.two_factor,
         groups: memberships.get(u.id) ?? [],
+        avatarUrl: avatarUrl(u.id, u.avatar_sha256),
       }));
     };
 

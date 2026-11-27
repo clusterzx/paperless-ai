@@ -53,6 +53,11 @@ const LABEL_ENTRIES: Entry[] = [
  * Method `*` matches every method. The first matching entry wins.
  */
 const ENTRIES: Entry[] = [
+  // ---------------------------------------------------------------- profile pictures (also for apps with a key)
+  ['GET', '/api/users/:id/avatar', read],
+  ['PUT', '/api/account/avatar', write],
+  ['DELETE', '/api/account/avatar', write],
+
   // ---------------------------------------------------------------- own account (session routes)
   ['*', '/api/account*', read],
   ['*', '/api/me/*', read],

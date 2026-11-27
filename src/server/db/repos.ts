@@ -49,6 +49,8 @@ export interface UserListRow {
   sso: boolean;
   password: boolean;
   two_factor: boolean;
+  /** SHA-256 of the profile picture (null: none). */
+  avatar_sha256: string | null;
 }
 
 export interface RecoveryCodeRow {
@@ -67,7 +69,8 @@ export class UsersRepo {
     const rows = this.db
       .prepare(
         `SELECT id, username, role, display_name, email, disabled_at, created_at,
-                oidc_subject IS NOT NULL AS sso, password_hash != '' AS password, totp_enabled_at IS NOT NULL AS two_factor
+                oidc_subject IS NOT NULL AS sso, password_hash != '' AS password, totp_enabled_at IS NOT NULL AS two_factor,
+                (SELECT sha256 FROM user_avatars a WHERE a.user_id = users.id) AS avatar_sha256
          FROM users ORDER BY username COLLATE NOCASE`,
       )
       .all() as (Omit<UserListRow, 'sso' | 'password' | 'two_factor'> & { sso: number; password: number; two_factor: number })[];
@@ -145,6 +148,26 @@ export class UsersRepo {
 
   delete(id: number): void {
     this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  }
+
+  // ---------------------------------------------------------------- profile picture
+
+  avatar(id: number): { image: Buffer; sha256: string; updated_at: number } | undefined {
+    return this.db.prepare('SELECT image, sha256, updated_at FROM user_avatars WHERE user_id = ?').get(id) as { image: Buffer; sha256: string; updated_at: number } | undefined;
+  }
+
+  avatarSha256(id: number): string | null {
+    return (this.db.prepare('SELECT sha256 FROM user_avatars WHERE user_id = ?').get(id) as { sha256: string } | undefined)?.sha256 ?? null;
+  }
+
+  setAvatar(id: number, image: Buffer, sha256: string): void {
+    this.db
+      .prepare('INSERT INTO user_avatars (user_id, image, sha256, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET image = excluded.image, sha256 = excluded.sha256, updated_at = excluded.updated_at')
+      .run(id, image, sha256, Date.now());
+  }
+
+  deleteAvatar(id: number): boolean {
+    return this.db.prepare('DELETE FROM user_avatars WHERE user_id = ?').run(id).changes > 0;
   }
 
   // ---------------------------------------------------------------- single sign-on

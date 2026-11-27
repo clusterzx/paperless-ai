@@ -34,3 +34,11 @@ For clients that mirror the archive (one-way sync, backups) or check before an u
 - **Deletions:** `GET /api/documents/ids` returns the ids of all documents the key can read (`{ "ids": [1, 2, …] }`, ascending, with the same filters as the list). A document the client has that is missing there was deleted, or the key can no longer read it.
 
 A sync run: fetch the ids, then the documents changed since the last run (`modifiedFrom`, paged with `cursor`), download those whose `sha256` differs, remove local documents that are no longer in the ids.
+
+## Profile pictures
+
+- `GET /api/users/:id/avatar` – the picture of an account (256×256 WebP; `404` without one), for everyone signed in and keys with `read`. `GET /api/account/avatar` – the own one. Both answer `If-None-Match` with `304`.
+- `PUT /api/account/avatar` – set the own picture: PNG, JPEG or WebP up to 2 MB, as the multipart field `file` or as the body with its content type (keys need `write`). `DELETE /api/account/avatar` removes it.
+- Administrators set and remove the picture of any account in the signed-in browser: `PUT` / `DELETE /api/users/:id/avatar`.
+- `avatarUrl` in `GET /api/session`, `GET /api/account` and `GET /api/users` (null without a picture) – the address carries the version of the picture.
+- Every picture is decoded and saved again as a 256×256 WebP: EXIF data (GPS position, camera) and anything else in the file are not kept; SVG is not taken. Pictures from other sites (Gravatar, the picture of the single sign-on provider) are never loaded.
