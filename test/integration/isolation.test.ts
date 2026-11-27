@@ -149,6 +149,20 @@ describe('library isolation', () => {
     expect((await h.ctx.backend().getDocument(foreign)).title).toBe('Quokka Kontoauszug März');
   });
 
+  it('the OCR status names the document being read only to those who may read it', async () => {
+    const real = h.ocr.status.bind(h.ocr);
+    h.ocr.status = (queue: number) => ({ ...real(queue), active: { documentId: foreign, title: 'Quokka Kontoauszug März', page: 1, pages: 2 } });
+    try {
+      const forAdmin = (await h.inject({ method: 'GET', url: '/api/ocr/status', headers: { cookie: admin } })).json() as { active: { title: string | null } };
+      expect(forAdmin.active.title).toContain('Quokka');
+      const forMember = await h.inject({ method: 'GET', url: '/api/ocr/status', headers: { cookie: member } });
+      expect(leaks(forMember.body)).toBe(false);
+      expect(forMember.json()).toMatchObject({ active: { documentId: null, title: null, page: 1, pages: 2 } });
+    } finally {
+      h.ocr.status = real;
+    }
+  });
+
   it('the member cannot share a saved view into the other library', async () => {
     const secret = h.ctx.repos.libraries.list().find((l) => l.name === 'Secret')!.id;
     expect((await h.inject({ method: 'POST', url: '/api/saved-views', headers: { cookie: member }, payload: { name: 'Mine', filter: {}, libraryId: secret } })).statusCode).toBe(404);
