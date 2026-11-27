@@ -55,9 +55,21 @@ export interface OidcIdentity {
   idToken: string | undefined;
 }
 
-/** Only paths on this origin ("/…", not "//host" or "/\host"). */
+/**
+ * Only paths on this origin ("/…", not "//host" or "/\host"). Browsers drop tabs and line breaks in
+ * a URL and read "\" as "/" – "/<tab>/host" would lead to another site: no control characters and
+ * no backslashes at all.
+ */
 export function safeNext(next: unknown, fallback = '/'): string {
-  return typeof next === 'string' && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : fallback;
+  if (typeof next !== 'string' || !next.startsWith('/') || next.startsWith('//')) return fallback;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f\\]/.test(next)) return fallback;
+  try {
+    const base = 'http://next.invalid';
+    return new URL(next, base).origin === base ? next : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 const services = new WeakMap<AppContext, OidcService>();
