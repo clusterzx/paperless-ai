@@ -243,10 +243,11 @@ export async function buildApp(services: Services, opts: AppOptions = {}): Promi
 
   app.setErrorHandler((err: Error & { statusCode?: number; validation?: unknown }, req: FastifyRequest, reply: FastifyReply) => {
     if (err instanceof HttpProblem) return reply.code(err.statusCode).send({ error: err.message, details: err.details });
+    // Never echo thousands of issues (a large invalid array): the first ones say enough.
     if (err instanceof ZodError) {
-      return reply.code(400).send({ error: 'Invalid input', details: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) });
+      return reply.code(400).send({ error: 'Invalid input', details: err.issues.slice(0, 20).map((i) => ({ path: i.path.join('.'), message: i.message.slice(0, 300) })) });
     }
-    if (err.validation) return reply.code(400).send({ error: `Invalid request: ${err.message}` });
+    if (err.validation) return reply.code(400).send({ error: `Invalid request: ${err.message.length > 1000 ? `${err.message.slice(0, 1000)} …` : err.message}` });
     if (err instanceof NotConfiguredError) return reply.code(409).send({ error: err.message, code: 'not_configured' });
     if (err instanceof PaperlessError) {
       // Paperless "not found" is a 404 for our client too; everything else is an upstream problem.
